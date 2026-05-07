@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send, Square, Paperclip, X, FileText } from 'lucide-react'
 import AudioButton from './AudioButton'
-import ModelSelector, { DEFAULT_MODEL } from './ModelSelector'
 import { api, type Attachment } from '../api'
 
 export interface PendingFile {
@@ -13,7 +12,7 @@ export interface PendingFile {
 }
 
 interface Props {
-  onSend: (text: string, attachments: Attachment[], model: string, thinking: boolean) => void
+  onSend: (text: string, attachments: Attachment[]) => void
   onSendAudio: (blob: Blob) => Promise<{ id: string; transcript: string } | undefined>
   onCancel: () => void
   isProcessing: boolean
@@ -28,8 +27,6 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
   const [audioActive, setAudioActive] = useState(false)
   const [files, setFiles] = useState<PendingFile[]>([])
   const [dragOver, setDragOver] = useState(false)
-  const [model, setModel] = useState(DEFAULT_MODEL)
-  const [thinking, setThinking] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -105,7 +102,7 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
 
     if (!input.trim() && attachments.length === 0) return
 
-    onSend(input, attachments, model, thinking)
+    onSend(input, attachments)
     // Clean up previews
     files.forEach(f => { if (f.preview) URL.revokeObjectURL(f.preview) })
     setFiles([])
@@ -257,15 +254,6 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
             </button>
 
             <div className="flex items-center gap-1">
-              {/* Model selector */}
-              <ModelSelector
-                model={model}
-                thinking={thinking}
-                onModelChange={setModel}
-                onThinkingChange={setThinking}
-                disabled={isProcessing}
-              />
-
               {/* AudioButton always mounted to preserve state; visible when idle mic or actively recording */}
               <div className={showMic || audioActive ? '' : 'hidden'}>
                 <AudioButton

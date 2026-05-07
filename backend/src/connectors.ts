@@ -70,6 +70,17 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
       { key: 'POCKETBASE_PASSWORD', label: 'Password', type: 'password' },
     ],
   },
+  {
+    id: 'copyparty',
+    name: 'Copyparty',
+    description: 'Browse and manage files on personal drive',
+    icon: 'HardDrive',
+    fields: [
+      { key: 'COPYPARTY_INTERNAL_URL', label: 'Internal URL', type: 'text', placeholder: 'http://copyparty:3923' },
+      { key: 'COPYPARTY_PUBLIC_URL', label: 'Public URL', type: 'text', placeholder: 'https://drive.example.com' },
+      { key: 'COPYPARTY_PASSWORD', label: 'Password', type: 'password' },
+    ],
+  },
 ]
 
 const catalogMap = new Map(CONNECTOR_CATALOG.map((c) => [c.id, c]))

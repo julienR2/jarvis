@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { FileText, ChevronRight } from 'lucide-react'
+import { FileText, ChevronRight, Copy, Check } from 'lucide-react'
 import type { Message, Attachment } from '../api'
 
 interface Props {
@@ -238,6 +238,7 @@ function translateSrc(src?: string): string {
 }
 
 const markdownComponents = {
+  pre: CodeBlockWrapper,
   img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => {
     const translated = translateSrc(src)
     return (
@@ -268,6 +269,32 @@ const markdownComponents = {
       </a>
     )
   },
+}
+
+function CodeBlockWrapper({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) {
+  const [copied, setCopied] = useState(false)
+  const preRef = useRef<HTMLPreElement>(null)
+
+  function handleCopy() {
+    const text = preRef.current?.textContent || ''
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <div className='relative group/code'>
+      <pre ref={preRef} {...props}>{children}</pre>
+      <button
+        onClick={handleCopy}
+        className='absolute top-2 right-2 opacity-0 group-hover/code:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity p-1.5 rounded-md bg-surface2 hover:bg-border text-text-muted hover:text-text-primary'
+        title='Copy code'
+      >
+        {copied ? <Check size={13} /> : <Copy size={13} />}
+      </button>
+    </div>
+  )
 }
 
 function AttachmentPreview({ attachment }: { attachment: Attachment }) {

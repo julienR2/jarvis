@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
@@ -18,6 +18,8 @@ import {
   RefreshCw,
   BellRing,
   Layers,
+  ChevronRight,
+  Wrench,
 } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 import { useNotifications } from '../hooks/useNotifications'
@@ -46,6 +48,19 @@ export default function Sidebar({
   const location = useLocation()
   const { permission, requestPermission } = useNotifications()
   const { theme, preference, cycle } = useTheme()
+  const [toolsOpen, setToolsOpen] = useState(
+    () => localStorage.getItem('sidebar-tools-open') !== 'false',
+  )
+
+  useEffect(() => {
+    localStorage.setItem('sidebar-tools-open', String(toolsOpen))
+  }, [toolsOpen])
+
+  const onToolsPage =
+    location.pathname === '/crons' ||
+    location.pathname === '/webhooks' ||
+    location.pathname === '/connectors' ||
+    location.pathname.startsWith('/files')
 
   function logout() {
     localStorage.removeItem('token')
@@ -130,30 +145,45 @@ export default function Sidebar({
 
       {/* Bottom nav */}
       <div className='border-t border-border p-2 space-y-0.5'>
-        <NavItem
-          label='Crons'
-          icon={<Clock size={15} />}
-          active={location.pathname === '/crons'}
-          onClick={() => handleNav('/crons')}
-        />
-        <NavItem
-          label='Webhooks'
-          icon={<Link2 size={15} />}
-          active={location.pathname === '/webhooks'}
-          onClick={() => handleNav('/webhooks')}
-        />
-        <NavItem
-          label='Connectors'
-          icon={<Plug size={15} />}
-          active={location.pathname === '/connectors'}
-          onClick={() => handleNav('/connectors')}
-        />
-        <NavItem
-          label='Files'
-          icon={<FolderOpen size={15} />}
-          active={location.pathname.startsWith('/files')}
-          onClick={() => handleNav('/files')}
-        />
+        <button
+          onClick={() => setToolsOpen((v) => !v)}
+          className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm rounded-lg transition-colors ${onToolsPage ? 'text-text-primary' : 'text-text-secondary hover:text-text-primary hover:bg-surface2'}`}
+        >
+          <Wrench size={15} />
+          <span className='flex-1 text-left'>Tools</span>
+          <ChevronRight
+            size={14}
+            className={`text-text-muted transition-transform ${toolsOpen ? 'rotate-90' : ''}`}
+          />
+        </button>
+        {toolsOpen && (
+          <div className='pl-3 space-y-0.5'>
+            <NavItem
+              label='Crons'
+              icon={<Clock size={15} />}
+              active={location.pathname === '/crons'}
+              onClick={() => handleNav('/crons')}
+            />
+            <NavItem
+              label='Webhooks'
+              icon={<Link2 size={15} />}
+              active={location.pathname === '/webhooks'}
+              onClick={() => handleNav('/webhooks')}
+            />
+            <NavItem
+              label='Connectors'
+              icon={<Plug size={15} />}
+              active={location.pathname === '/connectors'}
+              onClick={() => handleNav('/connectors')}
+            />
+            <NavItem
+              label='Files'
+              icon={<FolderOpen size={15} />}
+              active={location.pathname.startsWith('/files')}
+              onClick={() => handleNav('/files')}
+            />
+          </div>
+        )}
         <div className='flex items-center gap-1'>
           <NavItem
             label='Logout'
@@ -332,6 +362,7 @@ function ConvItem({
           onDelete={onDelete}
           onRename={startRename}
           triggerClassName='hidden group-hover:flex'
+          compact
         />
       </div>
     </>

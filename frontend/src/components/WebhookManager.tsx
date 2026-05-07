@@ -140,44 +140,46 @@ export default function WebhookManager() {
         />
 
         <div className='flex flex-wrap gap-4 items-center text-sm'>
-          <label className='flex gap-1.5 items-center cursor-pointer text-text-muted'>
-            <input
-              type='checkbox'
-              checked={form.enabled}
-              onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
-              className='accent-accent'
+          <div className='flex flex-wrap gap-4 items-center'>
+            <label className='flex gap-1.5 items-center cursor-pointer text-text-muted'>
+              <input
+                type='checkbox'
+                checked={form.enabled}
+                onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+                className='accent-accent'
+              />
+              Enabled
+            </label>
+
+            <ModelSelector
+              model={form.model ?? 'claude-sonnet-4-6'}
+              thinking={form.thinking ?? true}
+              onModelChange={(m) => setForm({ ...form, model: m })}
+              onThinkingChange={(t) => setForm({ ...form, thinking: t })}
+              direction='down'
             />
-            Enabled
-          </label>
+          </div>
 
-          <ModelSelector
-            model={form.model ?? 'claude-sonnet-4-6'}
-            thinking={form.thinking ?? true}
-            onModelChange={(m) => setForm({ ...form, model: m })}
-            onThinkingChange={(t) => setForm({ ...form, thinking: t })}
-            direction='down'
-          />
-
-          <div className='flex-1' />
-
-          {editing && (
+          <div className='flex gap-2 items-center ml-auto'>
+            {editing && (
+              <button
+                onClick={() => {
+                  setEditing(null)
+                  setForm(EMPTY)
+                }}
+                className='text-text-muted px-3 py-2 hover:text-text-primary transition-colors'
+              >
+                Cancel
+              </button>
+            )}
             <button
-              onClick={() => {
-                setEditing(null)
-                setForm(EMPTY)
-              }}
-              className='text-text-muted px-3 py-2 hover:text-text-primary transition-colors'
+              onClick={save}
+              disabled={!form.name || !form.prompt}
+              className='bg-accent text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50 hover:bg-accent-hover transition-colors'
             >
-              Cancel
+              {editing ? 'Update' : 'Create'}
             </button>
-          )}
-          <button
-            onClick={save}
-            disabled={!form.name || !form.prompt}
-            className='bg-accent text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50 hover:bg-accent-hover transition-colors'
-          >
-            {editing ? 'Update' : 'Create'}
-          </button>
+          </div>
         </div>
       </div>
 

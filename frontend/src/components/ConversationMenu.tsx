@@ -7,7 +7,8 @@ import {
   useCallback,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil } from 'lucide-react'
+import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain } from 'lucide-react'
+import { MODELS, DEFAULT_MODEL } from './ModelSelector'
 
 type NotifyMode = 'subscribe' | 'unsubscribe' | 'auto'
 
@@ -22,11 +23,17 @@ interface Props {
   onRename?: () => void
   notify?: NotifyMode
   onNotifyChange?: (mode: NotifyMode) => void
+  model?: string
+  thinking?: boolean
+  onModelChange?: (model: string) => void
+  onThinkingChange?: (thinking: boolean) => void
   conversationId?: string
   hasCron?: boolean
   hasWebhook?: boolean
   /** Extra classes for the trigger button */
   triggerClassName?: string
+  /** Sidebar mode: only show ⋯ trigger and Edit/Delete in dropdown */
+  compact?: boolean
 }
 
 export interface ConversationMenuHandle {
@@ -34,21 +41,25 @@ export interface ConversationMenuHandle {
 }
 
 const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
-  function ConversationMenu({ onDelete, onRename, notify = 'subscribe', onNotifyChange, conversationId, hasCron, hasWebhook, triggerClassName = '' }, ref) {
+  function ConversationMenu({
+    onDelete, onRename,
+    notify = 'subscribe', onNotifyChange,
+    model = DEFAULT_MODEL, thinking = false, onModelChange, onThinkingChange,
+    conversationId, hasCron, hasWebhook,
+    triggerClassName = '',
+    compact = false,
+  }, ref) {
     const navigate = useNavigate()
     const [open, setOpen] = useState(false)
     const btnRef = useRef<HTMLButtonElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
-    useImperativeHandle(ref, () => ({
-      open() {
-        setOpen(true)
-      },
-    }))
+    const selectedModel = MODELS.find(m => m.id === model) || MODELS[0]
+    const shortName = selectedModel.name
 
-    function handleTriggerClick() {
-      setOpen((o) => !o)
-    }
+    useImperativeHandle(ref, () => ({
+      open() { setOpen(true) },
+    }))
 
     const handleOutside = useCallback((e: MouseEvent | TouchEvent) => {
       if (containerRef.current?.contains(e.target as Node)) return
@@ -66,65 +77,109 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     }, [open, handleOutside])
 
     return (
-      <div ref={containerRef} className='relative flex items-center'>
+      <div ref={containerRef} className={`relative items-center ${triggerClassName || 'flex'} ${open ? '!flex' : ''}`}>
         <button
           ref={btnRef}
-          onClick={handleTriggerClick}
-          className={`rounded text-text-muted hover:text-text-primary transition-colors shrink-0 ${triggerClassName} ${open ? '!flex' : ''}`}
-          title='More options'
+          onClick={() => setOpen(o => !o)}
+          className={`flex items-center gap-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors shrink-0 ${compact ? 'px-1.5 py-0.5' : 'px-2 py-1'} ${open ? 'bg-surface2 text-text-primary' : ''}`}
+          title='Conversation options'
         >
+          {!compact && <span className='text-xs font-medium text-text-secondary'>{shortName}</span>}
+          {!compact && thinking && <Brain size={11} className='text-accent' />}
           <MoreHorizontal size={14} />
         </button>
 
         {open && (
-          <div className='absolute right-0 top-full mt-1 z-[200] min-w-[170px] bg-surface border border-border rounded-xl shadow-md/5 p-1 overflow-hidden'>
-            {/* Notify toggle */}
-            <div className='px-2 py-1.5'>
-              <span className='text-[11px] text-text-muted font-medium'>Notifications</span>
-              <div className='flex gap-0.5 mt-1 bg-surface2 rounded-lg p-0.5'>
-                {NOTIFY_OPTIONS.map(({ value, label, icon: Icon }) => (
-                  <button
-                    key={value}
-                    onClick={() => onNotifyChange?.(value)}
-                    className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[11px] rounded-md transition-colors ${
-                      notify === value
-                        ? 'bg-bg text-text-primary shadow-sm'
-                        : 'text-text-muted hover:text-text-primary'
-                    }`}
-                    title={`Notifications: ${label}`}
-                  >
-                    <Icon size={11} />
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
+          <div className='absolute right-0 top-full mt-1 z-[200] min-w-[190px] bg-surface border border-border rounded-xl shadow-md/5 p-1 overflow-hidden'>
 
-            {(hasCron || hasWebhook) && (
+            {!compact && (
               <>
+                {/* Model selector */}
+                <div className='px-2 py-1.5'>
+                  <span className='text-[11px] text-text-muted font-medium'>Model</span>
+                  <div className='flex flex-col gap-0.5 mt-1'>
+                    {MODELS.map(m => (
+                      <button
+                        key={m.id}
+                        onClick={() => onModelChange?.(m.id)}
+                        className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
+                          model === m.id
+                            ? 'bg-accent/10 text-accent font-medium'
+                            : 'text-text-secondary hover:bg-surface2 hover:text-text-primary'
+                        }`}
+                        title={m.desc}
+                      >
+                        {m.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Extended thinking toggle */}
+                <div className='flex items-center justify-between px-2 py-1.5'>
+                  <span className='text-[11px] text-text-muted font-medium flex items-center gap-1'>
+                    <Brain size={11} />
+                    Extended thinking
+                  </span>
+                  <button
+                    onClick={() => onThinkingChange?.(!thinking)}
+                    className={`relative w-8 h-4 rounded-full transition-colors shrink-0 ${thinking ? 'bg-accent' : 'bg-border'}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${thinking ? 'translate-x-4' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
                 <div className='h-px bg-border my-1' />
-                {hasCron && (
-                  <button
-                    onClick={() => { setOpen(false); navigate(`/crons?conversation_id=${conversationId}`) }}
-                    className='w-full flex items-center gap-2.5 px-2 py-1 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
-                  >
-                    <Clock size={14} />
-                    View crons
-                  </button>
+
+                {/* Notify toggle */}
+                <div className='px-2 py-1.5'>
+                  <span className='text-[11px] text-text-muted font-medium'>Notifications</span>
+                  <div className='flex gap-0.5 mt-1 bg-surface2 rounded-lg p-0.5'>
+                    {NOTIFY_OPTIONS.map(({ value, label, icon: Icon }) => (
+                      <button
+                        key={value}
+                        onClick={() => onNotifyChange?.(value)}
+                        className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[11px] rounded-md transition-colors ${
+                          notify === value
+                            ? 'bg-bg text-text-primary shadow-sm'
+                            : 'text-text-muted hover:text-text-primary'
+                        }`}
+                        title={`Notifications: ${label}`}
+                      >
+                        <Icon size={11} />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {(hasCron || hasWebhook) && (
+                  <>
+                    <div className='h-px bg-border my-1' />
+                    {hasCron && (
+                      <button
+                        onClick={() => { setOpen(false); navigate(`/crons?conversation_id=${conversationId}`) }}
+                        className='w-full flex items-center gap-2.5 px-2 py-1 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+                      >
+                        <Clock size={14} />
+                        View crons
+                      </button>
+                    )}
+                    {hasWebhook && (
+                      <button
+                        onClick={() => { setOpen(false); navigate(`/webhooks?conversation_id=${conversationId}`) }}
+                        className='w-full flex items-center gap-2.5 px-2 py-1 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+                      >
+                        <Link2 size={14} />
+                        View webhooks
+                      </button>
+                    )}
+                  </>
                 )}
-                {hasWebhook && (
-                  <button
-                    onClick={() => { setOpen(false); navigate(`/webhooks?conversation_id=${conversationId}`) }}
-                    className='w-full flex items-center gap-2.5 px-2 py-1 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
-                  >
-                    <Link2 size={14} />
-                    View webhooks
-                  </button>
-                )}
+
+                <div className='h-px bg-border my-1' />
               </>
             )}
-
-            <div className='h-px bg-border my-1' />
 
             <button
               onClick={() => { setOpen(false); onRename?.() }}

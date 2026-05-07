@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, ChevronRight, Check } from 'lucide-react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { ChevronDown, Check, Brain } from 'lucide-react'
 
 export interface ModelOption {
   id: string
@@ -8,7 +8,8 @@ export interface ModelOption {
 }
 
 export const MODELS: ModelOption[] = [
-  { id: 'claude-opus-4-6', name: 'Opus 4.6', desc: 'Most capable for ambitious work' },
+  { id: 'claude-opus-4-7', name: 'Opus 4.7', desc: 'Most capable for ambitious work' },
+  { id: 'claude-opus-4-6', name: 'Opus 4.6', desc: 'Previous flagship, still very capable' },
   { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', desc: 'Balanced speed and intelligence' },
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', desc: 'Fastest, most compact' },
 ]
@@ -27,8 +28,9 @@ interface Props {
 
 export default function ModelSelector({ model, thinking, onModelChange, onThinkingChange, disabled, direction = 'up' }: Props) {
   const [showMenu, setShowMenu] = useState(false)
-  const [showMoreModels, setShowMoreModels] = useState(false)
+  const [hOffset, setHOffset] = useState(0)
   const menuRef = useRef<HTMLDivElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   const selectedModel = MODELS.find(m => m.id === model) || MODELS[0]
 
@@ -37,11 +39,25 @@ export default function ModelSelector({ model, thinking, onModelChange, onThinki
     function handleClick(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setShowMenu(false)
-        setShowMoreModels(false)
       }
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
+  }, [showMenu])
+
+  useLayoutEffect(() => {
+    if (!showMenu) {
+      setHOffset(0)
+      return
+    }
+    if (!dropdownRef.current) return
+    const rect = dropdownRef.current.getBoundingClientRect()
+    const margin = 8
+    if (rect.left < margin) {
+      setHOffset(margin - rect.left)
+    } else if (rect.right > window.innerWidth - margin) {
+      setHOffset(window.innerWidth - margin - rect.right)
+    }
   }, [showMenu])
 
   const positionClass = direction === 'up'
@@ -51,28 +67,41 @@ export default function ModelSelector({ model, thinking, onModelChange, onThinki
   return (
     <div className="relative" ref={menuRef}>
       <button
-        onClick={() => { setShowMenu(v => !v); setShowMoreModels(false) }}
+        onClick={() => setShowMenu(v => !v)}
         disabled={disabled}
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-text-secondary bg-bg hover:bg-border/60 transition-colors disabled:opacity-30"
       >
         <span className="text-text-primary font-semibold">{selectedModel.name}</span>
-        {thinking && <span className="text-text-muted">Extended</span>}
+        {thinking && <Brain size={12} className="text-accent" />}
         <ChevronDown size={12} className="text-text-muted" />
       </button>
 
       {showMenu && (
-        <div className={`${positionClass} w-72 bg-surface border border-border rounded-2xl shadow-lg overflow-hidden z-50`}>
-          {/* Primary model (Sonnet 4.6) */}
-          <button
-            onClick={() => { onModelChange('claude-sonnet-4-6'); setShowMoreModels(false) }}
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-bg transition-colors text-left"
-          >
-            <div>
-              <div className="text-sm font-semibold text-text-primary">Sonnet 4.6</div>
-              <div className="text-xs text-text-muted mt-0.5">Balanced speed and intelligence</div>
-            </div>
-            {model === 'claude-sonnet-4-6' && <Check size={16} className="text-accent shrink-0" />}
-          </button>
+        <div
+          ref={dropdownRef}
+          style={{ transform: hOffset ? `translateX(${hOffset}px)` : undefined }}
+          className={`${positionClass} w-72 bg-surface border border-border rounded-2xl shadow-lg overflow-hidden z-50`}
+        >
+          {/* Models list */}
+          <div className="p-2">
+            {MODELS.map((m, i) => (
+              <button
+                key={m.id}
+                onClick={() => { onModelChange(m.id); setShowMenu(false) }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left ${
+                  model === m.id
+                    ? 'bg-accent/10'
+                    : 'hover:bg-bg'
+                }`}
+              >
+                <div className="flex-1">
+                  <div className={`text-sm font-semibold ${model === m.id ? 'text-accent' : 'text-text-primary'}`}>{m.name}</div>
+                  <div className="text-xs text-text-muted mt-0.5">{m.desc}</div>
+                </div>
+                {model === m.id && <Check size={16} className="text-accent shrink-0" />}
+              </button>
+            ))}
+          </div>
 
           <div className="h-px bg-border" />
 
@@ -89,35 +118,6 @@ export default function ModelSelector({ model, thinking, onModelChange, onThinki
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${thinking ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </div>
-
-          <div className="h-px bg-border" />
-
-          {/* More models */}
-          {!showMoreModels ? (
-            <button
-              onClick={() => setShowMoreModels(true)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-bg transition-colors text-left"
-            >
-              <span className="text-sm font-semibold text-text-primary">More models</span>
-              <ChevronRight size={16} className="text-text-muted" />
-            </button>
-          ) : (
-            MODELS.filter(m => m.id !== 'claude-sonnet-4-6').map((m, i, arr) => (
-              <div key={m.id}>
-                <button
-                  onClick={() => { onModelChange(m.id); setShowMenu(false); setShowMoreModels(false) }}
-                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-bg transition-colors text-left"
-                >
-                  <div>
-                    <div className="text-sm font-semibold text-text-primary">{m.name}</div>
-                    <div className="text-xs text-text-muted mt-0.5">{m.desc}</div>
-                  </div>
-                  {model === m.id && <Check size={16} className="text-accent shrink-0" />}
-                </button>
-                {i < arr.length - 1 && <div className="h-px bg-border" />}
-              </div>
-            ))
-          )}
         </div>
       )}
     </div>

@@ -483,7 +483,7 @@ export async function conversationRoutes(app: FastifyInstance) {
   })
 
   app.patch<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
-    const { title, notify } = req.body as { title?: string; notify?: string }
+    const { title, notify, model, thinking } = req.body as { title?: string; notify?: string; model?: string; thinking?: boolean }
 
     const sets: string[] = []
     const params: unknown[] = []
@@ -498,6 +498,14 @@ export async function conversationRoutes(app: FastifyInstance) {
       }
       sets.push('notify = ?')
       params.push(notify)
+    }
+    if (model !== undefined) {
+      sets.push('model = ?')
+      params.push(model)
+    }
+    if (thinking !== undefined) {
+      sets.push('thinking = ?')
+      params.push(thinking ? 1 : 0)
     }
 
     if (sets.length === 0) {
@@ -640,7 +648,10 @@ export async function conversationRoutes(app: FastifyInstance) {
         conv,
         content?.trim() || '',
         attachments || [],
-        { model, thinking },
+        {
+          model: model ?? conv.model ?? undefined,
+          thinking: thinking ?? !!conv.thinking,
+        },
       )
       return { id: userMsgId }
     },

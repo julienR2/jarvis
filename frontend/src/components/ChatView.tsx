@@ -12,7 +12,7 @@ import {
 } from '../api'
 
 // Module-level SWR cache — persists across route changes, cleared only on delete
-type CachedConv = { messages: Message[]; title: string; hasMiniApp: boolean; notify: Conversation['notify']; hasCron: boolean; hasWebhook: boolean }
+type CachedConv = { messages: Message[]; title: string; hasMiniApp: boolean; notify: Conversation['notify']; model: string | null; thinking: number; hasCron: boolean; hasWebhook: boolean }
 const convCache = new Map<string, CachedConv>()
 
 export function invalidateConvCache(id: string) {
@@ -20,6 +20,7 @@ export function invalidateConvCache(id: string) {
 }
 import MessageBubble from './MessageBubble'
 import ChatInput from './ChatInput'
+import { DEFAULT_MODEL } from './ModelSelector'
 import MiniAppPreview from './MiniAppPreview'
 import { ContentTitle } from './ContentLayout'
 import ConversationMenu from './ConversationMenu'
@@ -50,6 +51,8 @@ export default function ChatView({
   const [title, setTitle] = useState('')
   const [hasMiniApp, setHasMiniApp] = useState(false)
   const [notify, setNotify] = useState<Conversation['notify']>('subscribe')
+  const [model, setModel] = useState<string>(DEFAULT_MODEL)
+  const [thinking, setThinking] = useState(false)
   const [hasCron, setHasCron] = useState(false)
   const [hasWebhook, setHasWebhook] = useState(false)
   const [miniAppRefreshKey, setMiniAppRefreshKey] = useState(0)
@@ -124,6 +127,8 @@ export default function ChatView({
       setTitle(cached.title)
       setHasMiniApp(cached.hasMiniApp)
       setNotify(cached.notify)
+      setModel(cached.model ?? DEFAULT_MODEL)
+      setThinking(!!cached.thinking)
       setHasCron(cached.hasCron)
       setHasWebhook(cached.hasWebhook)
       setLoading(false)
@@ -132,6 +137,8 @@ export default function ChatView({
       setTitle('')
       setHasMiniApp(false)
       setNotify('subscribe')
+      setModel(DEFAULT_MODEL)
+      setThinking(false)
       setHasCron(false)
       setHasWebhook(false)
       setLoading(true)
@@ -144,6 +151,8 @@ export default function ChatView({
         title: conv.title,
         hasMiniApp: !!conv.mini_app_path,
         notify: conv.notify,
+        model: conv.model,
+        thinking: conv.thinking,
         hasCron: !!conv.has_cron,
         hasWebhook: !!conv.has_webhook,
       })
@@ -151,6 +160,8 @@ export default function ChatView({
       setTitle(conv.title)
       setHasMiniApp(!!conv.mini_app_path)
       setNotify(conv.notify)
+      setModel(conv.model ?? DEFAULT_MODEL)
+      setThinking(!!conv.thinking)
       setHasCron(!!conv.has_cron)
       setHasWebhook(!!conv.has_webhook)
       setLoading(false)
@@ -166,6 +177,8 @@ export default function ChatView({
             title: conv.title,
             hasMiniApp: !!conv.mini_app_path,
             notify: conv.notify,
+            model: conv.model,
+            thinking: conv.thinking,
             hasCron: !!conv.has_cron,
             hasWebhook: !!conv.has_webhook,
           })
@@ -173,6 +186,8 @@ export default function ChatView({
           setTitle(conv.title)
           setHasMiniApp(!!conv.mini_app_path)
           setNotify(conv.notify)
+          setModel(conv.model ?? DEFAULT_MODEL)
+          setThinking(!!conv.thinking)
           setHasCron(!!conv.has_cron)
           setHasWebhook(!!conv.has_webhook)
           setIsProcessing(false)
@@ -203,18 +218,12 @@ export default function ChatView({
 
   useEffect(() => () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current) }, [])
 
-  function sendMessage(text: string, attachments: Attachment[] = [], model?: string, thinking?: boolean) {
+  function sendMessage(text: string, attachments: Attachment[] = []) {
     if (!text.trim() && attachments.length === 0) return
     if (!conversationId) return
 
     api
-      .sendMessage(
-        conversationId,
-        text,
-        attachments.length > 0 ? attachments : undefined,
-        model,
-        thinking,
-      )
+      .sendMessage(conversationId, text, attachments.length > 0 ? attachments : undefined)
       .catch((err) => {
         console.error('Failed to send message:', err)
       })
@@ -233,6 +242,26 @@ export default function ChatView({
     if (cached) convCache.set(conversationId, { ...cached, notify: mode })
     api.updateConversation(conversationId, { notify: mode }).catch((err) => {
       console.error('Failed to update notify:', err)
+    })
+  }
+
+  function handleModelChange(newModel: string) {
+    if (!conversationId) return
+    setModel(newModel)
+    const cached = convCache.get(conversationId)
+    if (cached) convCache.set(conversationId, { ...cached, model: newModel })
+    api.updateConversation(conversationId, { model: newModel }).catch((err) => {
+      console.error('Failed to update model:', err)
+    })
+  }
+
+  function handleThinkingChange(newThinking: boolean) {
+    if (!conversationId) return
+    setThinking(newThinking)
+    const cached = convCache.get(conversationId)
+    if (cached) convCache.set(conversationId, { ...cached, thinking: newThinking ? 1 : 0 })
+    api.updateConversation(conversationId, { thinking: newThinking }).catch((err) => {
+      console.error('Failed to update thinking:', err)
     })
   }
 
@@ -329,7 +358,7 @@ export default function ChatView({
             action={onDelete && conversationId ? (
               <span className='flex items-center gap-2'>
                 <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
-                <ConversationMenu onDelete={() => onDelete(conversationId)} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} />
+                <ConversationMenu onDelete={() => onDelete(conversationId)} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} thinking={thinking} onModelChange={handleModelChange} onThinkingChange={handleThinkingChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} />
               </span>
             ) : undefined}
           >
@@ -367,9 +396,9 @@ export default function ChatView({
             <div className='hidden md:block'>
               <ContentTitle
                 action={onDelete && conversationId ? (
-                  <span className='flex items-center gap-3'>
+                  <span className='flex items-center gap-2'>
                     <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
-                    <ConversationMenu onDelete={() => onDelete(conversationId)} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} />
+                    <ConversationMenu onDelete={() => onDelete(conversationId)} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} thinking={thinking} onModelChange={handleModelChange} onThinkingChange={handleThinkingChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} />
                   </span>
                 ) : undefined}
               >

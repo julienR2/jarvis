@@ -121,6 +121,14 @@ export function initDb(): void {
     // Column already exists
   }
 
+  // Migration: add model + thinking to conversations
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN model TEXT DEFAULT 'claude-sonnet-4-6'`)
+  } catch { /* already exists */ }
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0`)
+  } catch { /* already exists */ }
+
   // Migration: add model + thinking to crons
   try {
     db.exec(`ALTER TABLE crons ADD COLUMN model TEXT DEFAULT 'claude-sonnet-4-6'`)

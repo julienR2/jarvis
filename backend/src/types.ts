@@ -4,6 +4,8 @@ export interface ConvRow {
   claude_session_id: string | null
   mini_app_path: string | null
   notify: 'subscribe' | 'unsubscribe' | 'auto'
+  model: string | null
+  thinking: number
   last_read_at: number
   created_at: number
   updated_at: number
