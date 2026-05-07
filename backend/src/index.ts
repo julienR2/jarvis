@@ -15,13 +15,13 @@ import {
 } from './routes/conversations.js'
 import { cronRoutes } from './routes/crons.js'
 import { webhookRoutes, webhookTriggerRoute } from './routes/webhooks.js'
-import { fileRoutes } from './routes/files.js'
 import { uploadRoutes, UPLOADS_DIR, MAX_FILE_SIZE } from './routes/uploads.js'
 import { pushRoutes } from './routes/push.js'
 import { miniAppRoutes } from './routes/mini-apps.js'
 import { internalRoutes } from './routes/internal.js'
 import { gitRoutes } from './routes/git.js'
 import { connectorRoutes } from './routes/connectors.js'
+import { manifestRoutes } from './routes/manifest.js'
 import { startCronScheduler } from './crons.js'
 import { initPush } from './push.js'
 import { subscribeGlobal, addGlobalClient, removeGlobalClient } from './sse.js'
@@ -106,13 +106,13 @@ await app.register(conversationRoutes, { prefix: '/api/conversations' })
 await app.register(cronRoutes, { prefix: '/api/crons' })
 await app.register(webhookRoutes, { prefix: '/api/webhooks' })
 await app.register(webhookTriggerRoute, { prefix: '/api/hooks' })
-await app.register(fileRoutes, { prefix: '/api/files' })
 await app.register(uploadRoutes)
 await app.register(pushRoutes, { prefix: '/api/push' })
 await app.register(miniAppRoutes, { prefix: '/api/mini-apps' })
 await app.register(internalRoutes, { prefix: '/internal' })
 await app.register(gitRoutes, { prefix: '/api/git' })
 await app.register(connectorRoutes, { prefix: '/api/connectors' })
+await app.register(manifestRoutes, { prefix: '/api' })
 
 // ── Global SSE (app-level events) ────────────────────────────────────────────
 

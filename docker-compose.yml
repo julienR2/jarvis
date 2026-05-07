@@ -5,11 +5,7 @@ services:
     working_dir: /jarvis/backend
     command: sh -c "npm install && npx tsx watch src/index.ts"
     volumes:
-      - ./backend:/jarvis/backend
-      - ./data:/jarvis/data
-      - ./workspace:/jarvis/workspace
-      - ./agent:/jarvis/agent
-      - ./.git:/jarvis/.git
+      - ./:/jarvis
       - /jarvis/backend/node_modules
     env_file: .env
     environment:

@@ -90,7 +90,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
         </button>
 
         {open && (
-          <div className='absolute right-0 top-full mt-1 z-[200] min-w-[190px] bg-surface border border-border rounded-xl shadow-md/5 p-1 overflow-hidden'>
+          <div className='absolute right-0 top-full mt-1 z-[200] min-w-[150px] bg-surface border border-border rounded-xl shadow-md/5 p-1 overflow-hidden'>
 
             {!compact && (
               <>
@@ -159,7 +159,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                     {hasCron && (
                       <button
                         onClick={() => { setOpen(false); navigate(`/crons?conversation_id=${conversationId}`) }}
-                        className='w-full flex items-center gap-2.5 px-2 py-1 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+                        className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
                       >
                         <Clock size={14} />
                         View crons
@@ -168,7 +168,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                     {hasWebhook && (
                       <button
                         onClick={() => { setOpen(false); navigate(`/webhooks?conversation_id=${conversationId}`) }}
-                        className='w-full flex items-center gap-2.5 px-2 py-1 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+                        className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
                       >
                         <Link2 size={14} />
                         View webhooks
@@ -183,7 +183,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
 
             <button
               onClick={() => { setOpen(false); onRename?.() }}
-              className='w-full flex items-center gap-2.5 px-2 py-1 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+              className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
             >
               <Pencil size={14} />
               Edit name
@@ -194,7 +194,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                 setOpen(false)
                 if (confirm('Delete this conversation?')) onDelete()
               }}
-              className='w-full flex items-center gap-2.5 px-2 py-1 text-sm text-danger hover:bg-surface2 transition-colors rounded-lg'
+              className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-danger hover:bg-surface2 transition-colors rounded-lg'
             >
               <Trash2 size={14} />
               Delete

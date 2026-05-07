@@ -106,6 +106,27 @@ The Jarvis repo itself is git-controlled. When Claude modifies backend/frontend 
 
 Tables: `users`, `conversations` (includes `mini_app_path`), `messages`, `crons`, `webhooks`. Foreign keys enabled with cascade deletes.
 
+### Connectors table
+
+Third-party API credentials are stored in the `connectors` table (not in `.env`). Schema:
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | TEXT | Connector name (e.g. `linear`, `gmail`, `github`) |
+| `secrets_json` | TEXT | JSON object of env var name → value |
+
+To read all secrets (e.g. to get a key for a direct API call):
+
+```js
+node -e "
+const D = require('/jarvis/backend/node_modules/better-sqlite3');
+const db = new D('/jarvis/data/jarvis.db');
+console.log(db.prepare('SELECT id, secrets_json FROM connectors').all());
+"
+```
+
+At runtime, all connector secrets are automatically injected as environment variables into the Claude process — so skills can reference them directly (e.g. `${LINEAR_API_KEY}`, `${GITHUB_TOKEN}`) without reading the DB.
+
 ## Environment Variables
 
 `JWT_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `CLAUDE_CODE_OAUTH_TOKEN`, `INTERNAL_SECRET`, `DB_PATH`, `WORKSPACE_DIR`, `CLAUDE_CONFIG_DIR`, `WHISPER_URL`, `PORT`, `TZ`

@@ -122,13 +122,19 @@ export const api = {
   deleteWebhook: (id: string) => request<{ ok: boolean }>('DELETE', `/webhooks/${id}`),
   triggerWebhook: (id: string) => request<{ ok: boolean }>('POST', `/webhooks/${id}/trigger`),
 
-  // Files
-  listFiles: (path?: string) =>
-    request<FileEntry[]>('GET', `/files${path ? `?path=${encodeURIComponent(path)}` : ''}`),
-  readFile: (path: string) =>
-    request<{ content: string }>('GET', `/files/content?path=${encodeURIComponent(path)}`),
-  writeFile: (path: string, content: string) =>
-    request<{ ok: boolean }>('PUT', `/files/content?path=${encodeURIComponent(path)}`, { content }),
+  // Code (repo browser)
+  getCodeTree: () => request<CodeEntry[]>('GET', '/git/tree'),
+  getCodeFile: (path: string) =>
+    request<CodeFile>('GET', `/git/file?path=${encodeURIComponent(path)}`),
+  getCommits: (limit = 50) =>
+    request<Commit[]>('GET', `/git/log?limit=${limit}`),
+  getCommit: (hash: string) =>
+    request<CommitDetail>('GET', `/git/log/${encodeURIComponent(hash)}`),
+  getCommitFile: (hash: string, path: string) =>
+    request<{ path: string; diff: string }>(
+      'GET',
+      `/git/log/${encodeURIComponent(hash)}/file?path=${encodeURIComponent(path)}`,
+    ),
 
   // Push notifications
   getVapidKey: () => request<{ key: string }>('GET', '/push/vapid-key'),
@@ -318,12 +324,29 @@ export interface WebhookInput {
   thinking?: boolean
 }
 
-export interface FileEntry {
-  name: string
+export interface CodeEntry {
   path: string
-  type: 'file' | 'dir'
-  size: number
-  modified: number
+  status: string | null
+}
+
+export interface CodeFile {
+  path: string
+  status: string | null
+  content: string | null
+  binary: boolean
+  tooLarge: boolean
+  diff: string | null
+}
+
+export interface Commit {
+  hash: string
+  message: string
+  author: string
+  date: string
+}
+
+export interface CommitDetail extends Commit {
+  files: CodeEntry[]
 }
 
 export interface Attachment {

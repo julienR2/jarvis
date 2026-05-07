@@ -43,6 +43,7 @@ agent/skills/*
 !agent/skills/gmail/
 !agent/skills/pocketbase/
 !agent/skills/image-generation/
+!agent/skills/linear/
 
 # Whitelist default rules — anything else under agent/rules/ is gitignored
 agent/rules/*

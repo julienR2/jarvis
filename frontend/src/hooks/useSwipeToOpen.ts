@@ -8,6 +8,10 @@ interface Options {
   sidebarWidth: number
 }
 
+// iOS reserves the leftmost ~20 px for its system back-swipe; engaging the
+// sidebar drag inside that band leaves it half-open when the system steals the gesture.
+const EDGE_SLOP = 20
+
 /**
  * Handles swipe-to-open / swipe-to-close for a sidebar.
  * Drives sidebar position and overlay opacity imperatively via DOM refs — no React
@@ -69,6 +73,8 @@ export function useSwipeToOpen({ onOpen, onClose, isOpen, sidebarWidth }: Option
       if (Math.abs(dy) >= Math.abs(dx)) return
       if (isOpenRef.current && dx > 0) return
       if (!isOpenRef.current && dx < 0) return
+      // Don't engage if the swipe started inside the system back-gesture band
+      if (!isOpenRef.current && startXRef.current < EDGE_SLOP) return
       isDraggingRef.current = true
       // Freeze transitions — we drive position directly
       if (sidebarRef.current) sidebarRef.current.style.transition = 'none'
@@ -125,6 +131,32 @@ export function useSwipeToOpen({ onOpen, onClose, isOpen, sidebarWidth }: Option
     }, 210)
   }, [onOpen, onClose, sidebarWidth]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fired when the system steals the gesture (e.g. iOS back-swipe). Snap back to
+  // the committed state and clear inline styles so the sidebar isn't left half-open.
+  const onTouchCancel = useCallback(() => {
+    if (!isDraggingRef.current) return
+    isDraggingRef.current = false
+
+    const targetX = isOpenRef.current ? sidebarWidth : 0
+    const targetOpacity = isOpenRef.current ? 0.6 : 0
+
+    if (sidebarRef.current) {
+      sidebarRef.current.style.transition = 'translate 200ms'
+      setSidebarX(targetX)
+    }
+    if (overlayRef.current) {
+      overlayRef.current.style.transition = 'opacity 200ms'
+      overlayRef.current.style.opacity = String(targetOpacity)
+      overlayRef.current.style.pointerEvents = targetOpacity > 0 ? 'auto' : 'none'
+    }
+
+    snapTimerRef.current = setTimeout(() => {
+      snapTimerRef.current = null
+      if (sidebarRef.current) { sidebarRef.current.style.translate = ''; sidebarRef.current.style.transition = '' }
+      if (overlayRef.current) overlayRef.current.style.transition = ''
+    }, 210)
+  }, [sidebarWidth]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Non-passive touchmove to suppress scroll while swiping
   useEffect(() => {
     const el = containerRef.current
@@ -134,5 +166,5 @@ export function useSwipeToOpen({ onOpen, onClose, isOpen, sidebarWidth }: Option
     return () => el.removeEventListener('touchmove', handler)
   }, [])
 
-  return { containerRef, sidebarRef, overlayRef, handlers: { onTouchStart, onTouchMove, onTouchEnd } }
+  return { containerRef, sidebarRef, overlayRef, handlers: { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel } }
 }

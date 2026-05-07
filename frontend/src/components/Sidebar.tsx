@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Plus,
   Clock,
-  FolderOpen,
+  Code2,
   Plug,
   LogOut,
   Moon,
@@ -60,7 +60,7 @@ export default function Sidebar({
     location.pathname === '/crons' ||
     location.pathname === '/webhooks' ||
     location.pathname === '/connectors' ||
-    location.pathname.startsWith('/files')
+    location.pathname.startsWith('/code')
 
   function logout() {
     localStorage.removeItem('token')
@@ -68,8 +68,15 @@ export default function Sidebar({
   }
 
   function handleNav(path: string) {
-    navigate(path, { replace: true })
-    onSelect()
+    // On mobile, fully animate the sidebar closed before navigating, so the
+    // back-navigation snapshot the system caches already shows it closed.
+    const isMobile = !window.matchMedia('(min-width: 768px)').matches
+    if (isMobile) {
+      onSelect()
+      setTimeout(() => navigate(path), 220)
+    } else {
+      navigate(path)
+    }
   }
 
   // Spaces: mini-apps, cron chats, and webhook chats grouped together
@@ -177,10 +184,10 @@ export default function Sidebar({
               onClick={() => handleNav('/connectors')}
             />
             <NavItem
-              label='Files'
-              icon={<FolderOpen size={15} />}
-              active={location.pathname.startsWith('/files')}
-              onClick={() => handleNav('/files')}
+              label='Code'
+              icon={<Code2 size={15} />}
+              active={location.pathname.startsWith('/code')}
+              onClick={() => handleNav('/code')}
             />
           </div>
         )}

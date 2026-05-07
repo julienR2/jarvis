@@ -11,7 +11,7 @@ import Sidebar from '../components/Sidebar'
 import ChatView, { invalidateConvCache } from '../components/ChatView'
 import CronManager from '../components/CronManager'
 import WebhookManager from '../components/WebhookManager'
-import FileBrowser from '../components/FileBrowser'
+import CodeBrowser from '../components/CodeBrowser'
 import ConnectorsPage from '../components/ConnectorsPage'
 import {
   SidebarToggleProvider,
@@ -221,7 +221,7 @@ export default function ChatPage() {
             <Route path='/crons' element={<CronManager />} />
             <Route path='/webhooks' element={<WebhookManager />} />
             <Route path='/connectors' element={<ConnectorsPage />} />
-            <Route path='/files/*' element={<FileBrowser />} />
+            <Route path='/code/*' element={<CodeBrowser />} />
           </Routes>
         </SidebarToggleProvider>
       </main>
