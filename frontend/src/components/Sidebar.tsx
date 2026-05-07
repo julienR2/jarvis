@@ -235,9 +235,9 @@ export default function Sidebar({
             {preference === 'system' ? (
               <Monitor size={15} />
             ) : theme === 'dark' ? (
-              <Sun size={15} />
-            ) : (
               <Moon size={15} />
+            ) : (
+              <Sun size={15} />
             )}
           </button>
         </div>
@@ -338,8 +338,8 @@ function ConvItem({
           {conv.title}
         </span>
         <span className='flex items-center gap-2 shrink-0'>
-          {!!conv.mini_app_path && (
-            <span title='Mini-app'>
+          {!!conv.app_path && (
+            <span title='App'>
               <AppWindow size={11} className='text-text-muted' />
             </span>
           )}

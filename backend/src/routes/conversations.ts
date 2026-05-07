@@ -17,7 +17,7 @@ import {
   emitGlobalEvent,
 } from '../sse.js'
 import { config } from '../config.js'
-import { getConnectorEnvVars } from '../connectors.js'
+import { getConnectorEnvVars, getConnectorSecrets } from '../connectors.js'
 import type { ConvRow, MessageRow } from '../types.js'
 
 interface Attachment {
@@ -80,6 +80,15 @@ const sseClients = new Map<string, number>()
 // Track cancelled conversations to suppress error messages from SIGTERM
 const cancelledConversations = new Set<string>()
 
+export async function cancelConversation(conversationId: string): Promise<void> {
+  cancelledConversations.add(conversationId)
+  const status = await getRunningInvocation(conversationId)
+  if (status.running) {
+    await cancelInvocation(status.invocationId)
+  }
+  emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
+}
+
 export function processMessage(
   conversationId: string,
   conv: ConvRow,
@@ -87,6 +96,7 @@ export function processMessage(
   attachments: Attachment[],
   options?: {
     skipUserMessage?: boolean
+    userMessageOverride?: string
     onDone?: (text: string) => void
     model?: string
     thinking?: boolean
@@ -131,12 +141,13 @@ export function processMessage(
     userMsgId = uuid()
     const metadata =
       attachments.length > 0 ? JSON.stringify({ attachments }) : null
+    const savedContent = options?.userMessageOverride ?? userContent
     console.log(`[msg] db INSERT user message ${userMsgId}`)
     getDb()
       .prepare(
         'INSERT INTO messages (id, conversation_id, role, content, metadata) VALUES (?, ?, ?, ?, ?)',
       )
-      .run(userMsgId, conversationId, 'user', userContent, metadata)
+      .run(userMsgId, conversationId, 'user', savedContent, metadata)
 
     const userRow = getDb()
       .prepare('SELECT * FROM messages WHERE id = ?')
@@ -316,7 +327,7 @@ export function attachInvocationStream(
             .trim()
             .slice(0, 200)
           sendPushToAll(conv.title, plain, `/c/${conversationId}`).catch(
-            () => {},
+            (err) => console.error('[push] sendPushToAll failed:', err),
           )
         }
 
@@ -540,12 +551,12 @@ export async function conversationRoutes(app: FastifyInstance) {
   })
 
   app.delete<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
-    // Clean up mini-app files if this conversation has one
+    // Clean up app files if this conversation has one
     const conv = getDb()
-      .prepare('SELECT mini_app_path FROM conversations WHERE id = ?')
+      .prepare('SELECT app_path FROM conversations WHERE id = ?')
       .get(req.params.id) as ConvRow | undefined
-    if (conv?.mini_app_path) {
-      const appDir = join(config.workspaceDir, 'mini-apps', req.params.id)
+    if (conv?.app_path) {
+      const appDir = join(config.workspaceDir, 'apps', req.params.id)
       if (existsSync(appDir)) rmSync(appDir, { recursive: true, force: true })
     }
 
@@ -674,13 +685,7 @@ export async function conversationRoutes(app: FastifyInstance) {
   // ── Cancel ─────────────────────────────────────────────────────────────────
 
   app.post<{ Params: { id: string } }>('/:id/cancel', auth, async (req) => {
-    const { id } = req.params
-    cancelledConversations.add(id)
-    const status = await getRunningInvocation(id)
-    if (status.running) {
-      await cancelInvocation(status.invocationId)
-    }
-    emitConversationEvent(id, { type: 'thinking', thinking: false })
+    await cancelConversation(req.params.id)
     return { ok: true }
   })
 
@@ -706,32 +711,45 @@ export async function conversationRoutes(app: FastifyInstance) {
       const file = await req.file()
       if (!file) return reply.code(400).send({ error: 'No audio file' })
 
-      // Read the file buffer
       const buffer = await file.toBuffer()
+      const audioBlob = new Blob([new Uint8Array(buffer)], { type: 'audio/webm' })
 
-      // Send to Whisper for transcription
-      const form = new FormData()
-      form.append(
-        'audio_file',
-        new Blob([new Uint8Array(buffer)]),
-        'audio.webm',
-      )
+      let transcript = ''
 
-      const whisperRes = await fetch(
-        `${config.whisperUrl}/asr?task=transcribe&output=txt`,
-        {
-          method: 'POST',
-          body: form,
-        },
-      )
-
-      if (!whisperRes.ok) {
-        return reply
-          .code(502)
-          .send({ error: `Transcription failed: ${whisperRes.status}` })
+      // Try ElevenLabs first if configured
+      const elSecrets = getConnectorSecrets('elevenlabs')
+      if (elSecrets?.ELEVENLABS_API_KEY) {
+        try {
+          const form = new FormData()
+          form.append('audio', audioBlob, 'audio.webm')
+          form.append('model_id', 'scribe_v1')
+          const elRes = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+            method: 'POST',
+            headers: { 'xi-api-key': elSecrets.ELEVENLABS_API_KEY },
+            body: form,
+          })
+          if (elRes.ok) {
+            const data = await elRes.json() as { text?: string }
+            transcript = (data.text ?? '').trim()
+          }
+        } catch { /* fall through to Whisper */ }
       }
 
-      const transcript = (await whisperRes.text()).trim()
+      // Fallback to Whisper
+      if (!transcript) {
+        const form = new FormData()
+        form.append('audio_file', audioBlob, 'audio.webm')
+        const whisperRes = await fetch(
+          `${config.whisperUrl}/asr?task=transcribe&output=txt`,
+          { method: 'POST', body: form },
+        )
+        if (!whisperRes.ok) {
+          return reply
+            .code(502)
+            .send({ error: `Transcription failed: ${whisperRes.status}` })
+        }
+        transcript = (await whisperRes.text()).trim()
+      }
       if (!transcript) {
         return reply.code(400).send({ error: 'No speech detected' })
       }

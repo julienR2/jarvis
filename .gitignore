@@ -39,10 +39,8 @@ agent/CLAUDE.local.md
 agent/skills/*
 !agent/skills/cron/
 !agent/skills/webhook/
-!agent/skills/mini-apps/
+!agent/skills/apps/
 !agent/skills/gmail/
-!agent/skills/pocketbase/
-!agent/skills/image-generation/
 !agent/skills/linear/
 !agent/skills/add-connector/
 !agent/skills/self-edit/

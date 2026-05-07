@@ -30,7 +30,7 @@ All services run in Docker containers (backend, frontend, admin, whisper). The a
 - **Voice input**: Audio recording transcribed via Whisper, injected into chat
 - **File browser**: Read/write files in `/workspace` and `/claude` directories with path traversal protection
 - **PWA**: Installable with share target support, service worker, responsive mobile layout
-- **Mini-apps**: Claude can create interactive HTML/CSS/JS apps displayed in an iframe alongside chat. Desktop: split layout (3/5 chat, 2/5 preview). Mobile: toggle between chat and preview.
+- **Apps**: Claude can create interactive HTML/CSS/JS apps displayed in an iframe alongside chat. Desktop: split layout (3/5 chat, 2/5 preview). Mobile: toggle between chat and preview.
 - **Themes**: Dark/light toggle persisted in localStorage
 
 ## Running
@@ -84,8 +84,8 @@ Source directories are mounted as volumes for hot reload in development.
 | POST | `/internal/webhooks` | Upsert webhook by name |
 | DELETE | `/internal/webhooks/:name` | Delete webhook |
 | GET | `/internal/webhooks` | List webhooks |
-| POST | `/internal/mini-apps` | Register conversation as mini-app |
-| POST | `/internal/mini-apps/:id/notify` | Trigger frontend preview refresh |
+| POST | `/internal/apps` | Register conversation as app |
+| POST | `/internal/apps/:id/notify` | Trigger frontend preview refresh |
 
 ## Admin Recovery Service (port 3006)
 
@@ -104,7 +104,7 @@ The Jarvis repo itself is git-controlled. When Claude modifies backend/frontend 
 
 ## Database (SQLite)
 
-Tables: `users`, `conversations` (includes `mini_app_path`), `messages`, `crons`, `webhooks`. Foreign keys enabled with cascade deletes.
+Tables: `users`, `conversations` (includes `app_path`), `messages`, `crons`, `webhooks`. Foreign keys enabled with cascade deletes.
 
 ### Connectors table
 

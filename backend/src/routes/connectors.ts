@@ -1,25 +1,33 @@
 import type { FastifyInstance } from 'fastify'
 import { Readable } from 'node:stream'
+import type { ConnectorField } from '../connectors.js'
 import {
   CONNECTOR_CATALOG,
   getCatalogDef,
+  getFullCatalog,
   getAllConnectors,
   getConnector,
+  getCustomConnector,
   upsertConnector,
   deleteConnector,
+  createCustomConnector,
+  updateCustomConnector,
+  deleteCustomConnector,
 } from '../connectors.js'
 
 export async function connectorRoutes(app: FastifyInstance) {
   const auth = { onRequest: [app.authenticate] }
 
-  // GET / — list all connectors (catalog merged with DB status)
+  // GET / — list all connectors (built-in + custom, merged with DB status)
   app.get('/', auth, async () => {
     const saved = new Map(getAllConnectors().map((r) => [r.id, r]))
 
-    return CONNECTOR_CATALOG.map((def) => {
+    return getFullCatalog().map((def) => {
       const row = saved.get(def.id)
+      const isCustom = !CONNECTOR_CATALOG.some((c) => c.id === def.id)
       return {
         ...def,
+        custom: isCustom,
         connected: !!row,
         connected_at: row?.connected_at ?? null,
         updated_at: row?.updated_at ?? null,
@@ -111,9 +119,63 @@ export async function connectorRoutes(app: FastifyInstance) {
     return { ok: true }
   })
 
+  // ── Custom connector definition CRUD ──────────────────────────────────────
+
+  app.post('/custom', auth, async (req, reply) => {
+    const body = req.body as { name?: string; description?: string; icon?: string; fields?: ConnectorField[] }
+    if (!body.name?.trim()) return reply.code(400).send({ error: 'Name is required' })
+    if (!body.fields?.length) return reply.code(400).send({ error: 'At least one field is required' })
+
+    const id = body.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    if (!id) return reply.code(400).send({ error: 'Name must contain alphanumeric characters' })
+
+    const existing = getCatalogDef(id)
+    if (existing) return reply.code(409).send({ error: 'A connector with this ID already exists' })
+
+    const row = createCustomConnector({
+      id,
+      name: body.name.trim(),
+      description: (body.description ?? '').trim(),
+      icon: body.icon ?? 'Plug',
+      fields: body.fields.map((f) => ({
+        key: f.key.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_'),
+        label: f.label.trim(),
+        type: f.type || 'password',
+        ...(f.placeholder ? { placeholder: f.placeholder } : {}),
+      })),
+    })
+    return reply.code(201).send(row)
+  })
+
+  app.patch<{ Params: { id: string } }>('/custom/:id', auth, async (req, reply) => {
+    const custom = getCustomConnector(req.params.id)
+    if (!custom) return reply.code(404).send({ error: 'Custom connector not found' })
+
+    const body = req.body as { name?: string; description?: string; icon?: string; fields?: ConnectorField[] }
+    const updated = updateCustomConnector(req.params.id, {
+      name: body.name?.trim(),
+      description: body.description?.trim(),
+      icon: body.icon,
+      fields: body.fields?.map((f) => ({
+        key: f.key.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_'),
+        label: f.label.trim(),
+        type: f.type || 'password',
+        ...(f.placeholder ? { placeholder: f.placeholder } : {}),
+      })),
+    })
+    return updated
+  })
+
+  app.delete<{ Params: { id: string } }>('/custom/:id', auth, async (req, reply) => {
+    if (!deleteCustomConnector(req.params.id)) {
+      return reply.code(404).send({ error: 'Custom connector not found' })
+    }
+    return { ok: true }
+  })
+
   // GET /:id/proxy/* — stream content from the connector's internal HTTP endpoint.
   // Unauthenticated by design: <img>/<a> tags can't send headers. Same threat model
-  // as /api/uploads/files/ — URLs are only surfaced inside JWT-gated chat + mini-apps.
+  // as /api/uploads/files/ — URLs are only surfaced inside JWT-gated chat + apps.
   app.get<{ Params: { id: string, '*': string } }>('/:id/proxy/*', async (req, reply) => {
     const def = getCatalogDef(req.params.id)
     if (!def?.proxy) return reply.code(404).send({ error: 'Connector has no proxy' })

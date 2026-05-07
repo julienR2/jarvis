@@ -17,7 +17,7 @@ import { cronRoutes } from './routes/crons.js'
 import { webhookRoutes, webhookTriggerRoute } from './routes/webhooks.js'
 import { uploadRoutes, UPLOADS_DIR, MAX_FILE_SIZE } from './routes/uploads.js'
 import { pushRoutes } from './routes/push.js'
-import { miniAppRoutes } from './routes/mini-apps.js'
+import { appRoutes } from './routes/apps.js'
 import { internalRoutes } from './routes/internal.js'
 import { gitRoutes } from './routes/git.js'
 import { connectorRoutes } from './routes/connectors.js'
@@ -48,7 +48,7 @@ const app = Fastify({
 await app.register(helmet, {
   contentSecurityPolicy: false,      // frontend is a separate origin; CSP belongs there
   crossOriginResourcePolicy: false,  // lets frontend on :5173 load /api/uploads assets
-  crossOriginEmbedderPolicy: false,  // allow mini-app iframes
+  crossOriginEmbedderPolicy: false,  // allow app iframes
 })
 await app.register(rateLimit, {
   global: true,
@@ -103,7 +103,7 @@ await app.register(webhookRoutes, { prefix: '/api/webhooks' })
 await app.register(webhookTriggerRoute, { prefix: '/api/hooks' })
 await app.register(uploadRoutes)
 await app.register(pushRoutes, { prefix: '/api/push' })
-await app.register(miniAppRoutes, { prefix: '/api/mini-apps' })
+await app.register(appRoutes, { prefix: '/api/apps' })
 await app.register(internalRoutes, { prefix: '/internal' })
 await app.register(gitRoutes, { prefix: '/api/git' })
 await app.register(connectorRoutes, { prefix: '/api/connectors' })

@@ -25,7 +25,7 @@ async function fileToDataUrl(file: File): Promise<{ name: string; type: string; 
   })
 }
 
-export default function MiniAppPreview({
+export default function AppPreview({
   conversationId,
   refreshKey,
   onRefresh,
@@ -33,7 +33,7 @@ export default function MiniAppPreview({
   onShareIntentConsumed,
 }: Props) {
   const token = localStorage.getItem('token') || ''
-  const src = `/api/mini-apps/${conversationId}/index.html?token=${token}&v=${refreshKey}`
+  const src = `/api/apps/${conversationId}/index.html?token=${token}&v=${refreshKey}`
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingIntentRef = useRef<ShareIntent | null>(null)
 
@@ -95,7 +95,7 @@ export default function MiniAppPreview({
         onLoad={handleIframeLoad}
         sandbox='allow-scripts allow-same-origin allow-forms allow-modals allow-popups'
         className='flex-1 w-full border-0'
-        title='Mini-app preview'
+        title='App preview'
       />
     </div>
   )

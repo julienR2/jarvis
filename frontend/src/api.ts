@@ -151,6 +151,11 @@ export const api = {
   testConnector: (id: string, secrets?: Record<string, string>) =>
     request<{ ok: boolean; message: string }>('POST', `/connectors/${id}/test`, secrets ? { secrets } : {}),
   deleteConnector: (id: string) => request<{ ok: boolean }>('DELETE', `/connectors/${id}`),
+  createCustomConnector: (def: { name: string; description: string; icon: string; fields: ConnectorField[] }) =>
+    request<{ id: string }>('POST', '/connectors/custom', def),
+  updateCustomConnector: (id: string, def: { name?: string; description?: string; icon?: string; fields?: ConnectorField[] }) =>
+    request<{ id: string }>('PATCH', `/connectors/custom/${id}`, def),
+  deleteCustomConnector: (id: string) => request<{ ok: boolean }>('DELETE', `/connectors/custom/${id}`),
 }
 
 // ── SSE connection ───────────────────────────────────────────────────────────
@@ -253,7 +258,7 @@ export interface Conversation {
   id: string
   title: string
   claude_session_id: string | null
-  mini_app_path: string | null
+  app_path: string | null
   notify: 'subscribe' | 'unsubscribe' | 'auto'
   model: string | null
   thinking: number
@@ -375,6 +380,7 @@ export interface ConnectorInfo {
   description: string
   icon: string
   fields: ConnectorField[]
+  custom?: boolean
   connected: boolean
   connected_at: number | null
   updated_at: number | null
@@ -388,7 +394,7 @@ export type ChatEvent =
   | { type: 'message'; message: Message }
   | { type: 'conversation'; id: string; title?: string }
   | { type: 'thinking'; thinking: boolean }
-  | { type: 'mini_app_updated' }
+  | { type: 'app_updated' }
 
 export type GlobalEvent =
   | { type: 'new_message'; conversation_id: string }

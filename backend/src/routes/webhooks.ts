@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { getDb, uuid } from '../db.js'
-import { fireWebhook } from '../webhooks.js'
+import { fireWebhook, fireWebhookSync } from '../webhooks.js'
+import { cancelConversation } from './conversations.js'
 import type { WebhookRow } from '../types.js'
 
 export async function webhookRoutes(app: FastifyInstance) {
@@ -17,6 +18,8 @@ export async function webhookRoutes(app: FastifyInstance) {
       enabled?: boolean
       model?: string
       thinking?: boolean
+      notify?: 'auto' | 'never' | 'always'
+      user_message_key?: string
     }
 
     if (!body.name || !body.prompt) {
@@ -28,10 +31,12 @@ export async function webhookRoutes(app: FastifyInstance) {
     const enabled = body.enabled !== false ? 1 : 0
     const model = body.model ?? 'claude-sonnet-4-6'
     const thinking = body.thinking ? 1 : 0
+    const notify = body.notify ?? 'auto'
+    const user_message_key = body.user_message_key ?? null
 
     getDb()
-      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, model, thinking) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, token, body.prompt, enabled, model, thinking)
+      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, model, thinking, notify, user_message_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, token, body.prompt, enabled, model, thinking, notify, user_message_key)
 
     return getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(id)
   })
@@ -43,6 +48,8 @@ export async function webhookRoutes(app: FastifyInstance) {
       enabled: boolean
       model: string
       thinking: boolean
+      notify: 'auto' | 'never' | 'always'
+      user_message_key: string | null
     }>
 
     const existing = getDb()
@@ -57,11 +64,13 @@ export async function webhookRoutes(app: FastifyInstance) {
       enabled: body.enabled !== undefined ? (body.enabled ? 1 : 0) : existing.enabled,
       model: body.model ?? existing.model ?? 'claude-sonnet-4-6',
       thinking: body.thinking !== undefined ? (body.thinking ? 1 : 0) : existing.thinking,
+      notify: body.notify ?? existing.notify ?? 'auto',
+      user_message_key: body.user_message_key !== undefined ? (body.user_message_key || null) : existing.user_message_key,
     }
 
     getDb()
-      .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=?, model=?, thinking=? WHERE id=?')
-      .run(updated.name, updated.prompt, updated.enabled, updated.model, updated.thinking, req.params.id)
+      .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=?, model=?, thinking=?, notify=?, user_message_key=? WHERE id=?')
+      .run(updated.name, updated.prompt, updated.enabled, updated.model, updated.thinking, updated.notify, updated.user_message_key, req.params.id)
 
     return getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(req.params.id)
   })
@@ -84,7 +93,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 
 /** Public trigger route — no JWT, token in URL is the auth */
 export async function webhookTriggerRoute(app: FastifyInstance) {
-  app.post<{ Params: { token: string } }>('/:token/trigger', {
+  app.post<{ Params: { token: string }; Querystring: { sync?: string } }>('/:token/trigger', {
     config: {
       rateLimit: { max: 60, timeWindow: '1 minute' },
     },
@@ -99,7 +108,32 @@ export async function webhookTriggerRoute(app: FastifyInstance) {
       ? req.body
       : undefined
 
+    if (req.query.sync === 'true' || req.query.sync === '1') {
+      try {
+        const response = await fireWebhookSync(row, payload)
+        return { ok: true, webhook: row.name, response }
+      } catch (err) {
+        return reply.code(504).send({ error: 'Response timeout' })
+      }
+    }
+
     fireWebhook(row, payload)
     return { ok: true, webhook: row.name }
+  })
+
+  app.post<{ Params: { token: string } }>('/:token/cancel', {
+    config: {
+      rateLimit: { max: 60, timeWindow: '1 minute' },
+    },
+  }, async (req, reply) => {
+    const row = getDb()
+      .prepare('SELECT * FROM webhooks WHERE token = ? AND enabled = 1')
+      .get(req.params.token) as WebhookRow | undefined
+
+    if (!row) return reply.code(404).send({ error: 'Not found' })
+    if (!row.conversation_id) return reply.code(400).send({ error: 'No active conversation' })
+
+    await cancelConversation(row.conversation_id)
+    return { ok: true }
   })
 }

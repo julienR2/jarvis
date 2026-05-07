@@ -1,95 +1,101 @@
 # Jarvis
 
-A self-hosted, full-stack personal AI assistant. Chat with Claude through a web UI, have it run on a schedule, trigger it from webhooks, and teach it new skills by adding a Markdown file.
+A self-hosted AI assistant that can modify its own code.
 
-- **Chat UI** with streaming responses, voice input (Whisper), dark mode, and PWA support
-- **Scheduled automation** — ask Jarvis to "summarise my inbox every morning at 7am" and it writes the cron itself
-- **Webhooks** — HTTP endpoints that fire the agent with any payload (great for n8n, Home Assistant, Shortcuts, etc.)
-- **Mini-apps** — the agent can spin up an HTML/CSS/JS widget alongside the chat for anything it wants to visualise
-- **Connectors** — add API keys for Gmail, GitHub, Linear, etc. from the UI. No restart, no `.env` fiddling
-- **Self-editing** — Jarvis can modify its own source code. A separate admin recovery page (port 3006) can undo any damage
+Jarvis is a web-based chat interface backed by the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code). What makes it different from other AI chat wrappers: the assistant has full read/write access to its own source code. Ask it to add a feature, fix a bug, or build a new integration -- it edits the frontend and backend directly, and you can review, commit, or revert every change through git. A separate recovery container ensures you can always undo whatever it breaks.
 
-## Stack
+The idea is less "deploy and use" and more "deploy and shape." You start with a general-purpose assistant and vibe-code it into something personal.
 
-TypeScript, Fastify 5, React 19, better-sqlite3, Vite, Tailwind 4, Docker Compose. The AI engine is the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) running as a subprocess.
+## Features
 
-## Quick start
+- **Self-coding** -- Claude can edit Jarvis's own frontend and backend through chat. Every change goes through git: diffable, committable, revertable.
+- **Apps** -- Claude creates interactive HTML/CSS/JS apps displayed in a split pane alongside chat. Useful for dashboards, tools, visualizations, games.
+- **Connectors** -- Plug in Gmail, GitHub, Slack, Linear, and others from the UI. Or create custom connectors with just a name and env var fields -- no code, no restart.
+- **Cron jobs** -- Scheduled prompts with full conversation context. "Summarize my inbox every morning at 7am" -- the agent writes the cron itself.
+- **Webhooks** -- HTTP endpoints that trigger the agent with arbitrary payloads. Works well with n8n, Home Assistant, iOS Shortcuts, etc.
+- **Voice input** -- Audio transcribed via Whisper and injected into the conversation.
+- **Skills** -- Modular instruction sets (Markdown files) that auto-activate based on context. The agent can create new skills for itself.
+- **Mobile PWA** -- Installable, responsive, with push notifications and share target support.
+
+## Guardrails
+
+Giving an AI write access to its own code sounds reckless. Here is what makes it workable:
+
+- **Admin recovery page** -- A standalone Node.js server (zero dependencies, separate container) at `localhost:3006`. It can show git status, discard uncommitted changes, revert the last commit, and restart services. Because it runs in its own container with its own code, Jarvis cannot break it.
+- **Full git integration** -- The repo is the safety net. Every modification Claude makes is a file change you can diff, commit, or throw away. The web UI exposes git status, diff, log, commit, discard, and revert.
+- **Container isolation** -- The admin service mounts the Docker socket to restart backend/frontend containers independently. Even if the main app is completely broken, recovery is one click away.
+
+The recovery strategy: try discarding uncommitted changes first. If the repo is clean but still broken, revert the last commit.
+
+## Quick Start
 
 Requires Docker and Docker Compose.
 
 ```bash
-git clone <this-repo> jarvis
+git clone <repo-url> jarvis
 cd jarvis
 cp .env.example .env
-# Open .env and set JWT_SECRET and CLAUDE_CODE_OAUTH_TOKEN (see below)
+```
+
+Edit `.env` and set the three required variables:
+
+| Variable | How to get it |
+|----------|---------------|
+| `JWT_SECRET` | `openssl rand -hex 32` |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Run `claude login`, then copy the token from `~/.claude/.credentials.json` |
+| `INTERNAL_SECRET` | Leave blank -- auto-generated on first boot |
+
+```bash
 docker compose up -d
-open http://localhost:5173
 ```
 
-First visit will prompt you to create an admin account. From there, everything else — adding skill credentials, setting up crons, creating webhooks — happens inside the chat or in the Connectors page.
+Open `http://localhost:5173`. First visit prompts you to create an admin account.
 
-### Getting a Claude OAuth token
-
-Install the Claude CLI on any machine and run:
-
-```bash
-claude login
-cat ~/.claude/.credentials.json   # copy the accessToken value
-```
-
-Paste it into `.env` as `CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...`.
-
-### Generating a JWT secret
-
-```bash
-openssl rand -hex 32
-```
-
-### Optional: personal docker-compose overrides
-
-If you want to attach Jarvis to an existing Docker network or override ports, copy `docker-compose.override.example.yml` to `docker-compose.override.yml` and edit. Docker Compose will auto-merge it.
+The recovery page is at `http://localhost:3006` (bound to localhost only).
 
 ## Architecture
 
 ```
 jarvis/
-├── backend/          Fastify API + SSE streaming + cron scheduler
-├── frontend/         React SPA (chat UI, settings, connectors, mini-app preview)
+├── backend/          Fastify API + WebSocket streaming + cron scheduler
+├── frontend/         React SPA (chat, settings, connectors, mini-app preview)
 ├── session-manager/  Owns the Claude CLI subprocess lifecycle
-├── admin/            Emergency recovery page (zero-deps Node)
-├── agent/            Claude's config: CLAUDE.md, skills, rules, settings.json
-├── data/             SQLite DB + runtime state (gitignored)
-├── workspace/        Claude's scratch space: memory, uploads, mini-apps (gitignored)
+├── admin/            Emergency recovery page (zero-dep Node.js)
+├── agent/            Claude config: system prompt, skills, rules
+├── workspace/        Claude's scratch space: memory, uploads, mini-apps
 └── docker-compose.yml
 ```
 
-| Service          | Port   | Role                                   |
-|------------------|--------|----------------------------------------|
-| frontend         | 5173   | Web UI                                 |
-| backend          | 3005   | REST + SSE                             |
-| admin            | 3006   | Recovery page (bound to localhost)     |
-| session-manager  | —      | Internal — owns Claude CLI process     |
-| whisper          | —      | Internal — speech-to-text              |
+| Service | Port | Description |
+|---------|------|-------------|
+| frontend | 5173 | Web UI |
+| backend | 3005 | REST API + WebSocket |
+| admin | 3006 | Recovery page (localhost only) |
+| session-manager | -- | Internal: owns Claude CLI process |
+| whisper | -- | Internal: speech-to-text |
+| playwright | -- | Internal: browser automation via MCP |
 
-## Recovery
+- **Backend**: Fastify 5, better-sqlite3 (WAL mode), TypeScript
+- **Frontend**: React 19, Vite, Tailwind CSS 4, TypeScript
+- **AI engine**: Claude Code CLI spawned as a subprocess per conversation, streaming JSON events over WebSocket
+- **Infrastructure**: Docker Compose, Node 25
 
-If Jarvis ever breaks itself (it can edit its own code, so this can happen), open `http://localhost:3006` to discard uncommitted changes, revert the last commit, or restart the backend.
+## Make It Yours
 
-## Configuration
+The point of Jarvis is that it adapts to you. A few ways in:
 
-Only two `.env` variables are required:
+**Add connectors from the UI.** Go to Settings, then Connectors. Built-in options include Gmail, GitHub, Slack, Linear, and others. Credentials are stored in SQLite and injected into the Claude process at runtime -- no `.env` changes, no restarts.
 
-- `JWT_SECRET` — signs login tokens
-- `CLAUDE_CODE_OAUTH_TOKEN` — the Anthropic OAuth token from `claude login`
+**Create custom connectors.** Give it a name and a set of environment variable fields. That is it -- no code required. The values are available to Claude immediately.
 
-Everything else is optional — see `.env.example` for the full list. Skill credentials (Gmail, GitHub, etc.) are not set in `.env`; they are added through the UI and stored encrypted at rest in SQLite.
+**Write skills.** Skills are Markdown files in `agent/skills/<name>/SKILL.md`. Each one describes a capability -- when to use it, what tools to call, what APIs to hit. Claude reads the relevant skill automatically based on conversation context. You can also ask Claude to write skills for itself: "create a skill that queries my Notion database."
 
-## Teaching Jarvis new skills
+**Self-edit through chat.** This is the big one. Ask Jarvis to change its own interface, add a new API endpoint, or build a feature you want. It modifies the source directly, and hot reload picks up the changes. If something breaks, the admin page is there to revert.
 
-Skills are Markdown files in `agent/skills/<name>/SKILL.md`. Each file is an instruction to the Claude agent describing when to invoke the skill and how to use it (usually via `curl` or `bash`). No code to write — just explain the capability to the agent.
+## Stack
 
-The agent can also write skills itself. Tell it "create a skill that lets you query my Notion database," give it the API details, and it will generate the `SKILL.md` for you.
+TypeScript throughout. Node 25, Fastify 5, React 19, better-sqlite3, Vite, Tailwind CSS 4, Docker Compose. The AI engine is the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) running as a subprocess.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT

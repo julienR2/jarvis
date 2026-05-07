@@ -1,66 +1,54 @@
 ---
 name: add-connector
-description: Add a new third-party integration (connector) to Jarvis — catalog entry, optional test/proxy, and companion skill. Use ONLY when the user explicitly asks to add or integrate a new service (e.g. "add a connector for Jira", "integrate Notion", "hook up service X"). Do NOT activate from ambiguous requests.
+description: Add a new third-party integration (connector) to Jarvis — either via the custom connector API (for simple env-var connectors) or by editing the built-in catalog (for connectors that need test functions or proxy support). Use ONLY when the user explicitly asks to add or integrate a new service.
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 
 # Add Connector Skill
 
-You can extend Jarvis with a new connector — a catalog entry that lets the user save credentials in the UI, and (usually) a companion skill that uses those credentials.
+Extend Jarvis with a new connector so the user can save credentials in the UI and skills can use them as env vars.
 
-## When to use
+## Two approaches
 
-Only when the user explicitly asks to add a new integration. If unclear, ask: "Do you want me to wire up a new connector to Jarvis?"
+### 1. Custom connector (preferred for most cases)
 
-## Architecture primer
+Use the internal API to create a custom connector — no code changes needed.
 
-- **Catalog** (`/jarvis/backend/src/connectors.ts`): hardcoded list of connectors. Each has `id`, `name`, `description`, `icon` (Lucide name), `fields` (what the UI shows), optional `test()`, optional `proxy`.
-- **Secrets** are saved in the `connectors` DB table, not in `.env`.
-- **Injection**: at Claude process spawn, all saved secrets are exported as env vars. Skills reference them as `$FOO` or `${FOO}` — the shell expands them.
-- **Companion skill** (`/jarvis/agent/skills/<name>/SKILL.md`): tells you how to USE those env vars (curl commands, API patterns, etc.).
-
-## Step-by-step
-
-1. **Read `/jarvis/backend/src/connectors.ts`** — it's the source of truth. Look at `copyparty` as the canonical example (it shows fields + test + proxy).
-
-2. **Add a catalog entry** in `CONNECTOR_CATALOG`:
-
-```ts
-{
-  id: 'jira',                                          // lowercase, stable — used in URLs and DB
-  name: 'Jira',
-  description: 'Track issues and sprints',
-  icon: 'SquareKanban',                                // Lucide icon name
-  fields: [
-    { key: 'JIRA_URL', label: 'Base URL', type: 'text', placeholder: 'https://you.atlassian.net' },
-    { key: 'JIRA_EMAIL', label: 'Email', type: 'email' },
-    { key: 'JIRA_TOKEN', label: 'API token', type: 'password' },
-  ],
-  test: async (s) => {
-    // Return { ok: true, message: '...' } on success.
-    // Use fetchWithTimeout() — already in the file.
-  },
-},
+```bash
+curl -s -X POST http://localhost:3005/api/connectors/custom \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Jira",
+    "description": "Track issues and sprints",
+    "icon": "SquareKanban",
+    "fields": [
+      { "key": "JIRA_URL", "label": "Base URL", "type": "text", "placeholder": "https://you.atlassian.net" },
+      { "key": "JIRA_EMAIL", "label": "Email", "type": "email" },
+      { "key": "JIRA_TOKEN", "label": "API token", "type": "password" }
+    ]
+  }'
 ```
 
-3. **Optional: `proxy` config** — add this if the connector serves content that the browser needs inline (images, PDFs, files referenced in chat messages). The backend will expose `/api/connectors/:id/proxy/*` that streams from the internal URL with the declared auth header. See the `copyparty` entry.
+The connector appears in Settings immediately. At runtime, all saved secrets are injected as env vars into the AI process (`$JIRA_URL`, `$JIRA_TOKEN`, etc.).
 
-```ts
-proxy: {
-  baseUrlField: 'JIRA_URL',
-  authHeader: { name: 'Authorization', valueField: 'JIRA_TOKEN' },  // or omit if no auth header needed
-},
-```
+Available icons: Mail, Github, SquareKanban, Image, Database, MessageSquare, HardDrive, AudioLines, Globe, Key, Cloud, Zap, Bot, Plug.
 
-4. **Write the companion skill** at `/jarvis/agent/skills/<id>/SKILL.md`. Model it on an existing one (e.g. `linear/`, `gmail/`). Reference env vars directly (`$JIRA_TOKEN`), don't read the DB.
+### 2. Built-in connector (for test functions or proxy)
 
-5. **Restart is automatic** — `tsx watch` reloads the backend on save. The new connector shows up in the Settings UI immediately. Remind the user to fill in credentials there.
+Edit `/jarvis/backend/src/connectors.ts` and add to `CONNECTOR_CATALOG` — only needed when:
+- You want a **test function** that validates credentials before saving
+- You need **proxy support** (streaming content from an internal URL through the backend)
+
+Look at existing entries (e.g. `github`, `linear`) as templates.
+
+## After creating the connector
+
+1. **Write a companion skill** at `/jarvis/agent/skills/<id>/SKILL.md` — tells the AI how to use those env vars (curl commands, API patterns). Model on `linear/` or `gmail/`.
+2. Remind the user to fill in credentials at Settings > Connectors.
 
 ## Guidelines
 
-- **Don't edit `.env`** — credentials live in the DB, entered via the UI.
-- **Match existing style** — look at sibling entries before writing yours.
-- **Test functions should be fast** (≤5s) and return friendly messages. `fetchWithTimeout()` is already defined at the top of `connectors.ts`.
-- **Icons**: pick from [lucide.dev/icons](https://lucide.dev/icons). Any valid Lucide name works.
-- **Small steps** — write the catalog entry first, let the user confirm it appears in the UI and the test passes, THEN write the companion skill.
-- **No frontend work needed** — the Settings UI reads the catalog dynamically.
+- Credentials live in the DB, not in `.env`.
+- Skills reference env vars directly (`$JIRA_TOKEN`) — they're injected at process spawn.
+- Custom connectors can be updated via `PATCH /api/connectors/custom/:id` or deleted via `DELETE /api/connectors/custom/:id`.

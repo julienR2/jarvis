@@ -176,9 +176,9 @@ export async function internalRoutes(app: FastifyInstance) {
     return { ok: true }
   })
 
-  // ── Mini-apps ────────────────────────────────────────────────────────────
+  // ── Apps ─────────────────────────────────────────────────────────────────
 
-  app.post('/mini-apps', async (req, reply) => {
+  app.post('/apps', async (req, reply) => {
     if (!checkSecret(req, reply)) return
 
     const body = req.body as { conversation_id: string }
@@ -194,40 +194,38 @@ export async function internalRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Conversation not found' })
     }
 
-    const appDir = join(config.workspaceDir, 'mini-apps', body.conversation_id)
+    const appDir = join(config.workspaceDir, 'apps', body.conversation_id)
     mkdirSync(appDir, { recursive: true })
 
     getDb()
-      .prepare('UPDATE conversations SET mini_app_path = ? WHERE id = ?')
-      .run(`mini-apps/${body.conversation_id}`, body.conversation_id)
+      .prepare('UPDATE conversations SET app_path = ? WHERE id = ?')
+      .run(`apps/${body.conversation_id}`, body.conversation_id)
 
-    return { ok: true, path: `/jarvis/workspace/mini-apps/${body.conversation_id}` }
+    return { ok: true, path: `/jarvis/workspace/apps/${body.conversation_id}` }
   })
 
-  app.post<{ Params: { conversationId: string } }>('/mini-apps/:conversationId/notify', async (req, reply) => {
+  app.post<{ Params: { conversationId: string } }>('/apps/:conversationId/notify', async (req, reply) => {
     if (!checkSecret(req, reply)) return
 
-    emitConversationEvent(req.params.conversationId, { type: 'mini_app_updated' })
+    emitConversationEvent(req.params.conversationId, { type: 'app_updated' })
     return { ok: true }
   })
 
-  app.delete<{ Params: { conversationId: string } }>('/mini-apps/:conversationId', async (req, reply) => {
+  app.delete<{ Params: { conversationId: string } }>('/apps/:conversationId', async (req, reply) => {
     if (!checkSecret(req, reply)) return
 
     const { conversationId } = req.params
     const conv = getDb()
-      .prepare('SELECT id, mini_app_path FROM conversations WHERE id = ?')
+      .prepare('SELECT id, app_path FROM conversations WHERE id = ?')
       .get(conversationId) as ConvRow | undefined
 
     if (!conv) return reply.code(404).send({ error: 'Conversation not found' })
 
-    // Remove mini-app files
-    const appDir = join(config.workspaceDir, 'mini-apps', conversationId)
+    const appDir = join(config.workspaceDir, 'apps', conversationId)
     if (existsSync(appDir)) rmSync(appDir, { recursive: true, force: true })
 
-    // Clear mini_app_path on the conversation
     getDb()
-      .prepare('UPDATE conversations SET mini_app_path = NULL, updated_at = unixepoch() WHERE id = ?')
+      .prepare('UPDATE conversations SET app_path = NULL, updated_at = unixepoch() WHERE id = ?')
       .run(conversationId)
 
     return { ok: true }

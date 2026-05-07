@@ -3,14 +3,14 @@ import { api, connectEvents, type ChatEvent } from '../api'
 import { useChatStore } from '../stores/chatStore'
 
 // Subscribes to the per-conversation SSE stream and dispatches into the chat store.
-// Returns a key that bumps when the backend reports a mini-app refresh, so callers
-// can pass it to MiniAppPreview's `refreshKey` to force the iframe to reload.
+// Returns a key that bumps when the backend reports an app refresh, so callers
+// can pass it to AppPreview's `refreshKey` to force the iframe to reload.
 export function useChatEvents(conversationId: string | undefined): {
-  miniAppRefreshKey: number
-  bumpMiniApp: () => void
+  appRefreshKey: number
+  bumpApp: () => void
 } {
-  const [miniAppRefreshKey, setMiniAppRefreshKey] = useState(0)
-  const bumpMiniApp = () => setMiniAppRefreshKey((k) => k + 1)
+  const [appRefreshKey, setAppRefreshKey] = useState(0)
+  const bumpApp = () => setAppRefreshKey((k) => k + 1)
 
   const convIdRef = useRef(conversationId)
   useEffect(() => {
@@ -37,9 +37,9 @@ export function useChatEvents(conversationId: string | undefined): {
         case 'thinking':
           s.setProcessing(cid, ev.thinking)
           break
-        case 'mini_app_updated':
+        case 'app_updated':
           s.loadConversation(cid)
-          setMiniAppRefreshKey((k) => k + 1)
+          setAppRefreshKey((k) => k + 1)
           break
       }
     }
@@ -57,5 +57,5 @@ export function useChatEvents(conversationId: string | undefined): {
     return () => conn.close()
   }, [conversationId])
 
-  return { miniAppRefreshKey, bumpMiniApp }
+  return { appRefreshKey, bumpApp }
 }

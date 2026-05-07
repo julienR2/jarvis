@@ -1,5 +1,5 @@
 import { getDb } from './db.js'
-import type { ConnectorRow } from './types.js'
+import type { ConnectorRow, CustomConnectorRow } from './types.js'
 
 // ── Connector catalog ───────────────────────────────────────────────────────
 // Each entry defines a connector with the env vars it injects into the Claude
@@ -110,53 +110,6 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
     },
   },
   {
-    id: 'imagerouter',
-    name: 'ImageRouter',
-    description: 'Generate AI images',
-    icon: 'Image',
-    fields: [
-      { key: 'IMAGEROUTER_API_KEY', label: 'API key', type: 'password', placeholder: 'ir-...' },
-    ],
-    test: async ({ IMAGEROUTER_API_KEY }) => {
-      const r = await fetchWithTimeout('https://api.imagerouter.io/v1/openai/models', {
-        headers: { Authorization: `Bearer ${IMAGEROUTER_API_KEY}` },
-      })
-      if (r.ok) return { ok: true, message: 'API key valid' }
-      if (r.status === 401) return { ok: false, message: 'Invalid API key' }
-      return { ok: false, message: `ImageRouter returned ${r.status}` }
-    },
-  },
-  {
-    id: 'pocketbase',
-    name: 'PocketBase',
-    description: 'Access financial data and records',
-    icon: 'Database',
-    fields: [
-      { key: 'POCKETBASE_INTERNAL_URL', label: 'Internal URL', type: 'text', placeholder: 'http://pocketbase:8090' },
-      { key: 'POCKETBASE_PUBLIC_URL', label: 'Public URL', type: 'text', placeholder: 'https://pb.example.com' },
-      { key: 'POCKETBASE_EMAIL', label: 'Email', type: 'email' },
-      { key: 'POCKETBASE_PASSWORD', label: 'Password', type: 'password' },
-    ],
-    test: async (s) => {
-      const url = s.POCKETBASE_INTERNAL_URL || s.POCKETBASE_PUBLIC_URL
-      if (!url) return { ok: false, message: 'No URL provided' }
-      const body = JSON.stringify({ identity: s.POCKETBASE_EMAIL, password: s.POCKETBASE_PASSWORD })
-      // Try the PocketBase v0.23+ superusers endpoint first, then fall back to legacy admins.
-      for (const path of ['/api/collections/_superusers/auth-with-password', '/api/admins/auth-with-password']) {
-        try {
-          const r = await fetchWithTimeout(`${url.replace(/\/$/, '')}${path}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body,
-          })
-          if (r.ok) return { ok: true, message: 'PocketBase admin login successful' }
-          if (r.status === 400) return { ok: false, message: 'Invalid credentials' }
-        } catch { /* try next path */ }
-      }
-      return { ok: false, message: 'Could not reach PocketBase' }
-    },
-  },
-  {
     id: 'slack',
     name: 'Slack',
     description: 'Send and read messages as yourself',
@@ -177,40 +130,83 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
     },
   },
   {
-    id: 'copyparty',
-    name: 'Copyparty',
-    description: 'Browse and manage files on personal drive',
-    icon: 'HardDrive',
+    id: 'elevenlabs',
+    name: 'ElevenLabs',
+    description: 'Speech-to-text transcription (replaces Whisper)',
+    icon: 'AudioLines',
     fields: [
-      { key: 'COPYPARTY_INTERNAL_URL', label: 'Internal URL', type: 'text', placeholder: 'http://copyparty:3923' },
-      { key: 'COPYPARTY_PUBLIC_URL', label: 'Public URL', type: 'text', placeholder: 'https://drive.example.com' },
-      { key: 'COPYPARTY_PASSWORD', label: 'Password', type: 'password' },
+      { key: 'ELEVENLABS_API_KEY', label: 'API key', type: 'password', placeholder: 'sk_...' },
     ],
-    proxy: {
-      baseUrlField: 'COPYPARTY_INTERNAL_URL',
-      authHeader: { name: 'PW', valueField: 'COPYPARTY_PASSWORD' },
-    },
-    test: async (s) => {
-      const url = s.COPYPARTY_INTERNAL_URL || s.COPYPARTY_PUBLIC_URL
-      if (!url) return { ok: false, message: 'No URL provided' }
-      try {
-        const r = await fetchWithTimeout(`${url.replace(/\/$/, '')}/?ls`, {
-          headers: { PW: s.COPYPARTY_PASSWORD ?? '' },
-        })
-        if (r.ok) return { ok: true, message: 'Copyparty reachable' }
-        if (r.status === 401 || r.status === 403) return { ok: false, message: 'Wrong password' }
-        return { ok: false, message: `Copyparty returned ${r.status}` }
-      } catch {
-        return { ok: false, message: 'Could not reach Copyparty' }
+    test: async ({ ELEVENLABS_API_KEY }) => {
+      const r = await fetchWithTimeout('https://api.elevenlabs.io/v1/user', {
+        headers: { 'xi-api-key': ELEVENLABS_API_KEY },
+      })
+      if (r.ok) {
+        const data = await r.json().catch(() => null) as { first_name?: string } | null
+        return { ok: true, message: `Connected${data?.first_name ? ` as ${data.first_name}` : ''}` }
       }
+      if (r.status === 401) return { ok: false, message: 'Invalid API key' }
+      return { ok: false, message: `ElevenLabs returned ${r.status}` }
     },
   },
 ]
 
 const catalogMap = new Map(CONNECTOR_CATALOG.map((c) => [c.id, c]))
 
+function customRowToDef(row: CustomConnectorRow): ConnectorDef {
+  let fields: ConnectorField[] = []
+  try { fields = JSON.parse(row.fields_json) } catch { /* */ }
+  return { id: row.id, name: row.name, description: row.description, icon: row.icon, fields }
+}
+
 export function getCatalogDef(id: string): ConnectorDef | undefined {
-  return catalogMap.get(id)
+  const builtin = catalogMap.get(id)
+  if (builtin) return builtin
+  const custom = getDb().prepare('SELECT * FROM custom_connectors WHERE id = ?').get(id) as CustomConnectorRow | undefined
+  return custom ? customRowToDef(custom) : undefined
+}
+
+export function getFullCatalog(): ConnectorDef[] {
+  const customs = (getDb().prepare('SELECT * FROM custom_connectors ORDER BY created_at ASC').all() as CustomConnectorRow[])
+    .map(customRowToDef)
+  return [...CONNECTOR_CATALOG, ...customs]
+}
+
+// ── Custom connector CRUD ─────────────────────────────────────────────────
+
+export function getAllCustomConnectors(): CustomConnectorRow[] {
+  return getDb().prepare('SELECT * FROM custom_connectors ORDER BY created_at ASC').all() as CustomConnectorRow[]
+}
+
+export function getCustomConnector(id: string): CustomConnectorRow | undefined {
+  return getDb().prepare('SELECT * FROM custom_connectors WHERE id = ?').get(id) as CustomConnectorRow | undefined
+}
+
+export function createCustomConnector(def: { id: string; name: string; description: string; icon: string; fields: ConnectorField[] }): CustomConnectorRow {
+  getDb()
+    .prepare('INSERT INTO custom_connectors (id, name, description, icon, fields_json) VALUES (?, ?, ?, ?, ?)')
+    .run(def.id, def.name, def.description, def.icon, JSON.stringify(def.fields))
+  return getCustomConnector(def.id)!
+}
+
+export function updateCustomConnector(id: string, def: { name?: string; description?: string; icon?: string; fields?: ConnectorField[] }): CustomConnectorRow | null {
+  const existing = getCustomConnector(id)
+  if (!existing) return null
+  getDb()
+    .prepare('UPDATE custom_connectors SET name = ?, description = ?, icon = ?, fields_json = ?, updated_at = unixepoch() WHERE id = ?')
+    .run(
+      def.name ?? existing.name,
+      def.description ?? existing.description,
+      def.icon ?? existing.icon,
+      def.fields ? JSON.stringify(def.fields) : existing.fields_json,
+      id,
+    )
+  return getCustomConnector(id)!
+}
+
+export function deleteCustomConnector(id: string): boolean {
+  deleteConnector(id)
+  return getDb().prepare('DELETE FROM custom_connectors WHERE id = ?').run(id).changes > 0
 }
 
 // ── DB helpers ──────────────────────────────────────────────────────────────
@@ -240,6 +236,14 @@ export function upsertConnector(id: string, secrets: Record<string, string>): Co
 export function deleteConnector(id: string): boolean {
   const result = getDb().prepare('DELETE FROM connectors WHERE id = ?').run(id)
   return result.changes > 0
+}
+
+export function getConnectorSecrets(id: string): Record<string, string> | null {
+  const row = getConnector(id)
+  if (!row) return null
+  try {
+    return JSON.parse(row.secrets_json) as Record<string, string>
+  } catch { return null }
 }
 
 // ── Env var export ──────────────────────────────────────────────────────────

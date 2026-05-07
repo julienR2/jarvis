@@ -4,7 +4,7 @@ import { getDb } from '../db.js'
 // Android supports up to 4 static shortcuts on most launchers.
 const MAX_SHORTCUTS = 4
 
-type MiniAppRow = { id: string; title: string | null }
+type ConvRow = { id: string; title: string | null }
 
 // Extract the first emoji character from a string.
 function extractEmoji(str: string): string | null {
@@ -26,17 +26,17 @@ function emojiIconUrl(emoji: string): string | null {
 
 export async function manifestRoutes(app: FastifyInstance) {
   app.get('/manifest.webmanifest', async (_req, reply) => {
-    const miniApps = getDb()
+    const pinned = getDb()
       .prepare(
         `SELECT id, title FROM conversations
-         WHERE mini_app_path IS NOT NULL
+         WHERE pinned = 1
          ORDER BY updated_at DESC
          LIMIT ?`,
       )
-      .all(MAX_SHORTCUTS) as MiniAppRow[]
+      .all(MAX_SHORTCUTS) as ConvRow[]
 
-    const shortcuts = miniApps.map((m) => {
-      const name = m.title?.trim() || 'Mini app'
+    const shortcuts = pinned.map((c) => {
+      const name = c.title?.trim() || 'Chat'
       const emoji = extractEmoji(name)
       const cdnUrl = emoji ? emojiIconUrl(emoji) : null
 
@@ -48,7 +48,7 @@ export async function manifestRoutes(app: FastifyInstance) {
         name,
         short_name: name.slice(0, 12),
         description: name,
-        url: `/c/${m.id}`,
+        url: `/c/${c.id}`,
         icons,
       }
     })

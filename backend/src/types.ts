@@ -2,7 +2,7 @@ export interface ConvRow {
   id: string
   title: string
   claude_session_id: string | null
-  mini_app_path: string | null
+  app_path: string | null
   notify: 'subscribe' | 'unsubscribe' | 'auto'
   model: string | null
   thinking: number
@@ -47,6 +47,8 @@ export interface WebhookRow {
   enabled: number
   model: string | null
   thinking: number
+  notify: 'auto' | 'never' | 'always'
+  user_message_key: string | null
   last_run: number | null
   last_result: string | null
   created_at: number
@@ -63,5 +65,15 @@ export interface ConnectorRow {
   id: string
   secrets_json: string
   connected_at: number
+  updated_at: number
+}
+
+export interface CustomConnectorRow {
+  id: string
+  name: string
+  description: string
+  icon: string
+  fields_json: string
+  created_at: number
   updated_at: number
 }

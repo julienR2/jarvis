@@ -13,7 +13,7 @@ import { useChatEvents } from '../hooks/useChatEvents'
 import MessageBubble from './MessageBubble'
 import ChatInput from './ChatInput'
 import { DEFAULT_MODEL } from './ModelSelector'
-import MiniAppPreview from './MiniAppPreview'
+import AppPreview from './AppPreview'
 import { ContentTitle } from './ContentLayout'
 import ConversationMenu from './ConversationMenu'
 
@@ -62,7 +62,7 @@ export default function ChatView({
   )
 
   const title = conv?.title ?? ''
-  const hasMiniApp = !!conv?.mini_app_path
+  const hasApp = !!conv?.app_path
   const notify: Conversation['notify'] = conv?.notify ?? 'subscribe'
   const model = conv?.model ?? DEFAULT_MODEL
   const thinking = !!conv?.thinking
@@ -71,7 +71,7 @@ export default function ChatView({
   const pinned = !!conv?.pinned
   const showSkeleton = !loaded && messages.length === 0
 
-  const { miniAppRefreshKey, bumpMiniApp } = useChatEvents(conversationId)
+  const { appRefreshKey, bumpApp } = useChatEvents(conversationId)
   const [showPreview, setShowPreview] = useState(true)
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
@@ -250,7 +250,7 @@ export default function ChatView({
           >
             <span className='flex items-center gap-3'>
               <span className='truncate flex-1'>{title}</span>
-              {hasMiniApp && (
+              {hasApp && (
                 <span className='flex bg-surface2 rounded-lg p-0.5 shrink-0'>
                   <button
                     onClick={() => setShowPreview(false)}
@@ -275,7 +275,7 @@ export default function ChatView({
       <div className='flex flex-1 min-h-0'>
         {/* Chat pane */}
         <div
-          className={`flex flex-col h-full ${hasMiniApp ? 'md:w-3/5 md:border-r md:border-border' : 'w-full'} ${hasMiniApp && showPreview ? 'hidden md:flex' : 'flex w-full'}`}
+          className={`flex flex-col h-full ${hasApp ? 'md:w-3/5 md:border-r md:border-border' : 'w-full'} ${hasApp && showPreview ? 'hidden md:flex' : 'flex w-full'}`}
         >
           {/* Desktop title — inside chat pane so preview gets full height */}
           {title && (
@@ -339,14 +339,14 @@ export default function ChatView({
         </div>
 
         {/* Preview pane */}
-        {hasMiniApp && (
+        {hasApp && (
           <div
             className={`${showPreview ? 'flex' : 'hidden md:flex'} flex-col h-full ${showPreview ? 'w-full' : ''} md:w-2/5`}
           >
-            <MiniAppPreview
+            <AppPreview
               conversationId={conversationId!}
-              refreshKey={miniAppRefreshKey}
-              onRefresh={bumpMiniApp}
+              refreshKey={appRefreshKey}
+              onRefresh={bumpApp}
               shareIntent={shareIntent}
               onShareIntentConsumed={onShareIntentConsumed}
             />

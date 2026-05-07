@@ -6,7 +6,7 @@ import {
   useLocation,
   useSearchParams,
 } from 'react-router-dom'
-import { Plus, MessageSquare, FileText, X, AppWindow, Layers, Clock, Link2 } from 'lucide-react'
+import { Plus, MessageSquare, FileText, X, AppWindow, Pin, Clock, Link2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import Sidebar from '../components/Sidebar'
 import ChatView from '../components/ChatView'
@@ -142,7 +142,7 @@ export default function ChatPage() {
                     useChatStore.getState().loadConversations()
                     navigate(`/c/${convId}`, { replace: true })
                   }}
-                  onMiniAppPick={(convId, intent) => {
+                  onAppPick={(convId, intent) => {
                     setShareIntent(intent)
                     useChatStore.getState().loadConversations()
                     navigate(`/c/${convId}`, { replace: true })
@@ -184,11 +184,11 @@ function getGreeting(): string {
 
 function Welcome({ onNew }: { onNew: () => void }) {
   const navigate = useNavigate()
-  const spaces = useChatStore(
+  const pinned = useChatStore(
     useShallow((s) =>
       s.order
         .map((id) => s.conversations[id])
-        .filter((c) => c && (c.mini_app_path || c.has_cron || c.has_webhook)),
+        .filter((c) => c && c.pinned),
     ),
   )
 
@@ -221,34 +221,34 @@ function Welcome({ onNew }: { onNew: () => void }) {
         </button>
       </div>
 
-      {/* Spaces grid */}
-      {spaces.length > 0 && (
+      {/* Pinned grid */}
+      {pinned.length > 0 && (
         <div className='max-w-2xl w-full mx-auto px-4 pb-8 mt-2'>
           <h2 className='text-xs font-medium text-text-muted uppercase tracking-wider mb-3 flex items-center gap-1.5'>
-            <Layers size={13} />
-            Spaces
+            <Pin size={13} />
+            Pinned
           </h2>
           <div className='grid grid-cols-2 md:grid-cols-3 gap-3'>
-            {spaces.map((space) => (
+            {pinned.map((conv) => (
               <button
-                key={space.id}
-                onClick={() => navigate(`/c/${space.id}`)}
+                key={conv.id}
+                onClick={() => navigate(`/c/${conv.id}`)}
                 className='flex flex-col gap-2 px-4 py-3 rounded-xl bg-surface border border-border hover:border-accent/40 hover:bg-surface2 transition-colors text-left'
               >
                 <span className='flex items-center justify-between gap-1.5'>
                   <span className='flex items-center gap-1.5 text-text-muted'>
-                    {!!space.mini_app_path && <AppWindow size={13} />}
-                    {!!space.has_cron && <Clock size={13} />}
-                    {!!space.has_webhook && <Link2 size={13} />}
+                    {!!conv.app_path && <AppWindow size={13} />}
+                    {!!conv.has_cron && <Clock size={13} />}
+                    {!!conv.has_webhook && <Link2 size={13} />}
                   </span>
-                  {space.unread_count > 0 && (
+                  {conv.unread_count > 0 && (
                     <span className='min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[11px] font-medium'>
-                      {space.unread_count}
+                      {conv.unread_count}
                     </span>
                   )}
                 </span>
                 <span className='text-sm text-text-primary truncate'>
-                  {space.title}
+                  {conv.title}
                 </span>
               </button>
             ))}
@@ -294,18 +294,18 @@ async function retrieveSharedFiles(): Promise<File[]> {
 
 function ShareHandler({
   onReady,
-  onMiniAppPick,
+  onAppPick,
 }: {
   onReady: (convId: string, message: string, files?: File[]) => void
-  onMiniAppPick: (convId: string, intent: { title?: string; text?: string; url?: string; files?: File[] }) => void
+  onAppPick: (convId: string, intent: { title?: string; text?: string; url?: string; files?: File[] }) => void
 }) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const conversations = useChatStore(
     useShallow((s) => s.order.map((id) => s.conversations[id]).filter(Boolean) as Conversation[]),
   )
-  const miniApps = conversations.filter(c => c.mini_app_path)
-  const regularConvs = conversations.filter(c => !c.mini_app_path)
+  const apps = conversations.filter(c => c.app_path)
+  const regularConvs = conversations.filter(c => !c.app_path)
   const [message, setMessage] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [previews, setPreviews] = useState<string[]>([])
@@ -361,10 +361,10 @@ function ShareHandler({
     }
   }
 
-  function pickMiniApp(convId: string) {
+  function pickApp(convId: string) {
     if (sending) return
     setSending(true)
-    onMiniAppPick(convId, {
+    onAppPick(convId, {
       title: searchParams.get('title') || undefined,
       text: searchParams.get('text') || undefined,
       url: searchParams.get('url') || undefined,
@@ -441,19 +441,19 @@ function ShareHandler({
 
       {/* Conversation picker */}
       <div className='flex-1 overflow-y-auto'>
-        {/* Mini Apps */}
-        {miniApps.length > 0 && (
+        {/* Apps */}
+        {apps.length > 0 && (
           <>
             <div className='px-4 pt-3 pb-1'>
               <h3 className='text-xs font-medium text-text-muted uppercase tracking-wider flex items-center gap-1.5'>
                 <AppWindow size={13} />
-                Mini Apps
+                Apps
               </h3>
             </div>
-            {miniApps.map((conv) => (
+            {apps.map((conv) => (
               <button
                 key={conv.id}
-                onClick={() => pickMiniApp(conv.id)}
+                onClick={() => pickApp(conv.id)}
                 disabled={sending}
                 className='w-full flex items-center gap-3 px-4 py-2.5 hover:bg-surface transition-colors disabled:opacity-50'
               >

@@ -69,12 +69,13 @@ export function initDb(): void {
     );
   `)
 
-  // Migration: add mini_app_path to conversations
+  // Migration: add app_path to conversations
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN mini_app_path TEXT DEFAULT NULL`)
-  } catch {
-    // Column already exists
-  }
+  } catch { /* already exists */ }
+  try {
+    db.exec(`ALTER TABLE conversations RENAME COLUMN mini_app_path TO app_path`)
+  } catch { /* already renamed */ }
 
   // Migration: add type column to messages
   try {
@@ -150,6 +151,14 @@ export function initDb(): void {
     db.exec(`ALTER TABLE webhooks ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0`)
   } catch { /* already exists */ }
 
+  // Migration: add notify + user_message_key to webhooks
+  try {
+    db.exec(`ALTER TABLE webhooks ADD COLUMN notify TEXT NOT NULL DEFAULT 'auto'`)
+  } catch { /* already exists */ }
+  try {
+    db.exec(`ALTER TABLE webhooks ADD COLUMN user_message_key TEXT DEFAULT NULL`)
+  } catch { /* already exists */ }
+
   // Connectors table — stores API keys/tokens for external services
   // Drop legacy schema (had connector_id instead of id, extra metadata_json column)
   try {
@@ -163,6 +172,19 @@ export function initDb(): void {
       id TEXT PRIMARY KEY,
       secrets_json TEXT NOT NULL DEFAULT '{}',
       connected_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `)
+
+  // Custom connector definitions — user-created connectors (no test/proxy)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS custom_connectors (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      icon TEXT NOT NULL DEFAULT 'Plug',
+      fields_json TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch())
     )
   `)

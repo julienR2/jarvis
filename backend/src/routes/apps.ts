@@ -12,11 +12,11 @@ function extractToken(req: any): string | null {
   if (auth?.startsWith('Bearer ')) return auth.slice(7)
 
   const cookie = req.headers.cookie || ''
-  const match = cookie.match(/jarvis_ma=([^;]+)/)
+  const match = cookie.match(/jarvis_app=([^;]+)/)
   return match ? match[1] : null
 }
 
-export async function miniAppRoutes(app: FastifyInstance) {
+export async function appRoutes(app: FastifyInstance) {
   // Auth gate — runs before fastify-static serves any file
   app.addHook('onRequest', async (req, reply) => {
     const token = extractToken(req)
@@ -31,11 +31,11 @@ export async function miniAppRoutes(app: FastifyInstance) {
     // Set cookie so sub-resources (CSS, JS, images) are also authenticated
     reply.header(
       'Set-Cookie',
-      `jarvis_ma=${token}; HttpOnly; SameSite=Strict; Path=/api/mini-apps; Max-Age=86400`,
+      `jarvis_app=${token}; HttpOnly; SameSite=Strict; Path=/api/apps; Max-Age=86400`,
     )
   })
 
-  const root = join(config.workspaceDir, 'mini-apps')
+  const root = join(config.workspaceDir, 'apps')
   mkdirSync(root, { recursive: true })
 
   await app.register(fastifyStatic, {
