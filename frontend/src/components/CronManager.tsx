@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, type Cron, type CronInput } from '../api'
 import ContentLayout from './ContentLayout'
+import ModelSelector, { MODELS } from './ModelSelector'
 
 const EMPTY: CronInput = {
   name: '',
@@ -9,6 +10,8 @@ const EMPTY: CronInput = {
   prompt: '',
   enabled: true,
   once: false,
+  model: 'claude-sonnet-4-6',
+  thinking: false,
 }
 
 export default function CronManager() {
@@ -67,6 +70,8 @@ export default function CronManager() {
       prompt: cron.prompt,
       enabled: !!cron.enabled,
       once: !!cron.once,
+      model: cron.model ?? 'claude-sonnet-4-6',
+      thinking: !!cron.thinking,
     })
   }
 
@@ -118,7 +123,7 @@ export default function CronManager() {
           className='bg-surface2 border border-border text-text-primary rounded-lg px-3 py-2 text-sm resize-y focus:border-accent'
         />
 
-        <div className='flex gap-4 items-center text-sm'>
+        <div className='flex flex-wrap gap-4 items-center text-sm'>
           <label className='flex gap-1.5 items-center cursor-pointer text-text-muted'>
             <input
               type='checkbox'
@@ -137,6 +142,14 @@ export default function CronManager() {
             />
             Run once
           </label>
+
+          <ModelSelector
+            model={form.model ?? 'claude-sonnet-4-6'}
+            thinking={form.thinking ?? true}
+            onModelChange={(m) => setForm({ ...form, model: m })}
+            onThinkingChange={(t) => setForm({ ...form, thinking: t })}
+            direction='down'
+          />
 
           <div className='flex-1' />
 
@@ -181,6 +194,8 @@ export default function CronManager() {
               <div className='text-xs text-text-muted font-mono'>
                 {cron.schedule}
                 {cron.once ? ' \u00B7 once' : ''}
+                {' \u00B7 '}{MODELS.find(m => m.id === cron.model)?.name ?? 'Opus 4.6'}
+                {cron.thinking ? ' Extended' : ''}
                 {cron.last_run
                   ? ` \u00B7 last: ${new Date(cron.last_run * 1000).toLocaleString('fr-FR')}`
                   : ''}

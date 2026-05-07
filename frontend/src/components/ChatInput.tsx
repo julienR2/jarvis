@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send, Square, Paperclip, X, FileText } from 'lucide-react'
 import AudioButton from './AudioButton'
+import ModelSelector, { DEFAULT_MODEL } from './ModelSelector'
 import { api, type Attachment } from '../api'
 
 export interface PendingFile {
@@ -12,7 +13,7 @@ export interface PendingFile {
 }
 
 interface Props {
-  onSend: (text: string, attachments: Attachment[]) => void
+  onSend: (text: string, attachments: Attachment[], model: string, thinking: boolean) => void
   onSendAudio: (blob: Blob) => Promise<{ id: string; transcript: string } | undefined>
   onCancel: () => void
   isProcessing: boolean
@@ -27,6 +28,8 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
   const [audioActive, setAudioActive] = useState(false)
   const [files, setFiles] = useState<PendingFile[]>([])
   const [dragOver, setDragOver] = useState(false)
+  const [model, setModel] = useState(DEFAULT_MODEL)
+  const [thinking, setThinking] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -102,7 +105,7 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
 
     if (!input.trim() && attachments.length === 0) return
 
-    onSend(input, attachments)
+    onSend(input, attachments, model, thinking)
     // Clean up previews
     files.forEach(f => { if (f.preview) URL.revokeObjectURL(f.preview) })
     setFiles([])
@@ -211,30 +214,8 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
             </div>
           )}
 
-          {/* Input row */}
-          <div className="flex items-end gap-2 px-4 py-2.5">
-            {/* Attach button */}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isProcessing}
-              className="p-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-bg transition-colors disabled:opacity-30"
-              title="Attach file"
-            >
-              <Paperclip size={16} />
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv,.json,.xml,.yaml,.yml"
-              className="hidden"
-              onChange={(e) => {
-                const selected = Array.from(e.target.files || [])
-                if (selected.length > 0) addFiles(selected)
-                e.target.value = ''
-              }}
-            />
-
+          {/* Textarea row — full width */}
+          <div className="px-4 pt-3 pb-1">
             <textarea
               ref={textareaRef}
               value={input}
@@ -246,9 +227,45 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
               placeholder="How can I help you today?"
               disabled={audioActive}
               rows={1}
-              className="flex-1 resize-none max-h-[200px] overflow-y-auto bg-transparent text-text-primary placeholder:text-text-muted text-sm leading-relaxed py-1 focus:outline-none disabled:opacity-50"
+              className="w-full resize-none max-h-[200px] overflow-y-auto bg-transparent text-text-primary placeholder:text-text-muted text-sm leading-relaxed focus:outline-none disabled:opacity-50"
             />
-            <div className="flex items-center gap-1 shrink-0">
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv,.json,.xml,.yaml,.yml"
+            className="hidden"
+            onChange={(e) => {
+              const selected = Array.from(e.target.files || [])
+              if (selected.length > 0) addFiles(selected)
+              e.target.value = ''
+            }}
+          />
+
+          {/* Bottom bar — attach left, model + actions right */}
+          <div className="flex items-center justify-between px-2 pb-2">
+            {/* Attach button */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isProcessing}
+              className="p-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-bg transition-colors disabled:opacity-30"
+              title="Attach file"
+            >
+              <Paperclip size={16} />
+            </button>
+
+            <div className="flex items-center gap-1">
+              {/* Model selector */}
+              <ModelSelector
+                model={model}
+                thinking={thinking}
+                onModelChange={setModel}
+                onThinkingChange={setThinking}
+                disabled={isProcessing}
+              />
+
               {/* AudioButton always mounted to preserve state; visible when idle mic or actively recording */}
               <div className={showMic || audioActive ? '' : 'hidden'}>
                 <AudioButton

@@ -68,10 +68,12 @@ export const api = {
     request<{ ok: boolean }>('DELETE', `/conversations/${id}`),
 
   // Messages
-  sendMessage: (conversationId: string, content: string, attachments?: Attachment[]) =>
+  sendMessage: (conversationId: string, content: string, attachments?: Attachment[], model?: string, thinking?: boolean) =>
     request<{ id: string }>('POST', `/conversations/${conversationId}/messages`, {
       content,
       attachments: attachments?.length ? attachments : undefined,
+      model,
+      thinking,
     }),
 
   cancelMessage: (conversationId: string) =>
@@ -125,6 +127,13 @@ export const api = {
   getVapidKey: () => request<{ key: string }>('GET', '/push/vapid-key'),
   subscribePush: (subscription: PushSubscriptionJSON) =>
     request<{ ok: boolean }>('POST', '/push/subscribe', { subscription }),
+
+  // Connectors
+  getConnectors: () => request<ConnectorInfo[]>('GET', '/connectors'),
+  getConnector: (id: string) => request<ConnectorDetail>('GET', `/connectors/${id}`),
+  saveConnector: (id: string, secrets: Record<string, string>) =>
+    request<ConnectorInfo>('POST', `/connectors/${id}`, { secrets }),
+  deleteConnector: (id: string) => request<{ ok: boolean }>('DELETE', `/connectors/${id}`),
 }
 
 // ── SSE connection ───────────────────────────────────────────────────────────
@@ -259,6 +268,8 @@ export interface Cron {
   conversation_id: string | null
   enabled: number
   once: number
+  model: string | null
+  thinking: number
   last_run: number | null
   last_result: string | null
   created_at: number
@@ -270,6 +281,8 @@ export interface CronInput {
   prompt: string
   enabled?: boolean
   once?: boolean
+  model?: string
+  thinking?: boolean
 }
 
 export interface Webhook {
@@ -279,6 +292,8 @@ export interface Webhook {
   prompt: string
   conversation_id: string | null
   enabled: number
+  model: string | null
+  thinking: number
   last_run: number | null
   last_result: string | null
   created_at: number
@@ -288,6 +303,8 @@ export interface WebhookInput {
   name: string
   prompt: string
   enabled?: boolean
+  model?: string
+  thinking?: boolean
 }
 
 export interface FileEntry {
@@ -306,6 +323,28 @@ export interface Attachment {
   size: number
   url: string
   path: string
+}
+
+export interface ConnectorField {
+  key: string
+  label: string
+  type: 'text' | 'password' | 'email'
+  placeholder?: string
+}
+
+export interface ConnectorInfo {
+  id: string
+  name: string
+  description: string
+  icon: string
+  fields: ConnectorField[]
+  connected: boolean
+  connected_at: number | null
+  updated_at: number | null
+}
+
+export interface ConnectorDetail extends ConnectorInfo {
+  secrets: Record<string, string>
 }
 
 export type ChatEvent =

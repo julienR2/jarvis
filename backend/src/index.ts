@@ -19,6 +19,7 @@ import { pushRoutes } from './routes/push.js'
 import { miniAppRoutes } from './routes/mini-apps.js'
 import { internalRoutes } from './routes/internal.js'
 import { gitRoutes } from './routes/git.js'
+import { connectorRoutes } from './routes/connectors.js'
 import { startCronScheduler } from './crons.js'
 import { initPush } from './push.js'
 import { subscribeGlobal, addGlobalClient, removeGlobalClient } from './sse.js'
@@ -95,6 +96,7 @@ await app.register(pushRoutes, { prefix: '/api/push' })
 await app.register(miniAppRoutes, { prefix: '/api/mini-apps' })
 await app.register(internalRoutes, { prefix: '/internal' })
 await app.register(gitRoutes, { prefix: '/api/git' })
+await app.register(connectorRoutes, { prefix: '/api/connectors' })
 
 // ── Global SSE (app-level events) ────────────────────────────────────────────
 

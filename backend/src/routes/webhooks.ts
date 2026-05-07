@@ -15,6 +15,8 @@ export async function webhookRoutes(app: FastifyInstance) {
       name: string
       prompt: string
       enabled?: boolean
+      model?: string
+      thinking?: boolean
     }
 
     if (!body.name || !body.prompt) {
@@ -24,10 +26,12 @@ export async function webhookRoutes(app: FastifyInstance) {
     const id = uuid()
     const token = uuid()
     const enabled = body.enabled !== false ? 1 : 0
+    const model = body.model ?? 'claude-sonnet-4-6'
+    const thinking = body.thinking ? 1 : 0
 
     getDb()
-      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled) VALUES (?, ?, ?, ?, ?)')
-      .run(id, body.name, token, body.prompt, enabled)
+      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, model, thinking) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, token, body.prompt, enabled, model, thinking)
 
     return getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(id)
   })
@@ -37,6 +41,8 @@ export async function webhookRoutes(app: FastifyInstance) {
       name: string
       prompt: string
       enabled: boolean
+      model: string
+      thinking: boolean
     }>
 
     const existing = getDb()
@@ -49,11 +55,13 @@ export async function webhookRoutes(app: FastifyInstance) {
       name: body.name ?? existing.name,
       prompt: body.prompt ?? existing.prompt,
       enabled: body.enabled !== undefined ? (body.enabled ? 1 : 0) : existing.enabled,
+      model: body.model ?? existing.model ?? 'claude-sonnet-4-6',
+      thinking: body.thinking !== undefined ? (body.thinking ? 1 : 0) : existing.thinking,
     }
 
     getDb()
-      .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=? WHERE id=?')
-      .run(updated.name, updated.prompt, updated.enabled, req.params.id)
+      .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=?, model=?, thinking=? WHERE id=?')
+      .run(updated.name, updated.prompt, updated.enabled, updated.model, updated.thinking, req.params.id)
 
     return getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(req.params.id)
   })

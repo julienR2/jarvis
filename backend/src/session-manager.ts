@@ -26,6 +26,7 @@ export interface InvokeOptions {
   conversationId: string
   model?: string
   thinking?: boolean
+  envVars?: Record<string, string>
 }
 
 export async function invoke(opts: InvokeOptions): Promise<string> {

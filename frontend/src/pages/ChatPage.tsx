@@ -12,6 +12,7 @@ import ChatView, { invalidateConvCache } from '../components/ChatView'
 import CronManager from '../components/CronManager'
 import WebhookManager from '../components/WebhookManager'
 import FileBrowser from '../components/FileBrowser'
+import ConnectorsPage from '../components/ConnectorsPage'
 import {
   SidebarToggleProvider,
   SidebarToggle,
@@ -219,6 +220,7 @@ export default function ChatPage() {
             />
             <Route path='/crons' element={<CronManager />} />
             <Route path='/webhooks' element={<WebhookManager />} />
+            <Route path='/connectors' element={<ConnectorsPage />} />
             <Route path='/files/*' element={<FileBrowser />} />
           </Routes>
         </SidebarToggleProvider>
@@ -227,6 +229,7 @@ export default function ChatPage() {
   )
 }
 
+// Get greeting based on time of day
 function getGreeting(): string {
   const hour = new Date().getHours()
   if (hour < 12) return 'Good morning'

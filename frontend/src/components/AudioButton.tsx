@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Mic, Send, Loader2 } from 'lucide-react'
+import { Mic, Send, Loader2, X } from 'lucide-react'
 
 interface Props {
   onAudioReady: (blob: Blob) => Promise<void>
@@ -17,6 +17,7 @@ export default function AudioButton({ onAudioReady, onActiveChange, disabled }: 
   const chunksRef = useRef<Blob[]>([])
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const startTimeRef = useRef(0)
+  const cancelledRef = useRef(false)
 
   function updateState(s: State) {
     stateRef.current = s
@@ -45,6 +46,13 @@ export default function AudioButton({ onAudioReady, onActiveChange, disabled }: 
 
       recorder.onstop = async () => {
         recorder.stream.getTracks().forEach((t) => t.stop())
+
+        if (cancelledRef.current) {
+          cancelledRef.current = false
+          chunksRef.current = []
+          updateState('idle')
+          return
+        }
 
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
         chunksRef.current = []
@@ -85,6 +93,17 @@ export default function AudioButton({ onAudioReady, onActiveChange, disabled }: 
     mediaRef.current = null
   }
 
+  function cancel() {
+    if (stateRef.current !== 'recording') return
+    cancelledRef.current = true
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    if (mediaRef.current && mediaRef.current.state !== 'inactive') {
+      mediaRef.current.stop()
+    }
+    mediaRef.current = null
+    setDuration(0)
+  }
+
   function cleanup() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     if (mediaRef.current) {
@@ -114,8 +133,15 @@ export default function AudioButton({ onAudioReady, onActiveChange, disabled }: 
 
   if (state === 'recording') {
     return (
-      <div className="flex items-center gap-2 h-8">
-        <span className="flex items-center gap-1.5 text-danger text-xs font-medium">
+      <div className="flex items-center gap-1 h-8">
+        <button
+          onClick={cancel}
+          className="p-2 rounded-xl text-text-muted hover:text-danger hover:bg-bg transition-colors"
+          title="Cancel recording"
+        >
+          <X size={16} />
+        </button>
+        <span className="flex items-center gap-1.5 text-danger text-xs font-medium px-1">
           <span className="w-2 h-2 rounded-full bg-danger animate-pulse" />
           {fmt(duration)}
         </span>

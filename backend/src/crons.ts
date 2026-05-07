@@ -48,6 +48,8 @@ export function fireCron(entry: CronRow): void {
 
   processMessage(conversationId, conv, entry.prompt, [], {
     skipUserMessage: true,
+    model: entry.model ?? undefined,
+    thinking: !!entry.thinking,
     onDone: (text) => {
       getDb()
         .prepare('UPDATE crons SET last_result = ? WHERE id = ?')

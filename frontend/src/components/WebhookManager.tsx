@@ -2,11 +2,14 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, type Webhook, type WebhookInput } from '../api'
 import ContentLayout from './ContentLayout'
+import ModelSelector, { MODELS } from './ModelSelector'
 
 const EMPTY: WebhookInput = {
   name: '',
   prompt: '',
   enabled: true,
+  model: 'claude-sonnet-4-6',
+  thinking: false,
 }
 
 export default function WebhookManager() {
@@ -64,6 +67,8 @@ export default function WebhookManager() {
       name: webhook.name,
       prompt: webhook.prompt,
       enabled: !!webhook.enabled,
+      model: webhook.model ?? 'claude-sonnet-4-6',
+      thinking: !!webhook.thinking,
     })
   }
 
@@ -134,7 +139,7 @@ export default function WebhookManager() {
           className='bg-surface2 border border-border text-text-primary rounded-lg px-3 py-2 text-sm resize-y focus:border-accent'
         />
 
-        <div className='flex gap-4 items-center text-sm'>
+        <div className='flex flex-wrap gap-4 items-center text-sm'>
           <label className='flex gap-1.5 items-center cursor-pointer text-text-muted'>
             <input
               type='checkbox'
@@ -144,6 +149,14 @@ export default function WebhookManager() {
             />
             Enabled
           </label>
+
+          <ModelSelector
+            model={form.model ?? 'claude-sonnet-4-6'}
+            thinking={form.thinking ?? true}
+            onModelChange={(m) => setForm({ ...form, model: m })}
+            onThinkingChange={(t) => setForm({ ...form, thinking: t })}
+            direction='down'
+          />
 
           <div className='flex-1' />
 
@@ -187,9 +200,11 @@ export default function WebhookManager() {
               <div className='flex-1 min-w-0'>
                 <div className='font-medium text-sm'>{webhook.name}</div>
                 <div className='text-xs text-text-muted font-mono'>
+                  {MODELS.find(m => m.id === webhook.model)?.name ?? 'Opus 4.6'}
+                  {webhook.thinking ? ' Extended' : ''}
                   {webhook.last_run
-                    ? `last: ${new Date(webhook.last_run * 1000).toLocaleString('fr-FR')}`
-                    : 'never triggered'}
+                    ? ` \u00B7 last: ${new Date(webhook.last_run * 1000).toLocaleString('fr-FR')}`
+                    : ' \u00B7 never triggered'}
                 </div>
                 <div className='text-xs text-text-muted mt-1 overflow-hidden text-ellipsis whitespace-nowrap'>
                   {webhook.prompt}

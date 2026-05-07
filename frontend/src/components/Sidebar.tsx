@@ -5,6 +5,7 @@ import {
   Plus,
   Clock,
   FolderOpen,
+  Plug,
   LogOut,
   Moon,
   Sun,
@@ -140,6 +141,12 @@ export default function Sidebar({
           icon={<Link2 size={15} />}
           active={location.pathname === '/webhooks'}
           onClick={() => handleNav('/webhooks')}
+        />
+        <NavItem
+          label='Connectors'
+          icon={<Plug size={15} />}
+          active={location.pathname === '/connectors'}
+          onClick={() => handleNav('/connectors')}
         />
         <NavItem
           label='Files'

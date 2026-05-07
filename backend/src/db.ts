@@ -120,6 +120,39 @@ export function initDb(): void {
   } catch {
     // Column already exists
   }
+
+  // Migration: add model + thinking to crons
+  try {
+    db.exec(`ALTER TABLE crons ADD COLUMN model TEXT DEFAULT 'claude-sonnet-4-6'`)
+  } catch { /* already exists */ }
+  try {
+    db.exec(`ALTER TABLE crons ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0`)
+  } catch { /* already exists */ }
+
+  // Migration: add model + thinking to webhooks
+  try {
+    db.exec(`ALTER TABLE webhooks ADD COLUMN model TEXT DEFAULT 'claude-sonnet-4-6'`)
+  } catch { /* already exists */ }
+  try {
+    db.exec(`ALTER TABLE webhooks ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0`)
+  } catch { /* already exists */ }
+
+  // Connectors table — stores API keys/tokens for external services
+  // Drop legacy schema (had connector_id instead of id, extra metadata_json column)
+  try {
+    const info = db.prepare("SELECT sql FROM sqlite_master WHERE name='connectors'").get() as { sql: string } | undefined
+    if (info?.sql?.includes('connector_id')) {
+      db.exec('DROP TABLE connectors')
+    }
+  } catch { /* */ }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS connectors (
+      id TEXT PRIMARY KEY,
+      secrets_json TEXT NOT NULL DEFAULT '{}',
+      connected_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `)
 }
 
 export function uuid(): string {

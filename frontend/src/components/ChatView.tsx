@@ -203,7 +203,7 @@ export default function ChatView({
 
   useEffect(() => () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current) }, [])
 
-  function sendMessage(text: string, attachments: Attachment[] = []) {
+  function sendMessage(text: string, attachments: Attachment[] = [], model?: string, thinking?: boolean) {
     if (!text.trim() && attachments.length === 0) return
     if (!conversationId) return
 
@@ -212,6 +212,8 @@ export default function ChatView({
         conversationId,
         text,
         attachments.length > 0 ? attachments : undefined,
+        model,
+        thinking,
       )
       .catch((err) => {
         console.error('Failed to send message:', err)

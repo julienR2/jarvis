@@ -28,6 +28,8 @@ export interface CronRow {
   conversation_id: string | null
   enabled: number
   once: number
+  model: string | null
+  thinking: number
   last_run: number | null
   last_result: string | null
   created_at: number
@@ -40,6 +42,8 @@ export interface WebhookRow {
   prompt: string
   conversation_id: string | null
   enabled: number
+  model: string | null
+  thinking: number
   last_run: number | null
   last_result: string | null
   created_at: number
@@ -50,4 +54,11 @@ export interface UserRow {
   email: string
   password_hash: string
   created_at: number
+}
+
+export interface ConnectorRow {
+  id: string
+  secrets_json: string
+  connected_at: number
+  updated_at: number
 }

@@ -28,6 +28,7 @@ interface Invocation {
   model?: string
   thinking?: boolean
   allowRetry: boolean
+  envVars?: Record<string, string>
 }
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -95,7 +96,7 @@ function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
   console.log('[claude] spawning:', 'claude', args.join(' '))
 
   const proc = spawn('claude', args, {
-    env: { ...process.env, JARVIS_CONVERSATION_ID: inv.conversationId },
+    env: { ...process.env, ...inv.envVars, JARVIS_CONVERSATION_ID: inv.conversationId },
     cwd: WORKSPACE_DIR,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -294,9 +295,10 @@ app.post<{
     conversationId: string
     model?: string
     thinking?: boolean
+    envVars?: Record<string, string>
   }
 }>('/invoke', async (req, reply) => {
-  const { prompt, sessionId, conversationId, model, thinking } = req.body || ({} as any)
+  const { prompt, sessionId, conversationId, model, thinking, envVars } = req.body || ({} as any)
 
   if (!prompt || !conversationId) {
     return reply.code(400).send({ error: 'prompt and conversationId are required' })
@@ -328,6 +330,7 @@ app.post<{
     model,
     thinking,
     allowRetry: true,
+    envVars: envVars || undefined,
   }
 
   invocations.set(id, inv)

@@ -17,6 +17,7 @@ import {
   emitGlobalEvent,
 } from '../sse.js'
 import { config } from '../config.js'
+import { getConnectorEnvVars } from '../connectors.js'
 import type { ConvRow, MessageRow } from '../types.js'
 
 interface Attachment {
@@ -159,6 +160,7 @@ export function processMessage(
     conversationId,
     model: options?.model,
     thinking: options?.thinking,
+    envVars: getConnectorEnvVars(),
   })
     .then((invocationId) => {
       attachInvocationStream(invocationId, conversationId, conv, {
@@ -611,9 +613,11 @@ export async function conversationRoutes(app: FastifyInstance) {
     auth,
     async (req, reply) => {
       const { id } = req.params
-      const { content, attachments } = req.body as {
+      const { content, attachments, model, thinking } = req.body as {
         content?: string
         attachments?: Attachment[]
+        model?: string
+        thinking?: boolean
       }
 
       const conv = getDb()
@@ -636,6 +640,7 @@ export async function conversationRoutes(app: FastifyInstance) {
         conv,
         content?.trim() || '',
         attachments || [],
+        { model, thinking },
       )
       return { id: userMsgId }
     },

@@ -42,6 +42,8 @@ export function fireWebhook(entry: WebhookRow, payload?: unknown): void {
 
   processMessage(conversationId, conv, prompt, [], {
     skipUserMessage: true,
+    model: entry.model ?? undefined,
+    thinking: !!entry.thinking,
     onDone: (text) => {
       getDb()
         .prepare('UPDATE webhooks SET last_result = ? WHERE id = ?')
