@@ -12,12 +12,28 @@ export interface ConnectorField {
   placeholder?: string
 }
 
+export interface ConnectorTestResult {
+  ok: boolean
+  message: string
+}
+
 export interface ConnectorDef {
   id: string
   name: string
   description: string
   icon: string       // Lucide icon name
   fields: ConnectorField[]
+  test?: (secrets: Record<string, string>) => Promise<ConnectorTestResult>
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit = {}, ms = 5000): Promise<Response> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), ms)
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal })
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export const CONNECTOR_CATALOG: ConnectorDef[] = [
@@ -30,6 +46,15 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
       { key: 'GMAIL_ADDRESS', label: 'Email address', type: 'email', placeholder: 'you@gmail.com' },
       { key: 'GMAIL_APP_PASSWORD', label: 'App password', type: 'password', placeholder: 'xxxx xxxx xxxx xxxx' },
     ],
+    test: async ({ GMAIL_ADDRESS, GMAIL_APP_PASSWORD }) => {
+      if (!/^[^@\s]+@(gmail\.com|googlemail\.com)$/i.test(GMAIL_ADDRESS ?? '')) {
+        return { ok: false, message: 'Email must be a Gmail address' }
+      }
+      if ((GMAIL_APP_PASSWORD ?? '').replace(/\s/g, '').length !== 16) {
+        return { ok: false, message: 'App passwords are 16 characters (spaces are ignored)' }
+      }
+      return { ok: true, message: 'Format looks correct — SMTP auth is verified on first send.' }
+    },
   },
   {
     id: 'github',
@@ -39,6 +64,17 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
     fields: [
       { key: 'GITHUB_TOKEN', label: 'Personal access token', type: 'password', placeholder: 'ghp_...' },
     ],
+    test: async ({ GITHUB_TOKEN }) => {
+      const r = await fetchWithTimeout('https://api.github.com/user', {
+        headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, 'User-Agent': 'jarvis' },
+      })
+      if (r.ok) {
+        const { login } = await r.json() as { login: string }
+        return { ok: true, message: `Connected as @${login}` }
+      }
+      if (r.status === 401) return { ok: false, message: 'Invalid token' }
+      return { ok: false, message: `GitHub API returned ${r.status}` }
+    },
   },
   {
     id: 'linear',
@@ -48,6 +84,21 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
     fields: [
       { key: 'LINEAR_API_KEY', label: 'API key', type: 'password', placeholder: 'lin_api_...' },
     ],
+    test: async ({ LINEAR_API_KEY }) => {
+      const r = await fetchWithTimeout('https://api.linear.app/graphql', {
+        method: 'POST',
+        headers: {
+          Authorization: LINEAR_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: '{ viewer { name } }' }),
+      })
+      const data = await r.json().catch(() => null) as { data?: { viewer?: { name: string } }, errors?: Array<{ message: string }> } | null
+      if (data?.data?.viewer?.name) {
+        return { ok: true, message: `Connected as ${data.data.viewer.name}` }
+      }
+      return { ok: false, message: data?.errors?.[0]?.message ?? 'Invalid API key' }
+    },
   },
   {
     id: 'imagerouter',
@@ -57,6 +108,14 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
     fields: [
       { key: 'IMAGEROUTER_API_KEY', label: 'API key', type: 'password', placeholder: 'ir-...' },
     ],
+    test: async ({ IMAGEROUTER_API_KEY }) => {
+      const r = await fetchWithTimeout('https://api.imagerouter.io/v1/openai/models', {
+        headers: { Authorization: `Bearer ${IMAGEROUTER_API_KEY}` },
+      })
+      if (r.ok) return { ok: true, message: 'API key valid' }
+      if (r.status === 401) return { ok: false, message: 'Invalid API key' }
+      return { ok: false, message: `ImageRouter returned ${r.status}` }
+    },
   },
   {
     id: 'pocketbase',
@@ -69,6 +128,24 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
       { key: 'POCKETBASE_EMAIL', label: 'Email', type: 'email' },
       { key: 'POCKETBASE_PASSWORD', label: 'Password', type: 'password' },
     ],
+    test: async (s) => {
+      const url = s.POCKETBASE_INTERNAL_URL || s.POCKETBASE_PUBLIC_URL
+      if (!url) return { ok: false, message: 'No URL provided' }
+      const body = JSON.stringify({ identity: s.POCKETBASE_EMAIL, password: s.POCKETBASE_PASSWORD })
+      // Try the PocketBase v0.23+ superusers endpoint first, then fall back to legacy admins.
+      for (const path of ['/api/collections/_superusers/auth-with-password', '/api/admins/auth-with-password']) {
+        try {
+          const r = await fetchWithTimeout(`${url.replace(/\/$/, '')}${path}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+          })
+          if (r.ok) return { ok: true, message: 'PocketBase admin login successful' }
+          if (r.status === 400) return { ok: false, message: 'Invalid credentials' }
+        } catch { /* try next path */ }
+      }
+      return { ok: false, message: 'Could not reach PocketBase' }
+    },
   },
   {
     id: 'copyparty',
@@ -80,6 +157,20 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
       { key: 'COPYPARTY_PUBLIC_URL', label: 'Public URL', type: 'text', placeholder: 'https://drive.example.com' },
       { key: 'COPYPARTY_PASSWORD', label: 'Password', type: 'password' },
     ],
+    test: async (s) => {
+      const url = s.COPYPARTY_INTERNAL_URL || s.COPYPARTY_PUBLIC_URL
+      if (!url) return { ok: false, message: 'No URL provided' }
+      try {
+        const r = await fetchWithTimeout(`${url.replace(/\/$/, '')}/?ls`, {
+          headers: { PW: s.COPYPARTY_PASSWORD ?? '' },
+        })
+        if (r.ok) return { ok: true, message: 'Copyparty reachable' }
+        if (r.status === 401 || r.status === 403) return { ok: false, message: 'Wrong password' }
+        return { ok: false, message: `Copyparty returned ${r.status}` }
+      } catch {
+        return { ok: false, message: 'Could not reach Copyparty' }
+      }
+    },
   },
 ]
 

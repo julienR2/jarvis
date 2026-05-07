@@ -1,7 +1,9 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import helmet from '@fastify/helmet'
 import jwt from '@fastify/jwt'
 import multipart from '@fastify/multipart'
+import rateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import bcrypt from 'bcrypt'
 import { config } from './config.js'
@@ -36,10 +38,24 @@ declare module 'fastify' {
 
 // ── App ──────────────────────────────────────────────────────────────────────
 
-const app = Fastify({ logger: { level: 'info' } })
+const app = Fastify({
+  logger: { level: 'info' },
+  bodyLimit: 1 * 1024 * 1024, // 1MB — multipart uploads use their own larger limit
+})
 
 // ── Plugins ──────────────────────────────────────────────────────────────────
 
+await app.register(helmet, {
+  contentSecurityPolicy: false,      // frontend is a separate origin; CSP belongs there
+  crossOriginResourcePolicy: false,  // lets frontend on :5173 load /api/uploads assets
+  crossOriginEmbedderPolicy: false,  // allow mini-app iframes
+})
+await app.register(rateLimit, {
+  global: true,
+  max: 300,
+  timeWindow: '1 minute',
+  allowList: (req) => req.url === '/health',
+})
 await app.register(cors, { origin: true })
 await app.register(jwt, { secret: config.jwtSecret })
 await app.register(multipart, { limits: { fileSize: MAX_FILE_SIZE } })

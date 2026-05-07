@@ -11,7 +11,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    allowedHosts: ['ai.example.com', 'jarvis'],
+    allowedHosts: true,
     proxy: {
       '/api': 'http://backend:3005',
       '/internal': 'http://backend:3005',
@@ -20,7 +20,7 @@ export default defineConfig({
   },
   preview: {
     port: 5173,
-    allowedHosts: ['ai.example.com', 'jarvis'],
+    allowedHosts: true,
     proxy: {
       '/api': 'http://backend:3005',
       '/internal': 'http://backend:3005',

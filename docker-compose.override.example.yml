@@ -1,0 +1,33 @@
+# Optional personal overrides for docker-compose.yml.
+# Copy to docker-compose.override.yml and edit — docker compose auto-merges it.
+#
+# Common use cases:
+#   - Mounting extra volumes (e.g. a personal file store into /drive)
+#   - Attaching the stack to an existing external network
+#   - Overriding ports
+#
+# This file is NOT required. Jarvis runs fine without it.
+
+services:
+  backend:
+    # Mount an existing folder read-only so the agent can browse it.
+    # volumes:
+    #   - /path/on/host:/drive:ro
+    # Attach to a pre-existing network on your host.
+    # networks:
+    #   - my-existing-network
+    #   - default
+
+  # Mirror the same network overrides on other services if you use them.
+  # session-manager:
+  #   networks:
+  #     - my-existing-network
+  #     - default
+  # frontend:
+  #   networks:
+  #     - my-existing-network
+  #     - default
+
+# networks:
+#   my-existing-network:
+#     external: true

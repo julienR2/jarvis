@@ -25,7 +25,7 @@ All services run in Docker containers (backend, frontend, admin, whisper). The a
 ## Key Features
 
 - **Chat**: Real-time WebSocket messaging with Claude Code CLI, streaming responses, conversation history, auto-generated titles
-- **Cron jobs**: Scheduled Claude prompts with cron expressions, conversation linking, timezone-aware (Europe/Lisbon)
+- **Cron jobs**: Scheduled Claude prompts with cron expressions, conversation linking, timezone-aware (configurable via `TZ`)
 - **Webhooks**: HTTP-triggered Claude prompts with token-based auth, payload support, conversation linking — for external integrations (n8n, etc.)
 - **Voice input**: Audio recording transcribed via Whisper, injected into chat
 - **File browser**: Read/write files in `/workspace` and `/claude` directories with path traversal protection

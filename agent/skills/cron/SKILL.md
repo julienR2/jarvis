@@ -77,7 +77,7 @@ curl -s -X DELETE "${BACKEND_URL}/internal/crons/<name>" \
 - Every 15 minutes: `*/15 * * * *`
 - First of every month at midnight: `0 0 1 * *`
 
-Timezone is **Europe/Lisbon**.
+Timezone is read from the `TZ` environment variable (defaults to UTC). Check `$TZ` in bash when computing times.
 
 ---
 
@@ -93,5 +93,5 @@ Timezone is **Europe/Lisbon**.
 
 1. List existing crons first to see what's already scheduled.
 2. Pick a descriptive kebab-case `name`.
-3. For reminders: compute the exact cron minute/hour from the user's request (timezone: Europe/Lisbon) and use `once: true`.
+3. For reminders: compute the exact cron minute/hour from the user's request (use `$TZ`) and set `once: true`.
 4. Always confirm what was created/updated/deleted by showing the API response.

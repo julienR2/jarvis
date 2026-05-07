@@ -18,7 +18,7 @@ function restartContainer(name) {
     const req = http.request(
       {
         socketPath: DOCKER_SOCKET,
-        path: `/v1.42/containers/${name}/restart?t=5`,
+        path: `/v1.44/containers/${name}/restart?t=5`,
         method: 'POST',
       },
       (res) => {

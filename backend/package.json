@@ -9,8 +9,10 @@
   },
   "dependencies": {
     "@fastify/cors": "^11",
+    "@fastify/helmet": "^13",
     "@fastify/jwt": "^10",
     "@fastify/multipart": "^9",
+    "@fastify/rate-limit": "^10",
     "@fastify/static": "^9",
     "bcrypt": "^6",
     "better-sqlite3": "^12",

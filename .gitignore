@@ -5,6 +5,9 @@ frontend/src/**/*.js
 data/
 whisper-cache/
 
+# Personal docker-compose overrides (host-specific mounts, networks, etc.)
+docker-compose.override.yml
+
 # --- Agent's user workspace (memory, uploads, mini-apps, notes) ---
 workspace/
 

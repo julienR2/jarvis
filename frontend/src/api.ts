@@ -12,6 +12,17 @@ function headers(hasBody: boolean): Record<string, string> {
   }
 }
 
+function handleUnauthorized() {
+  const hadToken = !!localStorage.getItem('token')
+  localStorage.removeItem('token')
+  if (hadToken && window.location.pathname !== '/login') {
+    window.__jarvisToast?.info('Your session expired — please sign in again.')
+  }
+  if (window.location.pathname !== '/login') {
+    window.location.href = '/login'
+  }
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
@@ -19,8 +30,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     body: body != null ? JSON.stringify(body) : undefined,
   })
   if (res.status === 401) {
-    localStorage.removeItem('token')
-    window.location.href = '/login'
+    handleUnauthorized()
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
@@ -33,6 +43,9 @@ export const api = {
   // Auth
   login: (email: string, password: string) =>
     request<{ token: string }>('POST', '/auth/login', { email, password }),
+  getSetupStatus: () => request<{ needsSetup: boolean }>('GET', '/auth/setup-status'),
+  setup: (email: string, password: string) =>
+    request<{ token: string }>('POST', '/auth/setup', { email, password }),
 
   // Uploads
   uploadFile: async (file: File): Promise<Attachment> => {
@@ -44,10 +57,7 @@ export const api = {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: form,
     })
-    if (res.status === 401) {
-      localStorage.removeItem('token')
-      window.location.href = '/login'
-    }
+    if (res.status === 401) handleUnauthorized()
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }))
       throw new Error(err.error || res.statusText)
@@ -88,10 +98,7 @@ export const api = {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: form,
     })
-    if (res.status === 401) {
-      localStorage.removeItem('token')
-      window.location.href = '/login'
-    }
+    if (res.status === 401) handleUnauthorized()
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }))
       throw new Error(err.error || res.statusText)
@@ -133,6 +140,8 @@ export const api = {
   getConnector: (id: string) => request<ConnectorDetail>('GET', `/connectors/${id}`),
   saveConnector: (id: string, secrets: Record<string, string>) =>
     request<ConnectorInfo>('POST', `/connectors/${id}`, { secrets }),
+  testConnector: (id: string, secrets?: Record<string, string>) =>
+    request<{ ok: boolean; message: string }>('POST', `/connectors/${id}/test`, secrets ? { secrets } : {}),
   deleteConnector: (id: string) => request<{ ok: boolean }>('DELETE', `/connectors/${id}`),
 }
 

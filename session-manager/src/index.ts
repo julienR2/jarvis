@@ -1,6 +1,17 @@
 import Fastify from 'fastify'
 import { spawn, type ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
+import { readFileSync } from 'fs'
+
+// Inherit the shared INTERNAL_SECRET from the backend's persisted secrets
+// file when the env var is not set. Claude subprocesses spawned here need it
+// to call the backend's /internal/* API.
+if (!process.env.INTERNAL_SECRET || process.env.INTERNAL_SECRET === 'internal') {
+  try {
+    const { internal } = JSON.parse(readFileSync('/jarvis/data/secrets.json', 'utf8'))
+    if (internal) process.env.INTERNAL_SECRET = internal
+  } catch { /* backend hasn't booted yet — Claude invocations will fail until it does */ }
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

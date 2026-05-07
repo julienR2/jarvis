@@ -9,6 +9,8 @@ import {
   Eye,
   EyeOff,
   Plug,
+  Loader2,
+  X,
 } from 'lucide-react'
 import { api, type ConnectorInfo, type ConnectorDetail, type ConnectorField } from '../api'
 import ContentLayout from './ContentLayout'
@@ -21,6 +23,8 @@ const ICONS: Record<string, React.ReactNode> = {
   Database: <Database size={20} />,
 }
 
+type TestState = { kind: 'idle' } | { kind: 'running' } | { kind: 'ok'; message: string } | { kind: 'err'; message: string }
+
 export default function ConnectorsPage() {
   const [connectors, setConnectors] = useState<ConnectorInfo[]>([])
   const [editing, setEditing] = useState<string | null>(null)
@@ -28,6 +32,7 @@ export default function ConnectorsPage() {
   const [form, setForm] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [test, setTest] = useState<TestState>({ kind: 'idle' })
 
   async function load() {
     setConnectors(await api.getConnectors())
@@ -37,6 +42,7 @@ export default function ConnectorsPage() {
 
   async function startEdit(id: string) {
     setError('')
+    setTest({ kind: 'idle' })
     try {
       const d = await api.getConnector(id)
       setDetail(d)
@@ -52,6 +58,7 @@ export default function ConnectorsPage() {
     setDetail(null)
     setForm({})
     setError('')
+    setTest({ kind: 'idle' })
   }
 
   async function save() {
@@ -66,6 +73,17 @@ export default function ConnectorsPage() {
       setError(err.message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function runTest() {
+    if (!editing) return
+    setTest({ kind: 'running' })
+    try {
+      const r = await api.testConnector(editing, form)
+      setTest(r.ok ? { kind: 'ok', message: r.message } : { kind: 'err', message: r.message })
+    } catch (err: any) {
+      setTest({ kind: 'err', message: err.message || 'Test failed' })
     }
   }
 
@@ -134,20 +152,48 @@ export default function ConnectorsPage() {
               ))}
             </div>
 
-            <div className='flex justify-end gap-2 mt-5'>
-              <button
-                onClick={cancelEdit}
-                className='px-3 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors'
+            {test.kind !== 'idle' && (
+              <div
+                role='status'
+                className={`
+                  mt-3 flex items-start gap-2 rounded-lg px-3 py-2 text-xs border
+                  ${test.kind === 'ok' ? 'border-green-500/40 text-green-500 bg-green-500/5' : ''}
+                  ${test.kind === 'err' ? 'border-danger/40 text-danger bg-danger/5' : ''}
+                  ${test.kind === 'running' ? 'border-border text-text-muted bg-surface2' : ''}
+                `}
               >
-                Cancel
-              </button>
+                {test.kind === 'running' && <Loader2 size={13} className='animate-spin mt-0.5' />}
+                {test.kind === 'ok' && <Check size={13} className='mt-0.5' />}
+                {test.kind === 'err' && <X size={13} className='mt-0.5' />}
+                <span className='flex-1 break-words'>
+                  {test.kind === 'running' ? 'Testing connection…' : test.message}
+                </span>
+              </div>
+            )}
+
+            <div className='flex justify-between gap-2 mt-5'>
               <button
-                onClick={save}
-                disabled={saving}
-                className='bg-accent text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-accent-hover transition-colors'
+                onClick={runTest}
+                disabled={test.kind === 'running' || saving}
+                className='text-sm text-text-secondary hover:text-text-primary disabled:opacity-50 transition-colors px-2 py-2'
               >
-                {saving ? 'Saving...' : detail.connected ? 'Update' : 'Connect'}
+                Test connection
               </button>
+              <div className='flex gap-2'>
+                <button
+                  onClick={cancelEdit}
+                  className='px-3 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors'
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={save}
+                  disabled={saving}
+                  className='bg-accent text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-accent-hover transition-colors'
+                >
+                  {saving ? 'Saving...' : detail.connected ? 'Update' : 'Connect'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

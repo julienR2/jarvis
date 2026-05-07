@@ -11,7 +11,6 @@ services:
       - ./agent:/jarvis/agent
       - ./.git:/jarvis/.git
       - /jarvis/backend/node_modules
-      - /home/user/storage/files:/drive:ro
     env_file: .env
     environment:
       PORT: 3005
@@ -20,14 +19,11 @@ services:
       JARVIS_REPO_DIR: /jarvis
       WHISPER_URL: http://whisper:9000
       SESSION_MANAGER_URL: http://session-manager:3010
-      TZ: Europe/Lisbon
+      TZ: ${TZ:-UTC}
     ports:
       - '3005:3005'
     depends_on:
       - session-manager
-    networks:
-      - homelab
-      - default
     restart: unless-stopped
 
   session-manager:
@@ -44,10 +40,7 @@ services:
       WORKSPACE_DIR: /jarvis/workspace
       BACKEND_URL: http://backend:3005
       PORT: 3010
-      TZ: Europe/Lisbon
-    networks:
-      - homelab
-      - default
+      TZ: ${TZ:-UTC}
     restart: unless-stopped
 
   frontend:
@@ -62,9 +55,6 @@ services:
       - '5173:5173'
     depends_on:
       - backend
-    networks:
-      - homelab
-      - default
     restart: unless-stopped
 
   admin:
@@ -80,7 +70,7 @@ services:
       PORT: 3006
       REPO_DIR: /jarvis
     ports:
-      - '3006:3006'
+      - '127.0.0.1:3006:3006'
     restart: unless-stopped
 
   whisper:
@@ -95,7 +85,3 @@ services:
 
 volumes:
   whisper-cache:
-
-networks:
-  homelab:
-    external: true

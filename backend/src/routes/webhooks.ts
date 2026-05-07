@@ -84,7 +84,11 @@ export async function webhookRoutes(app: FastifyInstance) {
 
 /** Public trigger route — no JWT, token in URL is the auth */
 export async function webhookTriggerRoute(app: FastifyInstance) {
-  app.post<{ Params: { token: string } }>('/:token/trigger', async (req, reply) => {
+  app.post<{ Params: { token: string } }>('/:token/trigger', {
+    config: {
+      rateLimit: { max: 60, timeWindow: '1 minute' },
+    },
+  }, async (req, reply) => {
     const row = getDb()
       .prepare('SELECT * FROM webhooks WHERE token = ? AND enabled = 1')
       .get(req.params.token) as WebhookRow | undefined
