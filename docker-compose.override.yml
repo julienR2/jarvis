@@ -1,0 +1,27 @@
+# Personal overrides for this deployment. Not checked into git.
+# docker compose auto-merges this on top of docker-compose.yml.
+
+services:
+  backend:
+    networks:
+      - homelab
+      - default
+
+  session-manager:
+    networks:
+      - homelab
+      - default
+
+  frontend:
+    networks:
+      - homelab
+      - default
+
+  playwright:
+    networks:
+      - homelab
+      - default
+
+networks:
+  homelab:
+    external: true

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content, viewport-fit=cover"
+    />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#f3f1ed" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="Jarvis" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/icons/icon-96.png" />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="512x512"
+      href="/icons/icon-512.png"
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <title>Jarvis</title>
+    <script>
+      // Apply saved theme before first paint to avoid flash and set correct PWA colors
+      (function() {
+        var pref = localStorage.getItem('jarvis-theme') || 'system';
+        var theme = pref === 'system'
+          ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : pref;
+        document.documentElement.classList.remove('light', 'dark');
+        document.documentElement.classList.add(theme);
+        var color = theme === 'dark' ? '#211f1c' : '#f3f1ed';
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', color);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+<script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "name": "jarvis-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "lucide-react": "^1",
+    "react": "^19",
+    "react-dom": "^19",
+    "react-markdown": "^10",
+    "react-router-dom": "^7",
+    "remark-gfm": "^4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vite": "^8"
+  }
+}

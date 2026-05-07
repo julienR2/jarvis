@@ -1,0 +1,395 @@
+const BASE = '/api'
+
+function getToken(): string | null {
+  return localStorage.getItem('token')
+}
+
+function headers(hasBody: boolean): Record<string, string> {
+  const token = getToken()
+  return {
+    ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: headers(body != null),
+    body: body != null ? JSON.stringify(body) : undefined,
+  })
+  if (res.status === 401) {
+    localStorage.removeItem('token')
+    window.location.href = '/login'
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || res.statusText)
+  }
+  return res.json()
+}
+
+export const api = {
+  // Auth
+  login: (email: string, password: string) =>
+    request<{ token: string }>('POST', '/auth/login', { email, password }),
+
+  // Uploads
+  uploadFile: async (file: File): Promise<Attachment> => {
+    const form = new FormData()
+    form.append('file', file)
+    const token = getToken()
+    const res = await fetch(`${BASE}/uploads`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    })
+    if (res.status === 401) {
+      localStorage.removeItem('token')
+      window.location.href = '/login'
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error(err.error || res.statusText)
+    }
+    return res.json()
+  },
+
+  // Conversations
+  getConversations: () =>
+    request<Conversation[]>('GET', '/conversations'),
+  createConversation: (title?: string) =>
+    request<Conversation>('POST', '/conversations', { title }),
+  getConversation: (id: string) =>
+    request<ConversationWithMessages>('GET', `/conversations/${id}`),
+  updateConversation: (id: string, data: { title?: string; notify?: string }) =>
+    request<Conversation>('PATCH', `/conversations/${id}`, data),
+  deleteConversation: (id: string) =>
+    request<{ ok: boolean }>('DELETE', `/conversations/${id}`),
+
+  // Messages
+  sendMessage: (conversationId: string, content: string, attachments?: Attachment[]) =>
+    request<{ id: string }>('POST', `/conversations/${conversationId}/messages`, {
+      content,
+      attachments: attachments?.length ? attachments : undefined,
+    }),
+
+  cancelMessage: (conversationId: string) =>
+    request<{ ok: boolean }>('POST', `/conversations/${conversationId}/cancel`),
+
+  sendAudio: async (conversationId: string, audioBlob: Blob): Promise<{ id: string; transcript: string }> => {
+    const form = new FormData()
+    form.append('file', audioBlob, 'audio.webm')
+    const token = getToken()
+    const res = await fetch(`${BASE}/conversations/${conversationId}/audio`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    })
+    if (res.status === 401) {
+      localStorage.removeItem('token')
+      window.location.href = '/login'
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error(err.error || res.statusText)
+    }
+    return res.json()
+  },
+
+  // Crons
+  getCrons: () => request<Cron[]>('GET', '/crons'),
+  createCron: (data: CronInput) => request<Cron>('POST', '/crons', data),
+  updateCron: (id: string, data: Partial<CronInput>) =>
+    request<Cron>('PATCH', `/crons/${id}`, data),
+  deleteCron: (id: string) => request<{ ok: boolean }>('DELETE', `/crons/${id}`),
+  triggerCron: (id: string) => request<{ ok: boolean }>('POST', `/crons/${id}/trigger`),
+
+  // Webhooks
+  getWebhooks: () => request<Webhook[]>('GET', '/webhooks'),
+  createWebhook: (data: WebhookInput) => request<Webhook>('POST', '/webhooks', data),
+  updateWebhook: (id: string, data: Partial<WebhookInput>) =>
+    request<Webhook>('PATCH', `/webhooks/${id}`, data),
+  deleteWebhook: (id: string) => request<{ ok: boolean }>('DELETE', `/webhooks/${id}`),
+  triggerWebhook: (id: string) => request<{ ok: boolean }>('POST', `/webhooks/${id}/trigger`),
+
+  // Files
+  listFiles: (path?: string) =>
+    request<FileEntry[]>('GET', `/files${path ? `?path=${encodeURIComponent(path)}` : ''}`),
+  readFile: (path: string) =>
+    request<{ content: string }>('GET', `/files/content?path=${encodeURIComponent(path)}`),
+  writeFile: (path: string, content: string) =>
+    request<{ ok: boolean }>('PUT', `/files/content?path=${encodeURIComponent(path)}`, { content }),
+
+  // Push notifications
+  getVapidKey: () => request<{ key: string }>('GET', '/push/vapid-key'),
+  subscribePush: (subscription: PushSubscriptionJSON) =>
+    request<{ ok: boolean }>('POST', '/push/subscribe', { subscription }),
+}
+
+// ── SSE connection ───────────────────────────────────────────────────────────
+
+export interface EventConnection {
+  close(): void
+}
+
+export function connectEvents(
+  conversationId: string,
+  onEvent: (ev: ChatEvent) => void,
+  onStatusChange?: (connected: boolean) => void,
+): EventConnection {
+  let es: EventSource | null = null
+  let stopped = false
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let attempt = 0
+  let lastActivityTime = Date.now()
+  const maxDelay = 15000
+  const baseDelay = 1000
+  // 2 minutes — long enough to ignore normal tab switches,
+  // short enough to catch laptop sleep / OS background kill
+  const SLEEP_THRESHOLD = 120_000
+
+  function connect() {
+    if (stopped) return
+
+    const token = getToken()
+    es = new EventSource(`${BASE}/conversations/${conversationId}/events?token=${token}`)
+
+    es.onopen = () => {
+      attempt = 0
+      lastActivityTime = Date.now()
+      onStatusChange?.(true)
+    }
+
+    es.onmessage = (e) => {
+      lastActivityTime = Date.now()
+      try {
+        onEvent(JSON.parse(e.data))
+      } catch { /* ignore */ }
+    }
+
+    es.onerror = () => {
+      es?.close()
+      es = null
+      onStatusChange?.(false)
+      scheduleReconnect()
+    }
+  }
+
+  function scheduleReconnect() {
+    if (stopped) return
+    const delay = Math.min(baseDelay * 2 ** attempt, maxDelay)
+    attempt++
+    reconnectTimer = setTimeout(connect, delay)
+  }
+
+  // Force-close stale connection and reconnect with fresh token
+  function forceReconnect() {
+    if (stopped) return
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    es?.close()
+    es = null
+    attempt = 0
+    onStatusChange?.(false)
+    connect()
+  }
+
+  // Detect wake-up from sleep: big time gap or dead connection
+  function handleWakeUp() {
+    if (document.visibilityState !== 'visible') return
+    const slept = Date.now() - lastActivityTime > SLEEP_THRESHOLD
+    const dead = !es || es.readyState === EventSource.CLOSED
+    if (slept || dead) {
+      forceReconnect()
+    }
+  }
+
+  document.addEventListener('visibilitychange', handleWakeUp)
+  window.addEventListener('online', handleWakeUp)
+
+  connect()
+
+  return {
+    close() {
+      stopped = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      es?.close()
+      es = null
+      document.removeEventListener('visibilitychange', handleWakeUp)
+      window.removeEventListener('online', handleWakeUp)
+    },
+  }
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export interface Conversation {
+  id: string
+  title: string
+  claude_session_id: string | null
+  mini_app_path: string | null
+  notify: 'subscribe' | 'unsubscribe' | 'auto'
+  unread_count: number
+  has_cron?: number
+  has_webhook?: number
+  created_at: number
+  updated_at: number
+}
+
+export interface Message {
+  id: string
+  conversation_id: string
+  role: 'user' | 'assistant'
+  type?: 'activity' | 'error' | null
+  content: string
+  result?: string | null
+  metadata?: string | null
+  created_at: number
+}
+
+export interface ConversationWithMessages extends Conversation {
+  messages: Message[]
+}
+
+export interface Cron {
+  id: string
+  name: string
+  schedule: string
+  prompt: string
+  conversation_id: string | null
+  enabled: number
+  once: number
+  last_run: number | null
+  last_result: string | null
+  created_at: number
+}
+
+export interface CronInput {
+  name: string
+  schedule: string
+  prompt: string
+  enabled?: boolean
+  once?: boolean
+}
+
+export interface Webhook {
+  id: string
+  name: string
+  token: string
+  prompt: string
+  conversation_id: string | null
+  enabled: number
+  last_run: number | null
+  last_result: string | null
+  created_at: number
+}
+
+export interface WebhookInput {
+  name: string
+  prompt: string
+  enabled?: boolean
+}
+
+export interface FileEntry {
+  name: string
+  path: string
+  type: 'file' | 'dir'
+  size: number
+  modified: number
+}
+
+export interface Attachment {
+  id: string
+  filename: string
+  originalName: string
+  mimetype: string
+  size: number
+  url: string
+  path: string
+}
+
+export type ChatEvent =
+  | { type: 'message'; message: Message }
+  | { type: 'conversation'; id: string; title?: string }
+  | { type: 'thinking'; thinking: boolean }
+  | { type: 'mini_app_updated' }
+
+export type GlobalEvent =
+  | { type: 'new_message'; conversation_id: string }
+
+// ── Global SSE connection ────────────────────────────────────────────────────
+
+export function connectGlobalEvents(
+  onEvent: (ev: GlobalEvent) => void,
+): EventConnection {
+  let es: EventSource | null = null
+  let stopped = false
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let attempt = 0
+  let lastActivityTime = Date.now()
+  const maxDelay = 15000
+  const baseDelay = 1000
+  const SLEEP_THRESHOLD = 120_000
+
+  function connect() {
+    if (stopped) return
+
+    const token = getToken()
+    es = new EventSource(`${BASE}/events?token=${token}`)
+
+    es.onopen = () => {
+      attempt = 0
+      lastActivityTime = Date.now()
+    }
+
+    es.onmessage = (e) => {
+      lastActivityTime = Date.now()
+      try {
+        onEvent(JSON.parse(e.data))
+      } catch { /* ignore */ }
+    }
+
+    es.onerror = () => {
+      es?.close()
+      es = null
+      scheduleReconnect()
+    }
+  }
+
+  function scheduleReconnect() {
+    if (stopped) return
+    const delay = Math.min(baseDelay * 2 ** attempt, maxDelay)
+    attempt++
+    reconnectTimer = setTimeout(connect, delay)
+  }
+
+  function handleWakeUp() {
+    if (document.visibilityState !== 'visible') return
+    const slept = Date.now() - lastActivityTime > SLEEP_THRESHOLD
+    const dead = !es || es.readyState === EventSource.CLOSED
+    if (slept || dead) {
+      if (stopped) return
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      es?.close()
+      es = null
+      attempt = 0
+      connect()
+    }
+  }
+
+  document.addEventListener('visibilitychange', handleWakeUp)
+  window.addEventListener('online', handleWakeUp)
+
+  connect()
+
+  return {
+    close() {
+      stopped = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      es?.close()
+      es = null
+      document.removeEventListener('visibilitychange', handleWakeUp)
+      window.removeEventListener('online', handleWakeUp)
+    },
+  }
+}

@@ -1,0 +1,101 @@
+services:
+  backend:
+    build: ./backend
+    container_name: jarvis-backend
+    working_dir: /jarvis/backend
+    command: sh -c "npm install && npx tsx watch src/index.ts"
+    volumes:
+      - ./backend:/jarvis/backend
+      - ./data:/jarvis/data
+      - ./workspace:/jarvis/workspace
+      - ./agent:/jarvis/agent
+      - ./.git:/jarvis/.git
+      - /jarvis/backend/node_modules
+      - /home/user/storage/files:/drive:ro
+    env_file: .env
+    environment:
+      PORT: 3005
+      DB_PATH: /jarvis/data/jarvis.db
+      WORKSPACE_DIR: /jarvis/workspace
+      JARVIS_REPO_DIR: /jarvis
+      WHISPER_URL: http://whisper:9000
+      SESSION_MANAGER_URL: http://session-manager:3010
+      TZ: Europe/Lisbon
+    ports:
+      - '3005:3005'
+    depends_on:
+      - session-manager
+    networks:
+      - homelab
+      - default
+    restart: unless-stopped
+
+  session-manager:
+    build: ./session-manager
+    container_name: jarvis-session-manager
+    working_dir: /jarvis/session-manager
+    command: sh -c "npm install && npx tsx src/index.ts"
+    volumes:
+      - ./:/jarvis
+      - /jarvis/session-manager/node_modules
+    env_file: .env
+    environment:
+      CLAUDE_CONFIG_DIR: /jarvis/agent
+      WORKSPACE_DIR: /jarvis/workspace
+      BACKEND_URL: http://backend:3005
+      PORT: 3010
+      TZ: Europe/Lisbon
+    networks:
+      - homelab
+      - default
+    restart: unless-stopped
+
+  frontend:
+    image: node:25-alpine
+    container_name: jarvis
+    working_dir: /app
+    command: sh -c "npm install && npx vite build --watch & sleep 5 && npm run preview -- --host"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - '5173:5173'
+    depends_on:
+      - backend
+    networks:
+      - homelab
+      - default
+    restart: unless-stopped
+
+  admin:
+    build: ./admin
+    container_name: jarvis-admin
+    working_dir: /app
+    command: node server.js
+    volumes:
+      - ./admin:/app
+      - ./:/jarvis
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      PORT: 3006
+      REPO_DIR: /jarvis
+    ports:
+      - '3006:3006'
+    restart: unless-stopped
+
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    container_name: jarvis-whisper
+    restart: unless-stopped
+    environment:
+      ASR_MODEL: small
+      ASR_ENGINE: faster_whisper
+    volumes:
+      - whisper-cache:/root/.cache
+
+volumes:
+  whisper-cache:
+
+networks:
+  homelab:
+    external: true

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Read",
+      "Write",
+      "WebSearch",
+      "WebFetch"
+    ],
+    "deny": []
+  },
+  "skipDangerousModePermissionPrompt": true
+}

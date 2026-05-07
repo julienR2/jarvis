@@ -1,0 +1,17 @@
+{
+  "name": "jarvis-session-manager",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "fastify": "^5"
+  },
+  "devDependencies": {
+    "@types/node": "^25",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}
