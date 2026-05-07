@@ -17,6 +17,14 @@ export interface ConnectorTestResult {
   message: string
 }
 
+// Lets a connector expose its internal HTTP service through jarvis-backend
+// at `/api/connectors/:id/proxy/*`, using the stored base URL and auth header.
+// Used for inline content (e.g. drive images) that <img> tags can't auth for.
+export interface ConnectorProxy {
+  baseUrlField: string                                  // secret key holding the internal base URL
+  authHeader?: { name: string; valueField: string }     // header name + secret key holding its value
+}
+
 export interface ConnectorDef {
   id: string
   name: string
@@ -24,6 +32,7 @@ export interface ConnectorDef {
   icon: string       // Lucide icon name
   fields: ConnectorField[]
   test?: (secrets: Record<string, string>) => Promise<ConnectorTestResult>
+  proxy?: ConnectorProxy
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit = {}, ms = 5000): Promise<Response> {
@@ -148,6 +157,26 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
     },
   },
   {
+    id: 'slack',
+    name: 'Slack',
+    description: 'Send and read messages as yourself',
+    icon: 'MessageSquare',
+    fields: [
+      { key: 'SLACK_USER_TOKEN', label: 'User OAuth token', type: 'password', placeholder: 'xoxp-...' },
+    ],
+    test: async ({ SLACK_USER_TOKEN }) => {
+      if (!SLACK_USER_TOKEN?.startsWith('xoxp-')) {
+        return { ok: false, message: 'User tokens start with xoxp-' }
+      }
+      const r = await fetchWithTimeout('https://slack.com/api/auth.test', {
+        headers: { Authorization: `Bearer ${SLACK_USER_TOKEN}` },
+      })
+      const data = await r.json().catch(() => null) as { ok?: boolean; user?: string; error?: string } | null
+      if (data?.ok) return { ok: true, message: `Connected as ${data.user}` }
+      return { ok: false, message: data?.error ?? 'Invalid token' }
+    },
+  },
+  {
     id: 'copyparty',
     name: 'Copyparty',
     description: 'Browse and manage files on personal drive',
@@ -157,6 +186,10 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
       { key: 'COPYPARTY_PUBLIC_URL', label: 'Public URL', type: 'text', placeholder: 'https://drive.example.com' },
       { key: 'COPYPARTY_PASSWORD', label: 'Password', type: 'password' },
     ],
+    proxy: {
+      baseUrlField: 'COPYPARTY_INTERNAL_URL',
+      authHeader: { name: 'PW', valueField: 'COPYPARTY_PASSWORD' },
+    },
     test: async (s) => {
       const url = s.COPYPARTY_INTERNAL_URL || s.COPYPARTY_PUBLIC_URL
       if (!url) return { ok: false, message: 'No URL provided' }

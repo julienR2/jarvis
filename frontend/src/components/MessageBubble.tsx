@@ -232,9 +232,7 @@ function Linkify({ text }: { text: string }) {
 
 function translateSrc(src?: string): string {
   if (!src) return ''
-  return src
-    .replace(/^\/(?:jarvis\/)?workspace\/uploads\//, '/api/uploads/files/')
-    .replace(/^\/drive\//, '/api/drive/files/')
+  return src.replace(/^\/(?:jarvis\/)?workspace\/uploads\//, '/api/uploads/files/')
 }
 
 const markdownComponents = {

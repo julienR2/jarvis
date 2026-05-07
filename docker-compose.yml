@@ -40,7 +40,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: node:25-alpine
+    image: node:25
     container_name: jarvis
     working_dir: /app
     command: sh -c "npm install && npx vite build --watch & sleep 5 && npm run preview -- --host"
@@ -78,6 +78,15 @@ services:
       ASR_ENGINE: faster_whisper
     volumes:
       - whisper-cache:/root/.cache
+
+  playwright:
+    image: mcr.microsoft.com/playwright/mcp
+    container_name: jarvis-playwright
+    command: ["--port", "8931", "--host", "0.0.0.0", "--allowed-hosts", "*", "--headless", "--user-data-dir", "/sessions", "--output-dir", "/uploads"]
+    volumes:
+      - ./data/browser-sessions:/sessions
+      - ./workspace/uploads:/uploads
+    restart: unless-stopped
 
 volumes:
   whisper-cache:

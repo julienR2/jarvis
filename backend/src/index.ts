@@ -64,11 +64,6 @@ await app.register(fastifyStatic, {
   prefix: '/api/uploads/files/',
   decorateReply: false,
 })
-await app.register(fastifyStatic, {
-  root: '/drive',
-  prefix: '/api/drive/files/',
-  decorateReply: false,
-})
 
 // ── Auth decorator ────────────────────────────────────────────────────────────
 

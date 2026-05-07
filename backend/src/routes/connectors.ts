@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { Readable } from 'node:stream'
 import {
   CONNECTOR_CATALOG,
   getCatalogDef,
@@ -108,5 +109,48 @@ export async function connectorRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Not found' })
     }
     return { ok: true }
+  })
+
+  // GET /:id/proxy/* — stream content from the connector's internal HTTP endpoint.
+  // Unauthenticated by design: <img>/<a> tags can't send headers. Same threat model
+  // as /api/uploads/files/ — URLs are only surfaced inside JWT-gated chat + mini-apps.
+  app.get<{ Params: { id: string, '*': string } }>('/:id/proxy/*', async (req, reply) => {
+    const def = getCatalogDef(req.params.id)
+    if (!def?.proxy) return reply.code(404).send({ error: 'Connector has no proxy' })
+
+    const row = getConnector(req.params.id)
+    if (!row) return reply.code(404).send({ error: 'Connector not configured' })
+
+    let secrets: Record<string, string>
+    try { secrets = JSON.parse(row.secrets_json) } catch { return reply.code(500).send({ error: 'Invalid secrets' }) }
+
+    const baseUrl = secrets[def.proxy.baseUrlField]
+    if (!baseUrl) return reply.code(500).send({ error: `${def.proxy.baseUrlField} not set` })
+
+    const path = (req.params as Record<string, string>)['*'] ?? ''
+    const qIndex = req.url.indexOf('?')
+    const qs = qIndex >= 0 ? req.url.slice(qIndex) : ''
+    const target = `${baseUrl.replace(/\/$/, '')}/${path}${qs}`
+
+    const headers: Record<string, string> = {}
+    if (def.proxy.authHeader) {
+      const v = secrets[def.proxy.authHeader.valueField]
+      if (v) headers[def.proxy.authHeader.name] = v
+    }
+
+    let upstream: Response
+    try {
+      upstream = await fetch(target, { headers })
+    } catch (err: any) {
+      return reply.code(502).send({ error: 'Upstream unreachable', message: err?.message })
+    }
+
+    reply.code(upstream.status)
+    for (const h of ['content-type', 'content-length', 'content-disposition', 'last-modified', 'etag', 'cache-control']) {
+      const v = upstream.headers.get(h)
+      if (v) reply.header(h, v)
+    }
+    if (!upstream.body) return reply.send()
+    return reply.send(Readable.fromWeb(upstream.body as any))
   })
 }

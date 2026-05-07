@@ -1,7 +1,7 @@
 import Fastify from 'fastify'
 import { spawn, type ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync } from 'fs'
 
 // Inherit the shared INTERNAL_SECRET from the backend's persisted secrets
 // file when the env var is not set. Claude subprocesses spawned here need it
@@ -90,6 +90,9 @@ function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
   // Strip leading '/' to prevent Claude CLI from interpreting it as a slash command
   const safePrompt = inv.prompt.startsWith('/') ? inv.prompt.slice(1) : inv.prompt
 
+  const BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch']
+  const MCP_TOOLS = ['mcp__playwright']
+
   const args = [
     '-p',
     safePrompt,
@@ -97,8 +100,11 @@ function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
     'stream-json',
     '--verbose',
     '--allowedTools',
-    'Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch',
+    [...BASE_TOOLS, ...MCP_TOOLS].join(','),
   ]
+
+  const mcpConfig = `${process.env.CLAUDE_CONFIG_DIR || '/jarvis/agent'}/mcp.json`
+  if (existsSync(mcpConfig)) args.push('--mcp-config', mcpConfig)
 
   if (sessionId) args.push('--resume', sessionId)
   if (inv.model) args.push('--model', inv.model)

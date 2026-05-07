@@ -47,7 +47,7 @@ openssl rand -hex 32
 
 ### Optional: personal docker-compose overrides
 
-If you want to attach Jarvis to an existing Docker network or mount a folder from the host (e.g. to expose a file store as `/drive`), copy `docker-compose.override.example.yml` to `docker-compose.override.yml` and edit. Docker Compose will auto-merge it.
+If you want to attach Jarvis to an existing Docker network or override ports, copy `docker-compose.override.example.yml` to `docker-compose.override.yml` and edit. Docker Compose will auto-merge it.
 
 ## Architecture
 

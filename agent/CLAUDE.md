@@ -34,6 +34,8 @@ When you generate or download a file that the user should see (image, PDF, docum
 
 The chat interface will automatically detect files in `/jarvis/workspace/uploads/` and display them as inline previews or download links. Always use the full `/jarvis/workspace/uploads/` path so the system can find the file.
 
+**Playwright screenshots**: the Playwright MCP server writes files into `/uploads` from its own container — that's the **same directory** as `/jarvis/workspace/uploads/` in yours (shared mount). When you call `browser_take_screenshot` with a filename, reference the result in your reply as `![desc](/jarvis/workspace/uploads/<filename>)`, not `/uploads/<filename>`.
+
 ## Git
 
 This project (`/jarvis`) is a git repository. You can inspect and modify it freely via `Bash`:

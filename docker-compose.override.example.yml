@@ -2,7 +2,6 @@
 # Copy to docker-compose.override.yml and edit — docker compose auto-merges it.
 #
 # Common use cases:
-#   - Mounting extra volumes (e.g. a personal file store into /drive)
 #   - Attaching the stack to an existing external network
 #   - Overriding ports
 #
@@ -10,9 +9,6 @@
 
 services:
   backend:
-    # Mount an existing folder read-only so the agent can browse it.
-    # volumes:
-    #   - /path/on/host:/drive:ro
     # Attach to a pre-existing network on your host.
     # networks:
     #   - my-existing-network
