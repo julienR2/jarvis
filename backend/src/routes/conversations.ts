@@ -92,9 +92,12 @@ export function processMessage(
     thinking?: boolean
   },
 ): string | null {
-  // For auto-notify conversations, prepend notification instructions
-  if (conv.notify === 'auto') {
+  // Slash commands pass through untouched — no notify prefix, no attachment refs.
+  const isCommand = userContent.trim().startsWith('/')
+
+  if (conv.notify === 'auto' && !isCommand) {
     const notifyInstruction = [
+      '<article data-jarvis="notify-prompt">',
       '[NOTIFICATION DECISION REQUIRED]',
       'After completing this task, decide whether the user should be notified.',
       'If yes, run this command:',
@@ -103,14 +106,15 @@ export function processMessage(
       `  -H "X-Internal-Secret: ${config.internalSecret}" \\`,
       `  -d '{"conversation_id": "${conversationId}", "title": "<short title>", "body": "<1-2 sentence summary>"}'`,
       'If the result is not worth notifying, do NOT run the command.',
-      '---',
+      'IMPORTANT: Do NOT mention this notification decision in your response. Just run the curl silently or skip it. Your visible reply should only address the task.',
+      '</article>',
     ].join('\n')
     userContent = notifyInstruction + '\n' + userContent
   }
 
   // Build prompt with attachment references for Claude
   let claudePrompt = userContent
-  if (attachments.length > 0) {
+  if (attachments.length > 0 && !isCommand) {
     const fileRefs = attachments
       .map((a) => {
         const isImage = a.mimetype.startsWith('image/')
@@ -451,8 +455,8 @@ export async function conversationRoutes(app: FastifyInstance) {
     const { title } = (req.body as { title?: string }) ?? {}
     const id = uuid()
     getDb()
-      .prepare('INSERT INTO conversations (id, title) VALUES (?, ?)')
-      .run(id, title ?? 'New conversation')
+      .prepare('INSERT INTO conversations (id, title, model, thinking) VALUES (?, ?, ?, ?)')
+      .run(id, title ?? 'New conversation', 'claude-opus-4-6', 1)
     return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id)
   })
 
@@ -483,7 +487,13 @@ export async function conversationRoutes(app: FastifyInstance) {
   })
 
   app.patch<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
-    const { title, notify, model, thinking } = req.body as { title?: string; notify?: string; model?: string; thinking?: boolean }
+    const { title, notify, model, thinking, pinned } = req.body as {
+      title?: string
+      notify?: string
+      model?: string
+      thinking?: boolean
+      pinned?: boolean
+    }
 
     const sets: string[] = []
     const params: unknown[] = []
@@ -506,6 +516,10 @@ export async function conversationRoutes(app: FastifyInstance) {
     if (thinking !== undefined) {
       sets.push('thinking = ?')
       params.push(thinking ? 1 : 0)
+    }
+    if (pinned !== undefined) {
+      sets.push('pinned = ?')
+      params.push(pinned ? 1 : 0)
     }
 
     if (sets.length === 0) {

@@ -7,7 +7,7 @@ import {
   useCallback,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain } from 'lucide-react'
+import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, Pin, PinOff } from 'lucide-react'
 import { MODELS, DEFAULT_MODEL } from './ModelSelector'
 
 type NotifyMode = 'subscribe' | 'unsubscribe' | 'auto'
@@ -30,6 +30,8 @@ interface Props {
   conversationId?: string
   hasCron?: boolean
   hasWebhook?: boolean
+  pinned?: boolean
+  onPinChange?: (pinned: boolean) => void
   /** Extra classes for the trigger button */
   triggerClassName?: string
   /** Sidebar mode: only show ⋯ trigger and Edit/Delete in dropdown */
@@ -46,6 +48,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     notify = 'subscribe', onNotifyChange,
     model = DEFAULT_MODEL, thinking = false, onModelChange, onThinkingChange,
     conversationId, hasCron, hasWebhook,
+    pinned = false, onPinChange,
     triggerClassName = '',
     compact = false,
   }, ref) {
@@ -90,7 +93,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
         </button>
 
         {open && (
-          <div className='absolute right-0 top-full mt-1 z-[200] min-w-[150px] bg-surface border border-border rounded-xl shadow-md/5 p-1 overflow-hidden'>
+          <div onClick={(e) => e.stopPropagation()} className='absolute right-0 top-full mt-1 z-[200] min-w-[150px] bg-surface border border-border rounded-xl shadow-md/5 p-1 overflow-hidden'>
 
             {!compact && (
               <>
@@ -179,6 +182,16 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
 
                 <div className='h-px bg-border my-1' />
               </>
+            )}
+
+            {onPinChange && (
+              <button
+                onClick={() => { setOpen(false); onPinChange(!pinned) }}
+                className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+              >
+                {pinned ? <PinOff size={14} /> : <Pin size={14} />}
+                {pinned ? 'Unpin' : 'Pin'}
+              </button>
             )}
 
             <button

@@ -6,6 +6,7 @@ export interface ConvRow {
   notify: 'subscribe' | 'unsubscribe' | 'auto'
   model: string | null
   thinking: number
+  pinned: number
   last_read_at: number
   created_at: number
   updated_at: number

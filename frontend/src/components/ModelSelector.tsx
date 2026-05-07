@@ -14,7 +14,7 @@ export const MODELS: ModelOption[] = [
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', desc: 'Fastest, most compact' },
 ]
 
-export const DEFAULT_MODEL = 'claude-sonnet-4-6'
+export const DEFAULT_MODEL = 'claude-opus-4-6'
 
 interface Props {
   model: string

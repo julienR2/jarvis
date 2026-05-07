@@ -87,15 +87,12 @@ function scheduleCleanup(invocationId: string): void {
 // ── Claude process spawning ──────────────────────────────────────────────────
 
 function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
-  // Strip leading '/' to prevent Claude CLI from interpreting it as a slash command
-  const safePrompt = inv.prompt.startsWith('/') ? inv.prompt.slice(1) : inv.prompt
-
   const BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch']
   const MCP_TOOLS = ['mcp__playwright']
 
   const args = [
     '-p',
-    safePrompt,
+    inv.prompt,
     '--output-format',
     'stream-json',
     '--verbose',
@@ -126,6 +123,8 @@ function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
   let newSessionId: string | null = null
   let doneEmitted = false
   const runningTasks = new Set<string>()
+  const QUIET_TOOLS = new Set(['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'])
+  const quietToolIds = new Set<string>()
 
   proc.stdout!.on('data', (chunk: Buffer) => {
     buf += chunk.toString()
@@ -173,9 +172,14 @@ function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
         if (ev.type === 'assistant' && ev.message?.content) {
           for (const block of ev.message.content) {
             if (block.type === 'tool_use') {
-              const label = block.input.description ?? `Using ${block.name}...`
-              console.log('[claude] -> tool:', label)
-              pushEvent(inv, { type: 'tool', name: label })
+              if (QUIET_TOOLS.has(block.name) && !block.input?.description) {
+                if (block.id) quietToolIds.add(block.id)
+                console.log('[claude] -> tool (quiet):', block.name)
+              } else {
+                const label = block.input?.description ?? `Using ${block.name}...`
+                console.log('[claude] -> tool:', label)
+                pushEvent(inv, { type: 'tool', name: label })
+              }
             }
             if (block.type === 'text' && block.text) {
               if (runningTasks.size > 0) {
@@ -190,7 +194,7 @@ function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
                 console.log(
                   '[claude] -> chunk:',
                   block.text.slice(0, 80) +
-                    (block.text.length > 80 ? '...' : ''),
+                  (block.text.length > 80 ? '...' : ''),
                 )
                 pushEvent(inv, { type: 'chunk', text: block.text + '\n' })
               }
@@ -200,13 +204,18 @@ function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
 
         // Tool result comes as a "user" event with tool_use_result
         if (ev.type === 'user' && ev.tool_use_result) {
-          console.log('[claude] -> ev.tool_use_result:', ev.tool_use_result)
           const r = ev.tool_use_result
-          const output = (r.stdout || r.stderr || '').trim()
-          if (output) {
-            const firstLine = output.split('\n')[0].slice(0, 120)
-            console.log('[claude] -> tool_result:', firstLine)
-            pushEvent(inv, { type: 'tool', name: `→ ${firstLine}` })
+          const toolUseId = r.tool_use_id || ev.tool_use_id
+          if (toolUseId && quietToolIds.has(toolUseId)) {
+            quietToolIds.delete(toolUseId)
+            console.log('[claude] -> tool_result (quiet)')
+          } else {
+            const output = (r.stdout || r.stderr || '').trim()
+            if (output) {
+              const firstLine = output.split('\n')[0].slice(0, 120)
+              console.log('[claude] -> tool_result:', firstLine)
+              pushEvent(inv, { type: 'tool', name: `→ ${firstLine}` })
+            }
           }
           pushEvent(inv, { type: 'thinking' })
         }

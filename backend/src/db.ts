@@ -129,6 +129,11 @@ export function initDb(): void {
     db.exec(`ALTER TABLE conversations ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0`)
   } catch { /* already exists */ }
 
+  // Migration: add pinned to conversations
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`)
+  } catch { /* already exists */ }
+
   // Migration: add model + thinking to crons
   try {
     db.exec(`ALTER TABLE crons ADD COLUMN model TEXT DEFAULT 'claude-sonnet-4-6'`)

@@ -17,7 +17,7 @@ import {
   MessageSquare,
   RefreshCw,
   BellRing,
-  Layers,
+  Pin,
   ChevronRight,
   Wrench,
 } from 'lucide-react'
@@ -28,22 +28,27 @@ import ConversationMenu, {
   type ConversationMenuHandle,
 } from './ConversationMenu'
 import type { Conversation } from '../api'
+import { useChatStore } from '../stores/chatStore'
+import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
-  conversations: Conversation[]
   onNew: () => void
   onDelete: (id: string) => void
   onRename: (id: string, title: string) => void
+  onPinChange: (id: string, pinned: boolean) => void
   onSelect: () => void
 }
 
 export default function Sidebar({
-  conversations,
   onNew,
   onDelete,
   onRename,
+  onPinChange,
   onSelect,
 }: Props) {
+  const conversations = useChatStore(
+    useShallow((s) => s.order.map((id) => s.conversations[id])),
+  )
   const navigate = useNavigate()
   const location = useLocation()
   const { permission, requestPermission } = useNotifications()
@@ -79,9 +84,8 @@ export default function Sidebar({
     }
   }
 
-  // Spaces: mini-apps, cron chats, and webhook chats grouped together
-  const spaces = conversations.filter((c) => c.mini_app_path || c.has_cron || c.has_webhook)
-  const regularConvs = conversations.filter((c) => !c.mini_app_path && !c.has_cron && !c.has_webhook)
+  const pinnedConvs = conversations.filter((c) => !!c.pinned)
+  const regularConvs = conversations.filter((c) => !c.pinned)
 
   return (
     <aside className='w-64 bg-bg-alt flex flex-col h-full shrink-0 border-r border-border safe-area-insets'>
@@ -111,14 +115,14 @@ export default function Sidebar({
           </div>
         )}
 
-        {/* Spaces section (mini-apps, cron chats, webhook chats) */}
-        {spaces.length > 0 && (
+        {/* Pinned section */}
+        {pinnedConvs.length > 0 && (
           <div className='gap-0.5 flex flex-col mt-1'>
             <div className='flex items-center gap-1.5 px-3 py-1 text-[11px] font-semibold text-text-muted uppercase tracking-wider'>
-              <Layers size={12} />
-              Spaces
+              <Pin size={12} />
+              Pinned
             </div>
-            {spaces.map((conv) => (
+            {pinnedConvs.map((conv) => (
               <ConvItem
                 key={conv.id}
                 conv={conv}
@@ -126,6 +130,7 @@ export default function Sidebar({
                 onNav={() => handleNav(`/c/${conv.id}`)}
                 onDelete={() => onDelete(conv.id)}
                 onRename={(title) => onRename(conv.id, title)}
+                onPinChange={(pinned) => onPinChange(conv.id, pinned)}
               />
             ))}
           </div>
@@ -145,6 +150,7 @@ export default function Sidebar({
               onNav={() => handleNav(`/c/${conv.id}`)}
               onDelete={() => onDelete(conv.id)}
               onRename={(title) => onRename(conv.id, title)}
+              onPinChange={(pinned) => onPinChange(conv.id, pinned)}
             />
           ))}
         </div>
@@ -246,12 +252,14 @@ function ConvItem({
   onNav,
   onDelete,
   onRename,
+  onPinChange,
 }: {
   conv: Conversation
   active: boolean
   onNav: () => void
   onDelete: () => void
   onRename: (title: string) => void
+  onPinChange: (pinned: boolean) => void
 }) {
   const navigate = useNavigate()
   const menuRef = useRef<ConversationMenuHandle>(null)
@@ -330,6 +338,11 @@ function ConvItem({
           {conv.title}
         </span>
         <span className='flex items-center gap-2 shrink-0'>
+          {!!conv.mini_app_path && (
+            <span title='Mini-app'>
+              <AppWindow size={11} className='text-text-muted' />
+            </span>
+          )}
           {!!conv.has_cron && (
             <span
               title='Cron'
@@ -368,6 +381,8 @@ function ConvItem({
           ref={menuRef}
           onDelete={onDelete}
           onRename={startRename}
+          pinned={!!conv.pinned}
+          onPinChange={onPinChange}
           triggerClassName='hidden group-hover:flex'
           compact
         />

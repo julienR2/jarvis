@@ -1,18 +1,65 @@
+import { useRef, useEffect } from 'react'
 import { ExternalLink, RefreshCw } from 'lucide-react'
+
+interface ShareIntent {
+  title?: string
+  text?: string
+  url?: string
+  files?: File[]
+}
 
 interface Props {
   conversationId: string
   refreshKey: number
   onRefresh: () => void
+  shareIntent?: ShareIntent | null
+  onShareIntentConsumed?: () => void
+}
+
+async function fileToDataUrl(file: File): Promise<{ name: string; type: string; dataUrl: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve({ name: file.name, type: file.type, dataUrl: reader.result as string })
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
 }
 
 export default function MiniAppPreview({
   conversationId,
   refreshKey,
   onRefresh,
+  shareIntent,
+  onShareIntentConsumed,
 }: Props) {
   const token = localStorage.getItem('token') || ''
   const src = `/api/mini-apps/${conversationId}/index.html?token=${token}&v=${refreshKey}`
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const pendingIntentRef = useRef<ShareIntent | null>(null)
+
+  useEffect(() => {
+    if (shareIntent) pendingIntentRef.current = shareIntent
+  }, [shareIntent])
+
+  async function handleIframeLoad() {
+    const intent = pendingIntentRef.current
+    if (!intent) return
+    pendingIntentRef.current = null
+
+    const files = await Promise.all(
+      (intent.files || []).map(fileToDataUrl),
+    )
+
+    iframeRef.current?.contentWindow?.postMessage({
+      type: 'jarvis:share-intent',
+      title: intent.title || '',
+      text: intent.text || '',
+      url: intent.url || '',
+      files,
+    }, '*')
+
+    onShareIntentConsumed?.()
+  }
 
   return (
     <div className='flex flex-col h-full bg-white'>
@@ -41,10 +88,11 @@ export default function MiniAppPreview({
         </div>
       </div>
 
-      {/* Iframe — allow-same-origin needed for auth cookie on sub-resources */}
       <iframe
+        ref={iframeRef}
         key={refreshKey}
         src={src}
+        onLoad={handleIframeLoad}
         sandbox='allow-scripts allow-same-origin allow-forms allow-modals allow-popups'
         className='flex-1 w-full border-0'
         title='Mini-app preview'

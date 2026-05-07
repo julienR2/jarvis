@@ -1,23 +1,15 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Clock, Link2, BellOff, BellRing } from 'lucide-react'
 import {
   api,
-  connectEvents,
   type Message,
   type Attachment,
-  type ChatEvent,
   type Conversation,
 } from '../api'
-
-// Module-level SWR cache — persists across route changes, cleared only on delete
-type CachedConv = { messages: Message[]; title: string; hasMiniApp: boolean; notify: Conversation['notify']; model: string | null; thinking: number; hasCron: boolean; hasWebhook: boolean }
-const convCache = new Map<string, CachedConv>()
-
-export function invalidateConvCache(id: string) {
-  convCache.delete(id)
-}
+import { useChatStore } from '../stores/chatStore'
+import { useChatEvents } from '../hooks/useChatEvents'
 import MessageBubble from './MessageBubble'
 import ChatInput from './ChatInput'
 import { DEFAULT_MODEL } from './ModelSelector'
@@ -25,37 +17,61 @@ import MiniAppPreview from './MiniAppPreview'
 import { ContentTitle } from './ContentLayout'
 import ConversationMenu from './ConversationMenu'
 
+const EMPTY_MESSAGES: readonly Message[] = []
+
+interface ShareIntent {
+  title?: string
+  text?: string
+  url?: string
+  files?: File[]
+}
+
 interface Props {
-  onTitleChange: (id: string, title: string) => void
-  onRefreshList: () => void
-  onDelete?: (id: string) => void
   initialMessage?: string | null
   onInitialMessageConsumed?: () => void
   initialFiles?: File[] | null
   onInitialFilesConsumed?: () => void
+  shareIntent?: ShareIntent | null
+  onShareIntentConsumed?: () => void
 }
 
 export default function ChatView({
-  onTitleChange,
-  onRefreshList,
-  onDelete,
   initialMessage,
   onInitialMessageConsumed,
   initialFiles,
   onInitialFilesConsumed,
+  shareIntent,
+  onShareIntentConsumed,
 }: Props) {
   const { id: conversationId } = useParams<{ id: string }>()
-  const [messages, setMessages] = useState<Message[]>([])
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [title, setTitle] = useState('')
-  const [hasMiniApp, setHasMiniApp] = useState(false)
-  const [notify, setNotify] = useState<Conversation['notify']>('subscribe')
-  const [model, setModel] = useState<string>(DEFAULT_MODEL)
-  const [thinking, setThinking] = useState(false)
-  const [hasCron, setHasCron] = useState(false)
-  const [hasWebhook, setHasWebhook] = useState(false)
-  const [miniAppRefreshKey, setMiniAppRefreshKey] = useState(0)
+  const navigate = useNavigate()
+
+  const conv = useChatStore((s) =>
+    conversationId ? s.conversations[conversationId] : undefined,
+  )
+  const messages = useChatStore(
+    (s) =>
+      (conversationId ? s.messages[conversationId] : undefined) ??
+      (EMPTY_MESSAGES as Message[]),
+  )
+  const isProcessing = useChatStore((s) =>
+    conversationId ? !!s.processing[conversationId] : false,
+  )
+  const loaded = useChatStore((s) =>
+    conversationId ? !!s.convsLoaded[conversationId] : false,
+  )
+
+  const title = conv?.title ?? ''
+  const hasMiniApp = !!conv?.mini_app_path
+  const notify: Conversation['notify'] = conv?.notify ?? 'subscribe'
+  const model = conv?.model ?? DEFAULT_MODEL
+  const thinking = !!conv?.thinking
+  const hasCron = !!conv?.has_cron
+  const hasWebhook = !!conv?.has_webhook
+  const pinned = !!conv?.pinned
+  const showSkeleton = !loaded && messages.length === 0
+
+  const { miniAppRefreshKey, bumpMiniApp } = useChatEvents(conversationId)
   const [showPreview, setShowPreview] = useState(true)
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
@@ -64,140 +80,10 @@ export default function ChatView({
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [floatingLabel, setFloatingLabel] = useState<string | null>(null)
   const [showFloating, setShowFloating] = useState(false)
-  const messagesRef = useRef(messages)
-  messagesRef.current = messages
-  const convIdRef = useRef(conversationId)
-  const onTitleChangeRef = useRef(onTitleChange)
-  const onRefreshListRef = useRef(onRefreshList)
-  useEffect(() => {
-    convIdRef.current = conversationId
-  }, [conversationId])
-  useEffect(() => {
-    onTitleChangeRef.current = onTitleChange
-  }, [onTitleChange])
-  useEffect(() => {
-    onRefreshListRef.current = onRefreshList
-  }, [onRefreshList])
-
-  const handleEvent = useCallback((ev: ChatEvent) => {
-    const cid = convIdRef.current
-    switch (ev.type) {
-      case 'message': {
-        setMessages((prev) => {
-          const idx = prev.findIndex((m) => m.id === ev.message.id)
-          if (idx >= 0) {
-            return prev.map((m, i) => (i === idx ? ev.message : m))
-          }
-          return [...prev, ev.message]
-        })
-        break
-      }
-
-      case 'conversation': {
-        if (ev.title && cid) {
-          setTitle(ev.title)
-          onTitleChangeRef.current(cid, ev.title)
-          onRefreshListRef.current()
-        }
-        break
-      }
-
-      case 'thinking': {
-        setIsProcessing(ev.thinking)
-        break
-      }
-
-      case 'mini_app_updated':
-        setHasMiniApp(true)
-        setMiniAppRefreshKey((k) => k + 1)
-        onRefreshListRef.current()
-        break
-    }
-  }, [])
 
   useEffect(() => {
-    if (!conversationId) return
-    setIsProcessing(false)
     setShowPreview(true)
-
-    // Show cached data immediately (no skeleton), or show skeleton on first visit
-    const cached = convCache.get(conversationId)
-    if (cached) {
-      setMessages(cached.messages)
-      setTitle(cached.title)
-      setHasMiniApp(cached.hasMiniApp)
-      setNotify(cached.notify)
-      setModel(cached.model ?? DEFAULT_MODEL)
-      setThinking(!!cached.thinking)
-      setHasCron(cached.hasCron)
-      setHasWebhook(cached.hasWebhook)
-      setLoading(false)
-    } else {
-      setMessages([])
-      setTitle('')
-      setHasMiniApp(false)
-      setNotify('subscribe')
-      setModel(DEFAULT_MODEL)
-      setThinking(false)
-      setHasCron(false)
-      setHasWebhook(false)
-      setLoading(true)
-    }
-
-    // Always fetch in background to pick up new messages
-    api.getConversation(conversationId).then((conv) => {
-      convCache.set(conversationId, {
-        messages: conv.messages,
-        title: conv.title,
-        hasMiniApp: !!conv.mini_app_path,
-        notify: conv.notify,
-        model: conv.model,
-        thinking: conv.thinking,
-        hasCron: !!conv.has_cron,
-        hasWebhook: !!conv.has_webhook,
-      })
-      setMessages(conv.messages)
-      setTitle(conv.title)
-      setHasMiniApp(!!conv.mini_app_path)
-      setNotify(conv.notify)
-      setModel(conv.model ?? DEFAULT_MODEL)
-      setThinking(!!conv.thinking)
-      setHasCron(!!conv.has_cron)
-      setHasWebhook(!!conv.has_webhook)
-      setLoading(false)
-    })
-
-    let wasConnected = false
-    const conn = connectEvents(conversationId, handleEvent, (status) => {
-      if (status && wasConnected) {
-        // Reconnected — merge silently, no skeleton, no layout shift
-        api.getConversation(conversationId).then((conv) => {
-          convCache.set(conversationId, {
-            messages: conv.messages,
-            title: conv.title,
-            hasMiniApp: !!conv.mini_app_path,
-            notify: conv.notify,
-            model: conv.model,
-            thinking: conv.thinking,
-            hasCron: !!conv.has_cron,
-            hasWebhook: !!conv.has_webhook,
-          })
-          setMessages((prev) => mergeMessages(prev, conv.messages))
-          setTitle(conv.title)
-          setHasMiniApp(!!conv.mini_app_path)
-          setNotify(conv.notify)
-          setModel(conv.model ?? DEFAULT_MODEL)
-          setThinking(!!conv.thinking)
-          setHasCron(!!conv.has_cron)
-          setHasWebhook(!!conv.has_webhook)
-          setIsProcessing(false)
-        })
-      }
-      wasConnected = true
-    })
-
-    return () => conn.close()
-  }, [conversationId, handleEvent])
+  }, [conversationId])
 
   // Consume initial message once passed to input
   const initialConsumedRef = useRef(false)
@@ -237,32 +123,26 @@ export default function ChatView({
 
   function handleNotifyChange(mode: Conversation['notify']) {
     if (!conversationId) return
-    setNotify(mode)
-    const cached = convCache.get(conversationId)
-    if (cached) convCache.set(conversationId, { ...cached, notify: mode })
-    api.updateConversation(conversationId, { notify: mode }).catch((err) => {
-      console.error('Failed to update notify:', err)
-    })
+    useChatStore.getState().patchConversation(conversationId, { notify: mode })
   }
 
   function handleModelChange(newModel: string) {
     if (!conversationId) return
-    setModel(newModel)
-    const cached = convCache.get(conversationId)
-    if (cached) convCache.set(conversationId, { ...cached, model: newModel })
-    api.updateConversation(conversationId, { model: newModel }).catch((err) => {
-      console.error('Failed to update model:', err)
-    })
+    useChatStore.getState().patchConversation(conversationId, { model: newModel })
   }
 
   function handleThinkingChange(newThinking: boolean) {
     if (!conversationId) return
-    setThinking(newThinking)
-    const cached = convCache.get(conversationId)
-    if (cached) convCache.set(conversationId, { ...cached, thinking: newThinking ? 1 : 0 })
-    api.updateConversation(conversationId, { thinking: newThinking }).catch((err) => {
-      console.error('Failed to update thinking:', err)
-    })
+    useChatStore
+      .getState()
+      .patchConversation(conversationId, { thinking: newThinking ? 1 : 0 })
+  }
+
+  function handlePinChange(newPinned: boolean) {
+    if (!conversationId) return
+    useChatStore
+      .getState()
+      .patchConversation(conversationId, { pinned: newPinned ? 1 : 0 })
   }
 
   function startRename() {
@@ -273,11 +153,17 @@ export default function ChatView({
   async function submitRename() {
     const trimmed = renameValue.trim()
     if (trimmed && trimmed !== title && conversationId) {
-      await api.updateConversation(conversationId, { title: trimmed })
-      setTitle(trimmed)
-      onTitleChange(conversationId, trimmed)
+      await useChatStore
+        .getState()
+        .patchConversation(conversationId, { title: trimmed })
     }
     setRenaming(false)
+  }
+
+  async function handleDelete() {
+    if (!conversationId) return
+    await useChatStore.getState().deleteConversation(conversationId)
+    navigate('/', { replace: true })
   }
 
   function cancelMessage() {
@@ -355,10 +241,10 @@ export default function ChatView({
       {title && (
         <div className='md:hidden'>
           <ContentTitle
-            action={onDelete && conversationId ? (
+            action={conversationId ? (
               <span className='flex items-center gap-2'>
                 <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
-                <ConversationMenu onDelete={() => onDelete(conversationId)} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} thinking={thinking} onModelChange={handleModelChange} onThinkingChange={handleThinkingChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} />
+                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} thinking={thinking} onModelChange={handleModelChange} onThinkingChange={handleThinkingChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} pinned={pinned} onPinChange={handlePinChange} />
               </span>
             ) : undefined}
           >
@@ -395,10 +281,10 @@ export default function ChatView({
           {title && (
             <div className='hidden md:block'>
               <ContentTitle
-                action={onDelete && conversationId ? (
+                action={conversationId ? (
                   <span className='flex items-center gap-2'>
                     <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
-                    <ConversationMenu onDelete={() => onDelete(conversationId)} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} thinking={thinking} onModelChange={handleModelChange} onThinkingChange={handleThinkingChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} />
+                    <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} thinking={thinking} onModelChange={handleModelChange} onThinkingChange={handleThinkingChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} pinned={pinned} onPinChange={handlePinChange} />
                   </span>
                 ) : undefined}
               >
@@ -420,7 +306,7 @@ export default function ChatView({
 
             <div ref={scrollContainerRef} className={`h-full overflow-y-auto overflow-x-hidden flex flex-col-reverse pb-6 ${messages.length === 0 ? 'pt-4' : 'pt-0'}`} onScroll={handleScroll}>
               <div className='max-w-3xl mx-auto px-4 md:px-6 min-w-0 w-full'>
-                {loading ? (
+                {showSkeleton ? (
                   <MessageSkeleton />
                 ) : (
                   <>
@@ -445,7 +331,7 @@ export default function ChatView({
             onSendAudio={sendAudio}
             onCancel={cancelMessage}
             isProcessing={isProcessing}
-            autoFocus={!loading && messages.length === 0}
+            autoFocus={!showSkeleton && messages.length === 0}
             initialText={initialMessage || undefined}
             initialFiles={initialFiles || undefined}
             onInitialFilesConsumed={onInitialFilesConsumed}
@@ -460,7 +346,9 @@ export default function ChatView({
             <MiniAppPreview
               conversationId={conversationId!}
               refreshKey={miniAppRefreshKey}
-              onRefresh={() => setMiniAppRefreshKey((k) => k + 1)}
+              onRefresh={bumpMiniApp}
+              shareIntent={shareIntent}
+              onShareIntentConsumed={onShareIntentConsumed}
             />
           </div>
         )}
@@ -468,17 +356,6 @@ export default function ChatView({
     </div>
     </>
   )
-}
-
-// Merge next message list into prev — only re-renders if something actually changed
-function mergeMessages(prev: Message[], next: Message[]): Message[] {
-  if (prev.length === next.length) {
-    const identical = next.every((m, i) =>
-      prev[i].id === m.id && prev[i].content === m.content && prev[i].result === m.result,
-    )
-    if (identical) return prev
-  }
-  return next
 }
 
 function JarvisIndicator({ isThinking }: { isThinking: boolean }) {

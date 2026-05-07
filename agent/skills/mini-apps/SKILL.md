@@ -44,6 +44,30 @@ curl -s -X DELETE ${BACKEND_URL}/internal/mini-apps/$JARVIS_CONVERSATION_ID \
 ```
 This removes the mini-app files and switches the conversation back to normal chat mode.
 
+## Receiving share intents
+
+Users can share text, URLs, or files (images, PDFs, etc.) from other Android apps directly to a mini-app via the PWA share target. To opt in, add a `message` event listener in the mini-app:
+
+```js
+window.addEventListener('message', (e) => {
+  if (e.data?.type !== 'jarvis:share-intent') return
+
+  const { title, text, url, files } = e.data
+  // title: string — share title (often empty)
+  // text:  string — shared text content
+  // url:   string — shared URL
+  // files: Array<{ name: string, type: string, dataUrl: string }>
+  //   dataUrl is a base64 data URI — use directly as <img src> or decode for upload
+})
+```
+
+Examples of what a mini-app can do with shared data:
+- **Todo app**: auto-add `text` or `url` as a new todo item
+- **Storage app**: save shared `files` (images, documents) to the drive
+- **Bookmarks app**: save `url` with `title` as a new bookmark
+
+When the user shares content and picks a mini-app from the share picker, the mini-app opens and receives the data automatically via `postMessage`. The mini-app should handle the intent and give visual feedback (e.g. a toast, highlight the new item).
+
 ## Guidelines
 - Always register first, then write files, then notify
 - Keep mini-apps self-contained — use inline styles or separate CSS, CDN imports for libraries

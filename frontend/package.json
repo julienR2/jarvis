@@ -9,12 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "immer": "^10",
     "lucide-react": "^1",
     "react": "^19",
     "react-dom": "^19",
     "react-markdown": "^10",
     "react-router-dom": "^7",
-    "remark-gfm": "^4"
+    "remark-gfm": "^4",
+    "zustand": "^5"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4",

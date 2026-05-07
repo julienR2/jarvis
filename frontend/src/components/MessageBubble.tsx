@@ -12,6 +12,35 @@ function formatTime(ts: number): string {
   return new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+function CopyButton({ getText }: { getText: () => string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      onClick={() => {
+        navigator.clipboard.writeText(getText()).then(() => {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        })
+      }}
+      className='inline-flex items-center opacity-0 group-hover:opacity-60 [@media(hover:none)]:opacity-40 hover:!opacity-100 transition-opacity'
+      title='Copy message'
+    >
+      {copied ? <Check size={10} /> : <Copy size={10} />}
+    </button>
+  )
+}
+
+function getAssistantCopyText(msg: Message): string {
+  if (!hasActivityLines(msg.content)) return msg.content
+  const { activityLines } = parseActivityContent(msg.content)
+  const hasResult = !!msg.result
+  const allChunks = activityLines.filter((l) => l.prefix === 'chunk')
+  const visibleChunks = hasResult && allChunks.length > 0 ? allChunks.slice(0, -1) : allChunks
+  const parts = visibleChunks.map((l) => l.text)
+  if (hasResult) parts.push(msg.result!)
+  return parts.join('\n\n')
+}
+
 function parseAttachments(metadata?: string | null): Attachment[] {
   if (!metadata) return []
   try {
@@ -57,26 +86,17 @@ function ActivityBubble({ msg }: { msg: Message }) {
   )
 
   const hasResult = !!msg.result
-  // Before result: collapsible = tools, visible = chunks
-  // After result: collapsible = tools + chunks, visible = result
-  // Always strip the last chunk from the collapsible — it's likely the result
-  let lastChunkIdx = -1
-  for (let i = activityLines.length - 1; i >= 0; i--) {
-    if (activityLines[i].prefix === 'chunk') { lastChunkIdx = i; break }
-  }
-  const stepsLines =
-    lastChunkIdx >= 0
-      ? activityLines.filter((_, i) => i !== lastChunkIdx)
-      : activityLines
-  const collapsibleLines = hasResult
-    ? stepsLines
-    : stepsLines.filter((l) => l.prefix === 'tool')
-  const visibleChunks = hasResult
-    ? []
-    : activityLines.filter((l) => l.prefix === 'chunk')
+  // Collapsible = tools only (always)
+  // Visible = all chunks + result when done
+  // The last chunk typically duplicates the result, so strip it when result exists
+  const collapsibleLines = activityLines.filter((l) => l.prefix === 'tool')
+  const allChunks = activityLines.filter((l) => l.prefix === 'chunk')
+  const visibleChunks = hasResult && allChunks.length > 0
+    ? allChunks.slice(0, -1)
+    : allChunks
 
   return (
-    <div className='flex items-start mb-5 animate-fade-in'>
+    <div className='flex items-start mb-5 animate-fade-in group'>
       <div className='max-w-full'>
         {/* Collapsible section */}
         {collapsibleLines.length > 0 && (
@@ -113,17 +133,8 @@ function ActivityBubble({ msg }: { msg: Message }) {
           </div>
         )}
 
-        {/* Visible section: chunks while streaming, result when done */}
-        {hasResult ? (
-          <div className='markdown text-base leading-relaxed'>
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={markdownComponents}
-            >
-              {msg.result!}
-            </ReactMarkdown>
-          </div>
-        ) : visibleChunks.length > 0 ? (
+        {/* Visible section: all text chunks + final result */}
+        {(visibleChunks.length > 0 || hasResult) && (
           <div className='markdown text-base leading-relaxed'>
             {visibleChunks.map((line, i) => (
               <ReactMarkdown
@@ -134,10 +145,21 @@ function ActivityBubble({ msg }: { msg: Message }) {
                 {line.text}
               </ReactMarkdown>
             ))}
+            {hasResult && (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={markdownComponents}
+              >
+                {msg.result!}
+              </ReactMarkdown>
+            )}
           </div>
-        ) : null}
+        )}
         {msg.created_at && (hasResult || visibleChunks.length > 0) && (
-          <div className='text-[10px] text-text-muted/50 mt-1'>{formatTime(msg.created_at)}</div>
+          <div className='text-[10px] text-text-muted/50 mt-1 flex items-center gap-1.5'>
+            {formatTime(msg.created_at)}
+            <CopyButton getText={() => getAssistantCopyText(msg)} />
+          </div>
         )}
       </div>
     </div>
@@ -183,7 +205,7 @@ export default function MessageBubble({ msg }: Props) {
 
         {isUser ? (
           msg.content ? (
-            <Linkify text={msg.content} />
+            <UserMessageContent text={msg.content} />
           ) : null
         ) : (
           <div className='markdown'>
@@ -196,8 +218,9 @@ export default function MessageBubble({ msg }: Props) {
           </div>
         )}
         {msg.created_at && (
-          <div className={`text-[10px] text-text-muted/50 mt-1 ${isUser ? 'text-right' : 'text-left'}`}>
+          <div className={`text-[10px] text-text-muted/50 mt-1 flex items-center gap-1.5 ${isUser ? 'justify-end' : 'justify-start'}`}>
             {formatTime(msg.created_at)}
+            <CopyButton getText={() => msg.content} />
           </div>
         )}
       </div>
@@ -206,6 +229,53 @@ export default function MessageBubble({ msg }: Props) {
 }
 
 const URL_REGEX = /(https?:\/\/[^\s<>)"']+)/g
+const NOTIFY_ARTICLE_REGEX =
+  /<article data-jarvis="notify-prompt">([\s\S]*?)<\/article>\n?/
+
+function UserMessageContent({ text }: { text: string }) {
+  const match = text.match(NOTIFY_ARTICLE_REGEX)
+  if (!match) return <Linkify text={text} />
+
+  const articleContent = match[1].trim()
+  const rest = text.replace(NOTIFY_ARTICLE_REGEX, '').trim()
+  return (
+    <>
+      <CollapsibleArticle label='Notification hint'>
+        {articleContent}
+      </CollapsibleArticle>
+      {rest && <Linkify text={rest} />}
+    </>
+  )
+}
+
+function CollapsibleArticle({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className='mb-2 text-xs'>
+      <button
+        onClick={() => setOpen(!open)}
+        className='flex items-center gap-1 text-text-muted/70 hover:text-text-muted transition-colors'
+      >
+        <ChevronRight
+          size={10}
+          className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
+        />
+        <span>{label}</span>
+      </button>
+      {open && (
+        <div className='mt-1 ml-3 whitespace-pre-wrap text-text-muted/80'>
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function Linkify({ text }: { text: string }) {
   const parts = text.split(URL_REGEX)

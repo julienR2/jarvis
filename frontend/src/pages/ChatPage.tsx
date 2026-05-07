@@ -7,8 +7,9 @@ import {
   useSearchParams,
 } from 'react-router-dom'
 import { Plus, MessageSquare, FileText, X, AppWindow, Layers, Clock, Link2 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import Sidebar from '../components/Sidebar'
-import ChatView, { invalidateConvCache } from '../components/ChatView'
+import ChatView from '../components/ChatView'
 import CronManager from '../components/CronManager'
 import WebhookManager from '../components/WebhookManager'
 import CodeBrowser from '../components/CodeBrowser'
@@ -17,21 +18,28 @@ import {
   SidebarToggleProvider,
   SidebarToggle,
 } from '../components/ContentLayout'
-import { api, connectGlobalEvents, type Conversation, type GlobalEvent } from '../api'
+import { api, type Conversation } from '../api'
+import { useChatStore } from '../stores/chatStore'
 import { useServiceWorker } from '../hooks/useServiceWorker'
+import { useGlobalEvents } from '../hooks/useGlobalEvents'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useSwipeToOpen } from '../hooks/useSwipeToOpen'
 
 export default function ChatPage() {
-  const [conversations, setConversations] = useState<Conversation[]>([])
+  const listLoaded = useChatStore((s) => s.listLoaded)
+  const hasUnread = useChatStore((s) =>
+    s.order.some((id) => (s.conversations[id]?.unread_count ?? 0) > 0),
+  )
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [loaded, setLoaded] = useState(false)
   const [sharedMessage, setSharedMessage] = useState<string | null>(null)
   const [sharedFiles, setSharedFiles] = useState<File[] | null>(null)
+  const [shareIntent, setShareIntent] = useState<{
+    title?: string; text?: string; url?: string; files?: File[]
+  } | null>(null)
   const navigate = useNavigate()
   const location = useLocation()
   useServiceWorker()
-  const isSharePage = location.pathname === '/share'
+  useGlobalEvents()
 
   const SIDEBAR_W = 256 // w-64
   const { containerRef, sidebarRef, overlayRef, handlers: swipeHandlers } = useSwipeToOpen({
@@ -46,68 +54,19 @@ export default function ChatPage() {
 
   useKeyboardShortcuts([
     { key: 'n', meta: true, action: newConversation, description: 'New chat' },
+    { key: 'n', meta: true, shift: true, action: newConversation, description: 'New chat' },
   ])
 
-  async function loadConversations() {
-    try {
-      const list = await api.getConversations()
-      // Keep unread_count at 0 for the conversation we're currently viewing
-      const match = locationRef.current.match(/^\/c\/(.+)$/)
-      if (match) {
-        const currentId = match[1]
-        setConversations(list.map((c) => c.id === currentId ? { ...c, unread_count: 0 } : c))
-      } else {
-        setConversations(list)
-      }
-      return list
-    } catch {
-      return []
-    }
-  }
-
   useEffect(() => {
-    loadConversations().then(() => {
-      setLoaded(true)
+    const store = useChatStore.getState()
+    store.loadConversations().then(() => {
+      const match = locationRef.current.match(/^\/c\/(.+)$/)
+      if (match) store.markRead(match[1])
     })
-
-    // Refresh conversation list when returning to the app (SSE may have dropped while backgrounded)
-    function handleVisibilityChange() {
-      if (document.visibilityState === 'visible') {
-        loadConversations()
-      }
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    // Subscribe to global SSE for real-time unread updates
-    const conn = connectGlobalEvents((ev) => {
-      if (ev.type === 'new_message') {
-        const currentMatch = locationRef.current.match(/^\/c\/(.+)$/)
-        const currentId = currentMatch?.[1]
-        if (ev.conversation_id === currentId) return // user is viewing this conversation
-
-        setConversations((prev) => {
-          const exists = prev.some((c) => c.id === ev.conversation_id)
-          if (!exists) {
-            // New conversation (e.g. from cron) — refresh the full list
-            loadConversations()
-            return prev
-          }
-          return prev.map((c) =>
-            c.id === ev.conversation_id ? { ...c, unread_count: c.unread_count + 1 } : c,
-          )
-        })
-      }
-    })
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      conn.close()
-    }
   }, [])
 
   async function newConversation() {
-    const conv = await api.createConversation()
-    setConversations((prev) => [conv, ...prev])
+    const conv = await useChatStore.getState().createConversation()
     navigate(`/c/${conv.id}`)
     setSidebarOpen(false)
   }
@@ -117,9 +76,7 @@ export default function ChatPage() {
     const match = location.pathname.match(/^\/c\/(.+)$/)
     if (match) {
       const convId = match[1]
-      setConversations((prev) =>
-        prev.map((c) => c.id === convId ? { ...c, unread_count: 0 } : c),
-      )
+      useChatStore.getState().markRead(convId)
       navigator.serviceWorker?.ready.then((reg) =>
         reg.getNotifications({ tag: `jarvis-/c/${convId}` }).then((ns) =>
           ns.forEach((n) => n.close()),
@@ -127,17 +84,6 @@ export default function ChatPage() {
       )
     }
   }, [location.pathname])
-
-  function updateConversationTitle(id: string, title: string) {
-    setConversations((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, title } : c)),
-    )
-  }
-
-  function removeConversation(id: string) {
-    setConversations((prev) => prev.filter((c) => c.id !== id))
-    navigate('/')
-  }
 
   return (
     <div
@@ -159,32 +105,28 @@ export default function ChatPage() {
         className={`fixed md:relative z-40 h-full will-change-transform transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       >
         <Sidebar
-          conversations={conversations}
           onNew={newConversation}
           onDelete={async (id) => {
-            invalidateConvCache(id)
-            await api.deleteConversation(id)
-            removeConversation(id)
+            const onCurrent = locationRef.current === `/c/${id}`
+            await useChatStore.getState().deleteConversation(id)
+            if (onCurrent) navigate('/', { replace: true })
           }}
-          onRename={async (id, title) => {
-            await api.updateConversation(id, { title })
-            updateConversationTitle(id, title)
-          }}
+          onRename={(id, title) => useChatStore.getState().patchConversation(id, { title })}
+          onPinChange={(id, pinned) =>
+            useChatStore.getState().patchConversation(id, { pinned: pinned ? 1 : 0 })
+          }
           onSelect={() => setSidebarOpen(false)}
         />
       </div>
 
       <main className='flex-1 overflow-hidden flex flex-col'>
-        <SidebarToggleProvider value={{ onToggle: () => setSidebarOpen(true), hasUnread: conversations.some((c) => c.unread_count > 0) }}>
+        <SidebarToggleProvider value={{ onToggle: () => setSidebarOpen(true), hasUnread }}>
           <Routes>
             <Route
               path='/'
               element={
-                loaded ? (
-                  <Welcome
-                    onNew={newConversation}
-                    conversations={conversations}
-                  />
+                listLoaded ? (
+                  <Welcome onNew={newConversation} />
                 ) : (
                   <LoadingScreen />
                 )
@@ -194,11 +136,15 @@ export default function ChatPage() {
               path='/share'
               element={
                 <ShareHandler
-                  conversations={conversations}
                   onReady={(convId, message, files) => {
                     setSharedMessage(message || null)
                     if (files && files.length > 0) setSharedFiles(files)
-                    loadConversations()
+                    useChatStore.getState().loadConversations()
+                    navigate(`/c/${convId}`, { replace: true })
+                  }}
+                  onMiniAppPick={(convId, intent) => {
+                    setShareIntent(intent)
+                    useChatStore.getState().loadConversations()
                     navigate(`/c/${convId}`, { replace: true })
                   }}
                 />
@@ -208,13 +154,12 @@ export default function ChatPage() {
               path='/c/:id'
               element={
                 <ChatView
-                  onTitleChange={updateConversationTitle}
-                  onRefreshList={loadConversations}
-                  onDelete={async (id) => { invalidateConvCache(id); await api.deleteConversation(id); removeConversation(id) }}
                   initialMessage={sharedMessage}
                   onInitialMessageConsumed={() => setSharedMessage(null)}
                   initialFiles={sharedFiles}
                   onInitialFilesConsumed={() => setSharedFiles(null)}
+                  shareIntent={shareIntent}
+                  onShareIntentConsumed={() => setShareIntent(null)}
                 />
               }
             />
@@ -237,15 +182,15 @@ function getGreeting(): string {
   return 'Good evening'
 }
 
-function Welcome({
-  onNew,
-  conversations,
-}: {
-  onNew: () => void
-  conversations: Conversation[]
-}) {
+function Welcome({ onNew }: { onNew: () => void }) {
   const navigate = useNavigate()
-  const spaces = conversations.filter((c) => c.mini_app_path || c.has_cron || c.has_webhook)
+  const spaces = useChatStore(
+    useShallow((s) =>
+      s.order
+        .map((id) => s.conversations[id])
+        .filter((c) => c && (c.mini_app_path || c.has_cron || c.has_webhook)),
+    ),
+  )
 
   return (
     <div className='flex flex-col h-full overflow-y-auto'>
@@ -348,14 +293,19 @@ async function retrieveSharedFiles(): Promise<File[]> {
 }
 
 function ShareHandler({
-  conversations,
   onReady,
+  onMiniAppPick,
 }: {
-  conversations: Conversation[]
   onReady: (convId: string, message: string, files?: File[]) => void
+  onMiniAppPick: (convId: string, intent: { title?: string; text?: string; url?: string; files?: File[] }) => void
 }) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const conversations = useChatStore(
+    useShallow((s) => s.order.map((id) => s.conversations[id]).filter(Boolean) as Conversation[]),
+  )
+  const miniApps = conversations.filter(c => c.mini_app_path)
+  const regularConvs = conversations.filter(c => !c.mini_app_path)
   const [message, setMessage] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [previews, setPreviews] = useState<string[]>([])
@@ -409,6 +359,17 @@ function ShareHandler({
     } catch {
       setSending(false)
     }
+  }
+
+  function pickMiniApp(convId: string) {
+    if (sending) return
+    setSending(true)
+    onMiniAppPick(convId, {
+      title: searchParams.get('title') || undefined,
+      text: searchParams.get('text') || undefined,
+      url: searchParams.get('url') || undefined,
+      files: files.length > 0 ? files : undefined,
+    })
   }
 
   if (loading) {
@@ -480,6 +441,35 @@ function ShareHandler({
 
       {/* Conversation picker */}
       <div className='flex-1 overflow-y-auto'>
+        {/* Mini Apps */}
+        {miniApps.length > 0 && (
+          <>
+            <div className='px-4 pt-3 pb-1'>
+              <h3 className='text-xs font-medium text-text-muted uppercase tracking-wider flex items-center gap-1.5'>
+                <AppWindow size={13} />
+                Mini Apps
+              </h3>
+            </div>
+            {miniApps.map((conv) => (
+              <button
+                key={conv.id}
+                onClick={() => pickMiniApp(conv.id)}
+                disabled={sending}
+                className='w-full flex items-center gap-3 px-4 py-2.5 hover:bg-surface transition-colors disabled:opacity-50'
+              >
+                <div className='w-9 h-9 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0'>
+                  <AppWindow size={16} className='text-emerald-600 dark:text-emerald-400' />
+                </div>
+                <div className='flex-1 text-left min-w-0'>
+                  <span className='text-sm text-text-primary block truncate'>
+                    {conv.title}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </>
+        )}
+
         {/* New conversation */}
         <button
           onClick={() => pick(null)}
@@ -495,14 +485,14 @@ function ShareHandler({
         </button>
 
         {/* Existing conversations */}
-        {conversations.length > 0 && (
+        {regularConvs.length > 0 && (
           <div className='px-4 pt-3 pb-1'>
             <h3 className='text-xs font-medium text-text-muted uppercase tracking-wider'>
               Recent
             </h3>
           </div>
         )}
-        {conversations.map((conv) => (
+        {regularConvs.map((conv) => (
           <button
             key={conv.id}
             onClick={() => pick(conv.id)}

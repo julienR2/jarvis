@@ -72,8 +72,10 @@ export const api = {
     request<Conversation>('POST', '/conversations', { title }),
   getConversation: (id: string) =>
     request<ConversationWithMessages>('GET', `/conversations/${id}`),
-  updateConversation: (id: string, data: { title?: string; notify?: string; model?: string; thinking?: boolean }) =>
-    request<Conversation>('PATCH', `/conversations/${id}`, data),
+  updateConversation: (
+    id: string,
+    data: { title?: string; notify?: string; model?: string; thinking?: boolean; pinned?: boolean },
+  ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
   deleteConversation: (id: string) =>
     request<{ ok: boolean }>('DELETE', `/conversations/${id}`),
 
@@ -255,6 +257,7 @@ export interface Conversation {
   notify: 'subscribe' | 'unsubscribe' | 'auto'
   model: string | null
   thinking: number
+  pinned: number
   unread_count: number
   has_cron?: number
   has_webhook?: number
