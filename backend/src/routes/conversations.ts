@@ -47,7 +47,7 @@ const MIME_TYPES: Record<string, string> = {
 }
 
 function detectUploadedFiles(text: string): Attachment[] {
-  const regex = /\/(?:jarvis\/)?workspace\/uploads\/([^\s)"'\]]+)/g
+  const regex = /\/(?:jarvis\/(?:agent\/)?)?workspace\/uploads\/([^\s)"'\]]+)/g
   const seen = new Set<string>()
   const attachments: Attachment[] = []
 
@@ -331,7 +331,7 @@ export function attachInvocationStream(
           )
         }
 
-        // Auto-generate title on first exchange
+        // Auto-generate title on first exchange, only if not manually set
         const msgCount = (
           getDb()
             .prepare(
@@ -340,7 +340,13 @@ export function attachInvocationStream(
             .get(conversationId) as { c: number }
         ).c
 
-        if (msgCount <= 3 && ev.sessionId) {
+        const currentTitle = (
+          getDb()
+            .prepare('SELECT title FROM conversations WHERE id = ?')
+            .get(conversationId) as { title: string } | undefined
+        )?.title
+
+        if (msgCount <= 3 && ev.sessionId && currentTitle === 'New conversation') {
           generateTitle(ev.sessionId, conversationId).then((title) => {
             getDb()
               .prepare('UPDATE conversations SET title = ? WHERE id = ?')
