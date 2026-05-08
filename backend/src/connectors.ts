@@ -23,6 +23,7 @@ export interface ConnectorTestResult {
 export interface ConnectorProxy {
   baseUrlField: string                                  // secret key holding the internal base URL
   authHeader?: { name: string; valueField: string }     // header name + secret key holding its value
+  cookieField?: { name: string; valueField: string }    // cookie name + secret key holding its value
 }
 
 export interface ConnectorDef {
@@ -132,7 +133,7 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
   {
     id: 'elevenlabs',
     name: 'ElevenLabs',
-    description: 'Speech-to-text transcription (replaces Whisper)',
+    description: 'Speech-to-text + text-to-speech. Key needs scopes: user_read, speech_to_text, text_to_speech',
     icon: 'AudioLines',
     fields: [
       { key: 'ELEVENLABS_API_KEY', label: 'API key', type: 'password', placeholder: 'sk_...' },
@@ -145,8 +146,90 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
         const data = await r.json().catch(() => null) as { first_name?: string } | null
         return { ok: true, message: `Connected${data?.first_name ? ` as ${data.first_name}` : ''}` }
       }
-      if (r.status === 401) return { ok: false, message: 'Invalid API key' }
+      if (r.status === 401) {
+        const body = await r.json().catch(() => null) as { detail?: { status?: string } } | null
+        if (body?.detail?.status === 'missing_permissions') {
+          return { ok: false, message: 'Key is missing user_read scope — regenerate it with user_read, speech_to_text, text_to_speech' }
+        }
+        return { ok: false, message: 'Invalid API key' }
+      }
       return { ok: false, message: `ElevenLabs returned ${r.status}` }
+    },
+  },
+  {
+    id: 'pocketbase',
+    name: 'PocketBase',
+    description: 'Self-hosted backend — collections, records, financial data',
+    icon: 'Database',
+    fields: [
+      { key: 'POCKETBASE_URL', label: 'Base URL', type: 'text', placeholder: 'http://pocketbase:8080' },
+      { key: 'POCKETBASE_EMAIL', label: 'Admin email', type: 'email', placeholder: 'admin@example.com' },
+      { key: 'POCKETBASE_PASSWORD', label: 'Admin password', type: 'password' },
+    ],
+    test: async ({ POCKETBASE_URL, POCKETBASE_EMAIL, POCKETBASE_PASSWORD }) => {
+      if (!POCKETBASE_URL?.startsWith('http')) {
+        return { ok: false, message: 'Base URL must start with http(s)://' }
+      }
+      const url = POCKETBASE_URL.replace(/\/$/, '') + '/api/collections/_superusers/auth-with-password'
+      const r = await fetchWithTimeout(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identity: POCKETBASE_EMAIL, password: POCKETBASE_PASSWORD }),
+      }).catch(() => null)
+      if (!r) return { ok: false, message: 'Could not reach PocketBase (check the base URL)' }
+      if (r.ok) {
+        const data = await r.json().catch(() => null) as { record?: { email: string } } | null
+        return { ok: true, message: `Connected as ${data?.record?.email ?? POCKETBASE_EMAIL}` }
+      }
+      if (r.status === 400) return { ok: false, message: 'Invalid email or password' }
+      if (r.status === 404) return { ok: false, message: 'Endpoint not found — check the base URL points to a PocketBase 0.23+ server' }
+      return { ok: false, message: `PocketBase returned ${r.status}` }
+    },
+  },
+  {
+    id: 'copyparty',
+    name: 'Copyparty',
+    description: 'Personal file drive — browse, upload, and manage files',
+    icon: 'HardDrive',
+    fields: [
+      { key: 'COPYPARTY_BASE_URL', label: 'Base URL', type: 'text', placeholder: 'http://copyparty:3923' },
+      { key: 'COPYPARTY_PASSWORD', label: 'Password', type: 'password' },
+    ],
+    proxy: {
+      baseUrlField: 'COPYPARTY_BASE_URL',
+      cookieField: { name: 'cppwd', valueField: 'COPYPARTY_PASSWORD' },
+    },
+    test: async ({ COPYPARTY_BASE_URL, COPYPARTY_PASSWORD }) => {
+      if (!COPYPARTY_BASE_URL?.startsWith('http')) {
+        return { ok: false, message: 'Base URL must start with http(s)://' }
+      }
+      const r = await fetchWithTimeout(`${COPYPARTY_BASE_URL.replace(/\/$/, '')}/?ls`, {
+        headers: { Cookie: `cppwd=${COPYPARTY_PASSWORD}` },
+      }).catch(() => null)
+      if (!r) return { ok: false, message: 'Could not reach Copyparty' }
+      if (r.ok) return { ok: true, message: 'Connected' }
+      return { ok: false, message: `Copyparty returned ${r.status}` }
+    },
+  },
+  {
+    id: 'imagerouter',
+    name: 'ImageRouter',
+    description: 'Generate AI images (Flux, SDXL, DALL·E, Ideogram…)',
+    icon: 'Image',
+    fields: [
+      { key: 'IMAGEROUTER_API_KEY', label: 'API key', type: 'password', placeholder: 'ir_...' },
+    ],
+    test: async ({ IMAGEROUTER_API_KEY }) => {
+      const r = await fetchWithTimeout('https://api.imagerouter.io/v1/models', {
+        headers: { Authorization: `Bearer ${IMAGEROUTER_API_KEY}` },
+      })
+      if (r.ok) {
+        const data = await r.json().catch(() => null) as { data?: unknown[] } | unknown[] | null
+        const count = Array.isArray(data) ? data.length : Array.isArray((data as any)?.data) ? (data as any).data.length : 0
+        return { ok: true, message: count ? `Connected — ${count} models available` : 'Connected' }
+      }
+      if (r.status === 401) return { ok: false, message: 'Invalid API key' }
+      return { ok: false, message: `ImageRouter returned ${r.status}` }
     },
   },
 ]

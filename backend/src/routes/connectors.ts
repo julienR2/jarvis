@@ -173,14 +173,15 @@ export async function connectorRoutes(app: FastifyInstance) {
     return { ok: true }
   })
 
-  // GET /:id/proxy/* — stream content from the connector's internal HTTP endpoint.
-  // Unauthenticated by design: <img>/<a> tags can't send headers. Same threat model
-  // as /api/uploads/files/ — URLs are only surfaced inside JWT-gated chat + apps.
-  app.get<{ Params: { id: string, '*': string } }>('/:id/proxy/*', async (req, reply) => {
-    const def = getCatalogDef(req.params.id)
+  // Parse form-encoded bodies for the write proxy (act=rm etc.)
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => done(null, body))
+
+  async function handleProxy(req: any, reply: any, method: string) {
+    const id = (req.params as any).id as string
+    const def = getCatalogDef(id)
     if (!def?.proxy) return reply.code(404).send({ error: 'Connector has no proxy' })
 
-    const row = getConnector(req.params.id)
+    const row = getConnector(id)
     if (!row) return reply.code(404).send({ error: 'Connector not configured' })
 
     let secrets: Record<string, string>
@@ -189,9 +190,9 @@ export async function connectorRoutes(app: FastifyInstance) {
     const baseUrl = secrets[def.proxy.baseUrlField]
     if (!baseUrl) return reply.code(500).send({ error: `${def.proxy.baseUrlField} not set` })
 
-    const path = (req.params as Record<string, string>)['*'] ?? ''
-    const qIndex = req.url.indexOf('?')
-    const qs = qIndex >= 0 ? req.url.slice(qIndex) : ''
+    const path = ((req.params as any)['*'] as string) ?? ''
+    const qIndex = (req.url as string).indexOf('?')
+    const qs = qIndex >= 0 ? (req.url as string).slice(qIndex) : ''
     const target = `${baseUrl.replace(/\/$/, '')}/${path}${qs}`
 
     const headers: Record<string, string> = {}
@@ -199,10 +200,24 @@ export async function connectorRoutes(app: FastifyInstance) {
       const v = secrets[def.proxy.authHeader.valueField]
       if (v) headers[def.proxy.authHeader.name] = v
     }
+    if (def.proxy.cookieField) {
+      const v = secrets[def.proxy.cookieField.valueField]
+      if (v) headers['Cookie'] = `${def.proxy.cookieField.name}=${v}`
+    }
+
+    const fetchInit: RequestInit = { method, headers }
+    if (method !== 'GET' && method !== 'HEAD') {
+      const ct = req.headers['content-type'] as string | undefined
+      if (ct) headers['Content-Type'] = ct
+      const body = req.body
+      if (body !== undefined && body !== null) {
+        fetchInit.body = typeof body === 'string' ? body : Buffer.isBuffer(body) ? body : JSON.stringify(body)
+      }
+    }
 
     let upstream: Response
     try {
-      upstream = await fetch(target, { headers })
+      upstream = await fetch(target, fetchInit)
     } catch (err: any) {
       return reply.code(502).send({ error: 'Upstream unreachable', message: err?.message })
     }
@@ -214,5 +229,24 @@ export async function connectorRoutes(app: FastifyInstance) {
     }
     if (!upstream.body) return reply.send()
     return reply.send(Readable.fromWeb(upstream.body as any))
+  }
+
+  // GET /:id/proxy/* — stream content from the connector's internal HTTP endpoint.
+  // Unauthenticated by design: <img>/<a> tags can't send headers. Same threat model
+  // as /api/uploads/files/ — URLs are only surfaced inside JWT-gated chat + apps.
+  app.get<{ Params: { id: string, '*': string } }>('/:id/proxy/*', async (req, reply) => {
+    return handleProxy(req, reply, 'GET')
+  })
+
+  // PUT/POST/DELETE /:id/proxy/* — write through to the upstream service.
+  // JWT-protected because these are mutating operations.
+  app.put<{ Params: { id: string, '*': string } }>('/:id/proxy/*', auth, async (req, reply) => {
+    return handleProxy(req, reply, 'PUT')
+  })
+  app.post<{ Params: { id: string, '*': string } }>('/:id/proxy/*', auth, async (req, reply) => {
+    return handleProxy(req, reply, 'POST')
+  })
+  app.delete<{ Params: { id: string, '*': string } }>('/:id/proxy/*', auth, async (req, reply) => {
+    return handleProxy(req, reply, 'DELETE')
   })
 }
