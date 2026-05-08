@@ -201,7 +201,7 @@ export async function internalRoutes(app: FastifyInstance) {
       .prepare('UPDATE conversations SET app_path = ? WHERE id = ?')
       .run(`apps/${body.conversation_id}`, body.conversation_id)
 
-    return { ok: true, path: `/jarvis/workspace/apps/${body.conversation_id}` }
+    return { ok: true, path: appDir }
   })
 
   app.post<{ Params: { conversationId: string } }>('/apps/:conversationId/notify', async (req, reply) => {

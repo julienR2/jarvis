@@ -9,7 +9,7 @@ jarvis/
 ├── backend/       # Fastify 5 API + WebSocket server (TypeScript, Node 25)
 ├── frontend/      # React 19 SPA with Vite + Tailwind CSS 4 (TypeScript)
 ├── admin/         # Emergency recovery page (plain Node.js, zero deps)
-├── data/          # Runtime data (SQLite DB, Claude config, workspace)
+├── agent/         # Claude config + runtime state (skills, rules, data/, workspace/)
 └── docker-compose.yml
 ```
 
@@ -120,7 +120,7 @@ To read all secrets (e.g. to get a key for a direct API call):
 ```js
 node -e "
 const D = require('/jarvis/backend/node_modules/better-sqlite3');
-const db = new D('/jarvis/data/jarvis.db');
+const db = new D('/jarvis/agent/data/jarvis.db');
 console.log(db.prepare('SELECT id, secrets_json FROM connectors').all());
 "
 ```

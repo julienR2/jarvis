@@ -2,14 +2,16 @@ node_modules/
 dist/
 frontend/src/**/*.js
 .env
-data/
 whisper-cache/
 
 # Personal docker-compose overrides (host-specific mounts, networks, etc.)
 docker-compose.override.yml
 
+# --- Backend runtime data (SQLite DB, secrets, browser sessions) ---
+agent/data/
+
 # --- Agent's user workspace (memory, uploads, mini-apps, notes) ---
-workspace/
+agent/workspace/
 
 # --- Agent config dir (mounted as /jarvis/agent in the container) ---
 # We commit the default skills, rules, CLAUDE.md and settings.json,

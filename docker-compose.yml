@@ -10,8 +10,9 @@ services:
     env_file: .env
     environment:
       PORT: 3005
-      DB_PATH: /jarvis/data/jarvis.db
-      WORKSPACE_DIR: /jarvis/workspace
+      DB_PATH: /jarvis/agent/data/jarvis.db
+      WORKSPACE_DIR: /jarvis/agent/workspace
+      SECRETS_PATH: /jarvis/agent/data/secrets.json
       JARVIS_REPO_DIR: /jarvis
       WHISPER_URL: http://whisper:9000
       SESSION_MANAGER_URL: http://session-manager:3010
@@ -33,7 +34,8 @@ services:
     env_file: .env
     environment:
       CLAUDE_CONFIG_DIR: /jarvis/agent
-      WORKSPACE_DIR: /jarvis/workspace
+      WORKSPACE_DIR: /jarvis/agent/workspace
+      SECRETS_PATH: /jarvis/agent/data/secrets.json
       BACKEND_URL: http://backend:3005
       PORT: 3010
       TZ: ${TZ:-UTC}
@@ -84,8 +86,8 @@ services:
     container_name: jarvis-playwright
     command: ["--port", "8931", "--host", "0.0.0.0", "--allowed-hosts", "*", "--headless", "--user-data-dir", "/sessions", "--output-dir", "/uploads"]
     volumes:
-      - ./data/browser-sessions:/sessions
-      - ./workspace/uploads:/uploads
+      - ./agent/data/browser-sessions:/sessions
+      - ./agent/workspace/uploads:/uploads
     restart: unless-stopped
 
 volumes:

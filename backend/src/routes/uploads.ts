@@ -44,7 +44,7 @@ export function uploadRoutes(app: FastifyInstance, _opts: unknown, done: () => v
       size: file.file.bytesRead,
       url: `/api/uploads/files/${storedName}`,
       // Path accessible by Claude inside the container
-      path: `/jarvis/workspace/uploads/${storedName}`,
+      path: join(UPLOADS_DIR, storedName),
     }
   })
 

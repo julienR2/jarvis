@@ -5,7 +5,7 @@ import { dirname } from 'path'
 const DEFAULT_JWT_PLACEHOLDER = 'change-me-in-production'
 const DEFAULT_INTERNAL_PLACEHOLDER = 'internal'
 
-const secretsPath = process.env.SECRETS_PATH || '/jarvis/data/secrets.json'
+const secretsPath = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
 
 function loadOrGenerateSecrets(): { jwt: string; internal: string } {
   let stored: Partial<{ jwt: string; internal: string }> = {}
@@ -45,8 +45,8 @@ export const config = {
   port: parseInt(process.env.PORT || '3005'),
   jwtSecret: secrets.jwt,
   internalSecret: secrets.internal,
-  dbPath: process.env.DB_PATH || '/jarvis/data/jarvis.db',
-  workspaceDir: process.env.WORKSPACE_DIR || '/jarvis/workspace',
+  dbPath: process.env.DB_PATH || '/jarvis/agent/data/jarvis.db',
+  workspaceDir: process.env.WORKSPACE_DIR || '/jarvis/agent/workspace',
   claudeConfigDir: process.env.CLAUDE_CONFIG_DIR || '/jarvis/agent',
   whisperUrl: process.env.WHISPER_URL || 'http://whisper:9000',
   // URL that external containers (session-manager / claude) use to reach us.

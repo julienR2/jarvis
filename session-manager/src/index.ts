@@ -8,7 +8,8 @@ import { readFileSync, existsSync } from 'fs'
 // to call the backend's /internal/* API.
 if (!process.env.INTERNAL_SECRET || process.env.INTERNAL_SECRET === 'internal') {
   try {
-    const { internal } = JSON.parse(readFileSync('/jarvis/data/secrets.json', 'utf8'))
+    const secretsPath = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
+    const { internal } = JSON.parse(readFileSync(secretsPath, 'utf8'))
     if (internal) process.env.INTERNAL_SECRET = internal
   } catch { /* backend hasn't booted yet — Claude invocations will fail until it does */ }
 }
@@ -45,7 +46,7 @@ interface Invocation {
 // ── Config ───────────────────────────────────────────────────────────────────
 
 const PORT = parseInt(process.env.PORT || '3010')
-const WORKSPACE_DIR = process.env.WORKSPACE_DIR || '/jarvis/workspace'
+const WORKSPACE_DIR = process.env.WORKSPACE_DIR || '/jarvis/agent/workspace'
 const MAX_EVENTS = 1000
 const CLEANUP_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
