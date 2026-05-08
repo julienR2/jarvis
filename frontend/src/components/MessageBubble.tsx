@@ -302,7 +302,7 @@ function Linkify({ text }: { text: string }) {
 
 function translateSrc(src?: string): string {
   if (!src) return ''
-  return src.replace(/^\/(?:jarvis\/)?workspace\/uploads\//, '/api/uploads/files/')
+  return src.replace(/^\/(?:jarvis\/(?:agent\/)?)?workspace\/uploads\//, '/api/uploads/files/')
 }
 
 const markdownComponents = {

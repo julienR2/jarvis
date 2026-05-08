@@ -17,9 +17,9 @@ You can create interactive apps (HTML/CSS/JS) displayed alongside the chat as a 
      -H "X-Internal-Secret: $INTERNAL_SECRET" \
      -d "{\"conversation_id\":\"$JARVIS_CONVERSATION_ID\"}"
    ```
-   This creates `/jarvis/workspace/apps/$JARVIS_CONVERSATION_ID/` and marks the conversation.
+   This creates `$WORKSPACE_DIR/apps/$JARVIS_CONVERSATION_ID/` and marks the conversation.
 
-2. **Write files** to `/jarvis/workspace/apps/$JARVIS_CONVERSATION_ID/`:
+2. **Write files** to `$WORKSPACE_DIR/apps/$JARVIS_CONVERSATION_ID/`:
    - `index.html` (required) — the entry point
    - Optional: separate CSS, JS, images, etc.
    - For React apps, use CDN imports:

@@ -47,6 +47,10 @@ agent/skills/*
 !agent/skills/add-connector/
 !agent/skills/self-edit/
 !agent/skills/slack/
+!agent/skills/github/
+!agent/skills/elevenlabs/
+!agent/skills/pocketbase/
+!agent/skills/imagerouter/
 
 # Whitelist default rules — anything else under agent/rules/ is gitignored
 agent/rules/*
