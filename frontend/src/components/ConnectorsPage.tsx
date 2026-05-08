@@ -128,7 +128,7 @@ export default function ConnectorsPage() {
       )}
 
       <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
-        {connectors.map((c) => (
+        {[...connectors].sort((a, b) => (b.connected ? 1 : 0) - (a.connected ? 1 : 0)).map((c) => (
           <ConnectorCard
             key={c.id}
             connector={c}
