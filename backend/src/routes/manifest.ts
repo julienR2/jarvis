@@ -83,19 +83,7 @@ export async function manifestRoutes(app: FastifyInstance) {
           files: [
             {
               name: 'files',
-              accept: [
-                'image/*',
-                'application/pdf',
-                'text/*',
-                'video/*',
-                'audio/*',
-                '.doc',
-                '.docx',
-                '.xls',
-                '.xlsx',
-                '.csv',
-                '.json',
-              ],
+              accept: ['*/*'],
             },
           ],
         },
