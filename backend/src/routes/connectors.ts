@@ -175,6 +175,8 @@ export async function connectorRoutes(app: FastifyInstance) {
 
   // Parse form-encoded bodies for the write proxy (act=rm etc.)
   app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => done(null, body))
+  // Accept any other content type as raw buffer (file uploads via proxy)
+  app.addContentTypeParser(/^(?!application\/json)/, { parseAs: 'buffer', bodyLimit: 100 * 1024 * 1024 }, (_req, body, done) => done(null, body))
 
   async function handleProxy(req: any, reply: any, method: string) {
     const id = (req.params as any).id as string
