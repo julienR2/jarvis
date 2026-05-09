@@ -43,9 +43,11 @@ export const api = {
   // Auth
   login: (email: string, password: string) =>
     request<{ token: string }>('POST', '/auth/login', { email, password }),
-  getSetupStatus: () => request<{ needsSetup: boolean }>('GET', '/auth/setup-status'),
+  getSetupStatus: () => request<{ needsSetup: boolean; hasToken: boolean }>('GET', '/auth/setup-status'),
   setup: (email: string, password: string) =>
     request<{ token: string }>('POST', '/auth/setup', { email, password }),
+  setupToken: (token: string) =>
+    request<{ ok: boolean }>('POST', '/auth/setup-token', { token }),
 
   // Uploads
   uploadFile: async (file: File): Promise<Attachment> => {

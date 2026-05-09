@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs'
 import { getDb } from './db.js'
 import type { ConnectorRow, CustomConnectorRow } from './types.js'
 
@@ -342,5 +343,18 @@ export function getConnectorEnvVars(): Record<string, string> {
       Object.assign(env, secrets)
     } catch { /* skip malformed */ }
   }
+
+  // Include the Claude OAuth token from secrets.json if not already in process env.
+  // This makes tokens saved via the onboarding flow available immediately without restart.
+  if (!process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+    try {
+      const secretsPath = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
+      const secrets = JSON.parse(readFileSync(secretsPath, 'utf8'))
+      if (secrets.claudeOauthToken) {
+        env.CLAUDE_CODE_OAUTH_TOKEN = secrets.claudeOauthToken
+      }
+    } catch { /* no secrets file */ }
+  }
+
   return env
 }

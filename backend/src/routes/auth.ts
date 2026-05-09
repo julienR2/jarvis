@@ -1,14 +1,47 @@
 import type { FastifyInstance } from 'fastify'
 import bcrypt from 'bcrypt'
+import { readFileSync, writeFileSync } from 'fs'
 import { getDb } from '../db.js'
 import { config } from '../config.js'
 import type { UserRow } from '../types.js'
+
+const SECRETS_PATH = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
+const ENV_PATH = '/jarvis/.env'
+
+function readSecrets(): Record<string, unknown> {
+  try {
+    return JSON.parse(readFileSync(SECRETS_PATH, 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+function writeSecrets(secrets: Record<string, unknown>): void {
+  writeFileSync(SECRETS_PATH, JSON.stringify(secrets, null, 2), { mode: 0o600 })
+}
+
+function updateEnvFile(key: string, value: string): void {
+  let content = ''
+  try {
+    content = readFileSync(ENV_PATH, 'utf8')
+  } catch { /* file doesn't exist yet */ }
+
+  const regex = new RegExp(`^${key}=.*$`, 'm')
+  if (regex.test(content)) {
+    content = content.replace(regex, `${key}=${value}`)
+  } else {
+    content = content.trimEnd() + `\n${key}=${value}\n`
+  }
+  writeFileSync(ENV_PATH, content)
+}
 
 export async function authRoutes(app: FastifyInstance) {
   // GET /setup-status — public: lets the UI decide between login and first-run setup
   app.get('/setup-status', async () => {
     const row = getDb().prepare('SELECT COUNT(*) as n FROM users').get() as { n: number }
-    return { needsSetup: row.n === 0 }
+    const secrets = readSecrets()
+    const hasToken = !!(process.env.CLAUDE_CODE_OAUTH_TOKEN || secrets.claudeOauthToken)
+    return { needsSetup: row.n === 0, hasToken }
   })
 
   // POST /setup — public, but only works when zero users exist
@@ -70,5 +103,25 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.get('/me', { onRequest: [app.authenticate] }, async (req) => {
     return req.user
+  })
+
+  // POST /setup-token — save the Claude Code OAuth token
+  app.post('/setup-token', { onRequest: [app.authenticate] }, async (req, reply) => {
+    const { token } = req.body as { token?: string }
+    if (!token || !token.trim()) {
+      return reply.code(400).send({ error: 'Token is required' })
+    }
+
+    const trimmed = token.trim()
+
+    // Persist to secrets.json (immediate availability via getConnectorEnvVars)
+    const secrets = readSecrets()
+    secrets.claudeOauthToken = trimmed
+    writeSecrets(secrets)
+
+    // Persist to .env (survives container rebuilds)
+    updateEnvFile('CLAUDE_CODE_OAUTH_TOKEN', trimmed)
+
+    return { ok: true }
   })
 }

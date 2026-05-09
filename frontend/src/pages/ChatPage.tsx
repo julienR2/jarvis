@@ -6,7 +6,7 @@ import {
   useLocation,
   useSearchParams,
 } from 'react-router-dom'
-import { Plus, MessageSquare, FileText, X, AppWindow, Pin, Clock, Link2 } from 'lucide-react'
+import { Plus, MessageSquare, FileText, X, AppWindow, Pin, Clock, Link2, Sparkles } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import Sidebar from '../components/Sidebar'
 import ChatView from '../components/ChatView'
@@ -212,13 +212,22 @@ function Welcome({ onNew }: { onNew: () => void }) {
         <p className='text-text-muted text-sm mt-1 mb-6'>
           How can I help you today?
         </p>
-        <button
-          onClick={onNew}
-          className='flex items-center gap-2 bg-accent text-white px-5 py-2.5 rounded-xl font-medium hover:bg-accent-hover transition-colors'
-        >
-          <Plus size={18} />
-          New conversation
-        </button>
+        <div className='flex items-center gap-3'>
+          <button
+            onClick={onNew}
+            className='flex items-center gap-2 bg-accent text-white px-5 py-2.5 rounded-xl font-medium hover:bg-accent-hover transition-colors'
+          >
+            <Plus size={18} />
+            New conversation
+          </button>
+          <button
+            onClick={() => navigate('/onboarding')}
+            className='flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium border border-border text-text-secondary hover:bg-surface hover:text-text-primary transition-colors'
+          >
+            <Sparkles size={16} />
+            Setup wizard
+          </button>
+        </div>
       </div>
 
       {/* Pinned grid */}
