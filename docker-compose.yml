@@ -84,9 +84,8 @@ services:
   playwright:
     image: mcr.microsoft.com/playwright/mcp
     container_name: jarvis-playwright
-    command: ["--port", "8931", "--host", "0.0.0.0", "--allowed-hosts", "*", "--headless", "--user-data-dir", "/sessions", "--output-dir", "/uploads"]
+    command: ["--port", "8931", "--host", "0.0.0.0", "--allowed-hosts", "*", "--headless", "--isolated", "--output-dir", "/uploads"]
     volumes:
-      - ./agent/data/browser-sessions:/sessions
       - ./agent/workspace/uploads:/uploads
     restart: unless-stopped
 
