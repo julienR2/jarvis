@@ -110,6 +110,23 @@ export const api = {
     return res.json()
   },
 
+  transcribeAudio: async (audioBlob: Blob): Promise<{ transcript: string }> => {
+    const form = new FormData()
+    form.append('file', audioBlob, 'audio.webm')
+    const token = getToken()
+    const res = await fetch(`${BASE}/conversations/audio`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    })
+    if (res.status === 401) handleUnauthorized()
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error(err.error || res.statusText)
+    }
+    return res.json()
+  },
+
   // Crons
   getCrons: () => request<Cron[]>('GET', '/crons'),
   createCron: (data: CronInput) => request<Cron>('POST', '/crons', data),

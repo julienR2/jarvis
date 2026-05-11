@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply } from 'fastify'
 import { existsSync, rmSync } from 'fs'
 import { basename, extname, join } from 'path'
 import { getDb, uuid } from '../db.js'
@@ -697,6 +697,60 @@ export async function conversationRoutes(app: FastifyInstance) {
 
   // ── Audio transcribe + send ────────────────────────────────────────────────
 
+  async function transcribeAudioBuffer(buffer: Buffer, reply: FastifyReply): Promise<string | null> {
+    const audioBlob = new Blob([new Uint8Array(buffer)], { type: 'audio/webm' })
+    let transcript = ''
+
+    const elSecrets = getConnectorSecrets('elevenlabs')
+    if (elSecrets?.ELEVENLABS_API_KEY) {
+      try {
+        const form = new FormData()
+        form.append('audio', audioBlob, 'audio.webm')
+        form.append('model_id', 'scribe_v1')
+        const elRes = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+          method: 'POST',
+          headers: { 'xi-api-key': elSecrets.ELEVENLABS_API_KEY },
+          body: form,
+        })
+        if (elRes.ok) {
+          const data = await elRes.json() as { text?: string }
+          transcript = (data.text ?? '').trim()
+        }
+      } catch { /* fall through to Whisper */ }
+    }
+
+    if (!transcript) {
+      const form = new FormData()
+      form.append('audio_file', audioBlob, 'audio.webm')
+      const whisperRes = await fetch(
+        `${config.whisperUrl}/asr?task=transcribe&output=txt`,
+        { method: 'POST', body: form },
+      )
+      if (!whisperRes.ok) {
+        reply.code(502).send({ error: `Transcription failed: ${whisperRes.status}` })
+        return null
+      }
+      transcript = (await whisperRes.text()).trim()
+    }
+
+    if (!transcript) {
+      reply.code(400).send({ error: 'No speech detected' })
+      return null
+    }
+
+    return transcript
+  }
+
+  // Transcribe-only (no message sent)
+  app.post('/audio', auth, async (req, reply) => {
+    const file = await req.file()
+    if (!file) return reply.code(400).send({ error: 'No audio file' })
+    const buffer = await file.toBuffer()
+    const transcript = await transcribeAudioBuffer(buffer, reply)
+    if (transcript === null) return
+    return { transcript }
+  })
+
   app.post<{ Params: { id: string } }>(
     '/:id/audio',
     auth,
@@ -718,49 +772,9 @@ export async function conversationRoutes(app: FastifyInstance) {
       if (!file) return reply.code(400).send({ error: 'No audio file' })
 
       const buffer = await file.toBuffer()
-      const audioBlob = new Blob([new Uint8Array(buffer)], { type: 'audio/webm' })
+      const transcript = await transcribeAudioBuffer(buffer, reply)
+      if (transcript === null) return
 
-      let transcript = ''
-
-      // Try ElevenLabs first if configured
-      const elSecrets = getConnectorSecrets('elevenlabs')
-      if (elSecrets?.ELEVENLABS_API_KEY) {
-        try {
-          const form = new FormData()
-          form.append('audio', audioBlob, 'audio.webm')
-          form.append('model_id', 'scribe_v1')
-          const elRes = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
-            method: 'POST',
-            headers: { 'xi-api-key': elSecrets.ELEVENLABS_API_KEY },
-            body: form,
-          })
-          if (elRes.ok) {
-            const data = await elRes.json() as { text?: string }
-            transcript = (data.text ?? '').trim()
-          }
-        } catch { /* fall through to Whisper */ }
-      }
-
-      // Fallback to Whisper
-      if (!transcript) {
-        const form = new FormData()
-        form.append('audio_file', audioBlob, 'audio.webm')
-        const whisperRes = await fetch(
-          `${config.whisperUrl}/asr?task=transcribe&output=txt`,
-          { method: 'POST', body: form },
-        )
-        if (!whisperRes.ok) {
-          return reply
-            .code(502)
-            .send({ error: `Transcription failed: ${whisperRes.status}` })
-        }
-        transcript = (await whisperRes.text()).trim()
-      }
-      if (!transcript) {
-        return reply.code(400).send({ error: 'No speech detected' })
-      }
-
-      // Process as a regular message
       const userMsgId = processMessage(id, conv, transcript, [])
       return { id: userMsgId, transcript }
     },

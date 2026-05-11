@@ -122,6 +122,16 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
     await onSendAudio(blob)
   }
 
+  async function handleTranscribeOnly(blob: Blob) {
+    const res = await api.transcribeAudio(blob)
+    if (!res?.transcript) return
+    setInput(prev => {
+      const prefix = prev.length > 0 && !prev.endsWith(' ') ? ' ' : ''
+      return prev + prefix + res.transcript
+    })
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }
+
   function handleInput(e: React.FormEvent<HTMLTextAreaElement>) {
     const t = e.currentTarget
     t.style.height = 'auto'
@@ -159,8 +169,8 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
   const allUploaded = files.every(f => f.uploaded || f.error)
   const hasContent = !!input.trim() || files.some(f => f.uploaded)
 
-  // WhatsApp-style: mic when empty, send when text/files, cancel when processing
-  const showMic = !isProcessing && !hasContent && !audioActive
+  // Mic shows when no text typed, OR when files are attached (even with text)
+  const showMic = !isProcessing && !audioActive && (!input.trim() || hasFiles)
   const showSend = !isProcessing && !audioActive && hasContent && (!hasFiles || allUploaded)
   const showCancel = isProcessing && !audioActive
 
@@ -258,6 +268,7 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
               <div className={showMic || audioActive ? '' : 'hidden'}>
                 <AudioButton
                   onAudioReady={handleTranscript}
+                  onTranscribeReady={handleTranscribeOnly}
                   onActiveChange={setAudioActive}
                   disabled={isProcessing}
                 />

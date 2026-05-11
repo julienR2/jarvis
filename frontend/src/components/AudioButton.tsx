@@ -1,15 +1,16 @@
 import { useState, useRef, useEffect } from 'react'
-import { Mic, Send, Loader2, X } from 'lucide-react'
+import { Mic, Send, Loader2, X, Type } from 'lucide-react'
 
 interface Props {
   onAudioReady: (blob: Blob) => Promise<void>
+  onTranscribeReady?: (blob: Blob) => Promise<void>
   onActiveChange?: (active: boolean) => void
   disabled?: boolean
 }
 
 type State = 'idle' | 'recording' | 'processing'
 
-export default function AudioButton({ onAudioReady, onActiveChange, disabled }: Props) {
+export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveChange, disabled }: Props) {
   const [state, setState] = useState<State>('idle')
   const [duration, setDuration] = useState(0)
   const stateRef = useRef<State>('idle')
@@ -18,6 +19,7 @@ export default function AudioButton({ onAudioReady, onActiveChange, disabled }: 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const startTimeRef = useRef(0)
   const cancelledRef = useRef(false)
+  const modeRef = useRef<'send' | 'transcribe'>('send')
 
   function updateState(s: State) {
     stateRef.current = s
@@ -60,7 +62,13 @@ export default function AudioButton({ onAudioReady, onActiveChange, disabled }: 
         if (blob.size > 0) {
           updateState('processing')
           try {
-            await onAudioReady(blob)
+            const mode = modeRef.current
+            modeRef.current = 'send'
+            if (mode === 'transcribe' && onTranscribeReady) {
+              await onTranscribeReady(blob)
+            } else {
+              await onAudioReady(blob)
+            }
           } catch (err) {
             console.error('Audio processing failed:', err)
           } finally {
@@ -84,13 +92,23 @@ export default function AudioButton({ onAudioReady, onActiveChange, disabled }: 
     }
   }
 
-  function stop() {
+  function doStop() {
     if (stateRef.current !== 'recording') return
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     if (mediaRef.current && mediaRef.current.state !== 'inactive') {
       mediaRef.current.stop()
     }
     mediaRef.current = null
+  }
+
+  function stop() {
+    modeRef.current = 'send'
+    doStop()
+  }
+
+  function stopTranscribeOnly() {
+    modeRef.current = 'transcribe'
+    doStop()
   }
 
   function cancel() {
@@ -145,6 +163,15 @@ export default function AudioButton({ onAudioReady, onActiveChange, disabled }: 
           <span className="w-2 h-2 rounded-full bg-danger animate-pulse" />
           {fmt(duration)}
         </span>
+        {onTranscribeReady && (
+          <button
+            onClick={stopTranscribeOnly}
+            className="p-1.5 rounded-xl text-text-muted hover:text-text-primary hover:bg-bg transition-colors"
+            title="Transcribe to text"
+          >
+            <Type size={14} />
+          </button>
+        )}
         <button
           onClick={stop}
           className="p-2 rounded-xl bg-accent text-white hover:opacity-90 transition-opacity"
