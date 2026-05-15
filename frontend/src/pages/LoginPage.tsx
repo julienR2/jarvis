@@ -14,7 +14,13 @@ export default function LoginPage() {
 
   useEffect(() => {
     api.getSetupStatus()
-      .then(({ needsSetup }) => setMode(needsSetup ? 'setup' : 'login'))
+      .then(({ needsSetup }) => {
+        if (needsSetup) {
+          navigate('/onboarding', { replace: true })
+        } else {
+          setMode('login')
+        }
+      })
       .catch(() => setMode('login'))
   }, [])
 

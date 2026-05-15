@@ -58,6 +58,10 @@ export default function ChatPage() {
   ])
 
   useEffect(() => {
+    api.getMe().then(({ onboarded }) => {
+      if (!onboarded) navigate('/onboarding', { replace: true })
+    }).catch(() => {})
+
     const store = useChatStore.getState()
     store.loadConversations().then(() => {
       const match = locationRef.current.match(/^\/c\/(.+)$/)

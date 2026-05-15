@@ -151,6 +151,12 @@ export function initDb(): void {
     db.exec(`ALTER TABLE webhooks ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0`)
   } catch { /* already exists */ }
 
+  // Migration: add onboarded flag to users (existing users are considered already onboarded)
+  try {
+    db.exec(`ALTER TABLE users ADD COLUMN onboarded INTEGER NOT NULL DEFAULT 0`)
+    db.exec(`UPDATE users SET onboarded = 1`)
+  } catch { /* already exists */ }
+
   // Migration: add notify + user_message_key to webhooks
   try {
     db.exec(`ALTER TABLE webhooks ADD COLUMN notify TEXT NOT NULL DEFAULT 'auto'`)

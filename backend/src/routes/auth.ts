@@ -102,7 +102,16 @@ export async function authRoutes(app: FastifyInstance) {
   })
 
   app.get('/me', { onRequest: [app.authenticate] }, async (req) => {
-    return req.user
+    const user = req.user as { id: number; email: string }
+    const row = getDb().prepare('SELECT onboarded FROM users WHERE id = ?').get(user.id) as { onboarded: number } | undefined
+    return { ...user, onboarded: !!(row?.onboarded) }
+  })
+
+  // POST /complete-onboarding — mark the current user as onboarded
+  app.post('/complete-onboarding', { onRequest: [app.authenticate] }, async (req) => {
+    const user = req.user as { id: number }
+    getDb().prepare('UPDATE users SET onboarded = 1 WHERE id = ?').run(user.id)
+    return { ok: true }
   })
 
   // POST /setup-token — save the Claude Code OAuth token

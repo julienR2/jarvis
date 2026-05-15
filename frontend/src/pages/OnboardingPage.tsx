@@ -16,6 +16,7 @@ import {
   Globe,
   Mic,
   Puzzle,
+  X,
 } from 'lucide-react'
 import { api } from '../api'
 
@@ -120,12 +121,22 @@ export default function OnboardingPage() {
   }
 
   async function handleSkipToken() {
-    navigate('/')
+    await dismissOnboarding()
+  }
+
+  async function dismissOnboarding() {
+    if (localStorage.getItem('token')) {
+      await api.completeOnboarding().catch(() => {})
+      navigate('/', { replace: true })
+    } else {
+      navigate('/login', { replace: true })
+    }
   }
 
   async function launchOnboardingChat() {
     setStep('launching')
     try {
+      await api.completeOnboarding().catch(() => {})
       const conv = await api.createConversation('Welcome to Jarvis')
       await api.sendMessage(conv.id, ONBOARDING_PROMPT)
       navigate(`/c/${conv.id}`, { replace: true })
@@ -144,7 +155,18 @@ export default function OnboardingPage() {
   const currentIndex = steps.indexOf(step)
 
   return (
-    <div className="min-h-screen bg-bg flex flex-col items-center justify-center p-4">
+    <div className="h-full w-full bg-bg flex flex-col items-center justify-center p-4 overflow-y-auto">
+      {/* Close button */}
+      {step !== 'launching' && (
+        <button
+          onClick={dismissOnboarding}
+          className="fixed top-4 right-4 p-2 rounded-full text-text-muted hover:text-text-primary hover:bg-surface transition-colors"
+          title="Skip onboarding"
+        >
+          <X size={20} />
+        </button>
+      )}
+
       {/* Progress dots */}
       {step !== 'launching' && (
         <div className="flex gap-2 mb-8">

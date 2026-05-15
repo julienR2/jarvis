@@ -48,6 +48,8 @@ export const api = {
     request<{ token: string }>('POST', '/auth/setup', { email, password }),
   setupToken: (token: string) =>
     request<{ ok: boolean }>('POST', '/auth/setup-token', { token }),
+  getMe: () => request<{ id: number; email: string; onboarded: boolean }>('GET', '/auth/me'),
+  completeOnboarding: () => request<{ ok: boolean }>('POST', '/auth/complete-onboarding'),
 
   // Uploads
   uploadFile: async (file: File): Promise<Attachment> => {

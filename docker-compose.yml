@@ -1,4 +1,14 @@
 services:
+  # Pre-creates agent/{data,workspace} with uid 1000 ownership so playwright
+  # (which runs as root and would otherwise win the race) doesn't materialize
+  # them as root-owned dirs the backend can't write to. Runs once and exits.
+  setup:
+    image: alpine:3
+    command: sh -c "mkdir -p /agent/data /agent/workspace/apps /agent/workspace/uploads && chown -R 1000:1000 /agent"
+    volumes:
+      - ./agent:/agent
+    restart: 'no'
+
   backend:
     build: ./backend
     container_name: jarvis-backend
@@ -20,7 +30,10 @@ services:
     ports:
       - '3005:3005'
     depends_on:
-      - session-manager
+      setup:
+        condition: service_completed_successfully
+      session-manager:
+        condition: service_started
     restart: unless-stopped
 
   session-manager:
@@ -32,6 +45,9 @@ services:
       - ./:/jarvis
       - /jarvis/session-manager/node_modules
     env_file: .env
+    depends_on:
+      setup:
+        condition: service_completed_successfully
     environment:
       CLAUDE_CONFIG_DIR: /jarvis/agent
       WORKSPACE_DIR: /jarvis/agent/workspace
@@ -87,6 +103,9 @@ services:
     command: ["--port", "8931", "--host", "0.0.0.0", "--allowed-hosts", "*", "--headless", "--isolated", "--output-dir", "/uploads"]
     volumes:
       - ./agent/workspace/uploads:/uploads
+    depends_on:
+      setup:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:
