@@ -4,7 +4,8 @@
       "Bash(docker compose *)",
       "Bash(npx tsc *)",
       "Bash(echo \"frontend exit: $?\")",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(sqlite3:*)"
     ]
   }
 }

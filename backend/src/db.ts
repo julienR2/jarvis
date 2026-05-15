@@ -154,8 +154,9 @@ export function initDb(): void {
   // Migration: add onboarded flag to users (existing users are considered already onboarded)
   try {
     db.exec(`ALTER TABLE users ADD COLUMN onboarded INTEGER NOT NULL DEFAULT 0`)
-    db.exec(`UPDATE users SET onboarded = 1`)
   } catch { /* already exists */ }
+  // Backfill: ensure any pre-onboarding users are marked as onboarded
+  db.exec(`UPDATE users SET onboarded = 1 WHERE onboarded = 0 AND created_at < unixepoch() - 60`)
 
   // Migration: add notify + user_message_key to webhooks
   try {
