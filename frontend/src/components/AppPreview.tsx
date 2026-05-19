@@ -9,7 +9,7 @@ interface ShareIntent {
 }
 
 interface Props {
-  conversationId: string
+  appSlug: string
   refreshKey: number
   onRefresh: () => void
   shareIntent?: ShareIntent | null
@@ -26,14 +26,14 @@ async function fileToDataUrl(file: File): Promise<{ name: string; type: string; 
 }
 
 export default function AppPreview({
-  conversationId,
+  appSlug,
   refreshKey,
   onRefresh,
   shareIntent,
   onShareIntentConsumed,
 }: Props) {
   const token = localStorage.getItem('token') || ''
-  const src = `/api/apps/${conversationId}/index.html?token=${token}&v=${refreshKey}`
+  const src = `/api/apps/${appSlug}/index.html?token=${token}&v=${refreshKey}`
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingIntentRef = useRef<ShareIntent | null>(null)
 

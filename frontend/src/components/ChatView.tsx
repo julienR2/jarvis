@@ -344,7 +344,7 @@ export default function ChatView({
             className={`${showPreview ? 'flex' : 'hidden md:flex'} flex-col h-full ${showPreview ? 'w-full' : ''} md:w-2/5`}
           >
             <AppPreview
-              conversationId={conversationId!}
+              appSlug={conv!.app_path!.replace(/^apps\//, '')}
               refreshKey={appRefreshKey}
               onRefresh={bumpApp}
               shareIntent={shareIntent}

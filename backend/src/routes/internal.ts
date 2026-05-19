@@ -221,7 +221,10 @@ export async function internalRoutes(app: FastifyInstance) {
 
     if (!conv) return reply.code(404).send({ error: 'Conversation not found' })
 
-    const appDir = join(config.workspaceDir, 'apps', conversationId)
+    const dirName = (conv as any).app_path
+      ? (conv as any).app_path.replace(/^apps\//, '')
+      : conversationId
+    const appDir = join(config.workspaceDir, 'apps', dirName)
     if (existsSync(appDir)) rmSync(appDir, { recursive: true, force: true })
 
     getDb()
