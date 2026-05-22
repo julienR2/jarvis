@@ -20,6 +20,7 @@ export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveC
   const startTimeRef = useRef(0)
   const cancelledRef = useRef(false)
   const modeRef = useRef<'send' | 'transcribe'>('send')
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null)
 
   function updateState(s: State) {
     stateRef.current = s
@@ -80,6 +81,7 @@ export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveC
       }
 
       recorder.start(250)
+      navigator.wakeLock?.request('screen').then((lock) => { wakeLockRef.current = lock }).catch(() => {})
       updateState('recording')
       startTimeRef.current = Date.now()
       setDuration(0)
@@ -92,8 +94,14 @@ export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveC
     }
   }
 
+  function releaseWakeLock() {
+    wakeLockRef.current?.release().catch(() => {})
+    wakeLockRef.current = null
+  }
+
   function doStop() {
     if (stateRef.current !== 'recording') return
+    releaseWakeLock()
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     if (mediaRef.current && mediaRef.current.state !== 'inactive') {
       mediaRef.current.stop()
@@ -114,6 +122,7 @@ export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveC
   function cancel() {
     if (stateRef.current !== 'recording') return
     cancelledRef.current = true
+    releaseWakeLock()
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     if (mediaRef.current && mediaRef.current.state !== 'inactive') {
       mediaRef.current.stop()
@@ -123,6 +132,7 @@ export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveC
   }
 
   function cleanup() {
+    releaseWakeLock()
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     if (mediaRef.current) {
       mediaRef.current.stream.getTracks().forEach((t) => t.stop())
