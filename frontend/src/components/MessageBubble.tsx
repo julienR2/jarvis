@@ -1,5 +1,6 @@
 import { useMemo, useState, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
+import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
 import { FileText, ChevronRight, Copy, Check } from 'lucide-react'
 import type { Message, Attachment } from '../api'
@@ -140,6 +141,7 @@ function ActivityBubble({ msg }: { msg: Message }) {
               <ReactMarkdown
                 key={i}
                 remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
                 components={markdownComponents}
               >
                 {line.text}
@@ -148,6 +150,7 @@ function ActivityBubble({ msg }: { msg: Message }) {
             {hasResult && (
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
                 components={markdownComponents}
               >
                 {msg.result!}
@@ -211,6 +214,7 @@ export default function MessageBubble({ msg }: Props) {
           <div className='markdown'>
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeRaw]}
               components={markdownComponents}
             >
               {msg.content}
@@ -306,6 +310,12 @@ function translateSrc(src?: string): string {
 }
 
 const markdownComponents = {
+  article: ({ children, ...props }: React.HTMLAttributes<HTMLElement> & Record<string, unknown>) => {
+    if ('data-details' in props || 'dataDetails' in props) {
+      return <CollapsibleArticle label='Details'>{children}</CollapsibleArticle>
+    }
+    return <article {...props}>{children}</article>
+  },
   pre: CodeBlockWrapper,
   img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => {
     const translated = translateSrc(src)
