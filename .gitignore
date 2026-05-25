@@ -51,6 +51,7 @@ agent/skills/*
 !agent/skills/elevenlabs/
 !agent/skills/pocketbase/
 !agent/skills/imagerouter/
+!agent/skills/knowledge/
 
 # Whitelist default rules — anything else under agent/rules/ is gitignored
 agent/rules/*
