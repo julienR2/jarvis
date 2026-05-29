@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Clock, Link2, BellOff, BellRing, RefreshCw, ExternalLink } from 'lucide-react'
+import { Clock, Link2, BellOff, BellRing } from 'lucide-react'
 import {
   api,
   type Message,
@@ -244,48 +244,26 @@ export default function ChatView({
             action={conversationId ? (
               <span className='flex items-center gap-2'>
                 <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
-                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} thinking={thinking} onModelChange={handleModelChange} onThinkingChange={handleThinkingChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} pinned={pinned} onPinChange={handlePinChange} />
+                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} thinking={thinking} onModelChange={handleModelChange} onThinkingChange={handleThinkingChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} pinned={pinned} onPinChange={handlePinChange} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? `/api/apps/${conv!.app_path!.replace(/^apps\//, '')}/index.html?token=${localStorage.getItem('token') || ''}&v=${appRefreshKey}` : undefined} />
               </span>
             ) : undefined}
           >
             <span className='flex items-center gap-3'>
               <span className='truncate flex-1'>{title}</span>
               {hasApp && (
-                <span className='flex items-center gap-1 shrink-0'>
-                  <span className='flex bg-surface2 rounded-lg p-0.5'>
-                    <button
-                      onClick={() => setShowPreview(false)}
-                      className={`px-3 py-1 text-xs rounded-md transition-colors ${!showPreview ? 'bg-bg text-text-primary shadow-sm' : 'text-text-muted'}`}
-                    >
-                      Chat
-                    </button>
-                    <button
-                      onClick={() => setShowPreview(true)}
-                      className={`px-3 py-1 text-xs rounded-md transition-colors ${showPreview ? 'bg-bg text-text-primary shadow-sm' : 'text-text-muted'}`}
-                    >
-                      Preview
-                    </button>
-                  </span>
-                  {showPreview && (
-                    <>
-                      <button
-                        onClick={bumpApp}
-                        title='Refresh preview'
-                        className='p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'
-                      >
-                        <RefreshCw size={13} />
-                      </button>
-                      <a
-                        href={`/api/apps/${conv!.app_path!.replace(/^apps\//, '')}/index.html?token=${localStorage.getItem('token') || ''}&v=${appRefreshKey}`}
-                        target='_blank'
-                        rel='noopener noreferrer'
-                        title='Open in new tab'
-                        className='p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'
-                      >
-                        <ExternalLink size={13} />
-                      </a>
-                    </>
-                  )}
+                <span className='flex bg-surface2 rounded-lg p-0.5 shrink-0'>
+                  <button
+                    onClick={() => setShowPreview(false)}
+                    className={`px-3 py-1 text-xs rounded-md transition-colors ${!showPreview ? 'bg-bg text-text-primary shadow-sm' : 'text-text-muted'}`}
+                  >
+                    Chat
+                  </button>
+                  <button
+                    onClick={() => setShowPreview(true)}
+                    className={`px-3 py-1 text-xs rounded-md transition-colors ${showPreview ? 'bg-bg text-text-primary shadow-sm' : 'text-text-muted'}`}
+                  >
+                    Preview
+                  </button>
                 </span>
               )}
             </span>

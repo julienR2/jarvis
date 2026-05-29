@@ -7,7 +7,7 @@ import {
   useCallback,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, Pin, PinOff } from 'lucide-react'
+import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, Pin, PinOff, RefreshCw, ExternalLink } from 'lucide-react'
 import { MODELS, DEFAULT_MODEL } from './ModelSelector'
 
 type NotifyMode = 'subscribe' | 'unsubscribe' | 'auto'
@@ -32,6 +32,8 @@ interface Props {
   hasWebhook?: boolean
   pinned?: boolean
   onPinChange?: (pinned: boolean) => void
+  onRefreshApp?: () => void
+  appUrl?: string
   /** Extra classes for the trigger button */
   triggerClassName?: string
   /** Sidebar mode: only show ⋯ trigger and Edit/Delete in dropdown */
@@ -49,6 +51,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     model = DEFAULT_MODEL, thinking = false, onModelChange, onThinkingChange,
     conversationId, hasCron, hasWebhook,
     pinned = false, onPinChange,
+    onRefreshApp, appUrl,
     triggerClassName = '',
     compact = false,
   }, ref) {
@@ -180,6 +183,31 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                   </>
                 )}
 
+                <div className='h-px bg-border my-1' />
+              </>
+            )}
+
+            {onRefreshApp && (
+              <>
+                <button
+                  onClick={() => { setOpen(false); onRefreshApp() }}
+                  className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+                >
+                  <RefreshCw size={14} />
+                  Refresh preview
+                </button>
+                {appUrl && (
+                  <a
+                    href={appUrl}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                    onClick={() => setOpen(false)}
+                    className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+                  >
+                    <ExternalLink size={14} />
+                    Open in new tab
+                  </a>
+                )}
                 <div className='h-px bg-border my-1' />
               </>
             )}
