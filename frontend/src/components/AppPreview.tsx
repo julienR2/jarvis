@@ -63,8 +63,8 @@ export default function AppPreview({
 
   return (
     <div className='flex flex-col h-full bg-white'>
-      {/* Toolbar */}
-      <div className='border-b border-border flex w-full'>
+      {/* Toolbar — hidden on mobile where actions are in the header */}
+      <div className='border-b border-border hidden md:flex w-full'>
         <div className='flex flex-1 items-center gap-1 px-3 bg-bg h-12 shrink-0'>
           <span className='text-text-muted flex-1 truncate px-1 font-medium'>
             Preview
