@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { execFileSync } from 'child_process'
-import { readFileSync, statSync } from 'fs'
-import { resolve } from 'path'
+import { readFileSync, readdirSync, statSync } from 'fs'
+import { join, relative, resolve } from 'path'
 
 const REPO_DIR = process.env.JARVIS_REPO_DIR || '/jarvis'
 const MAX_FILE_SIZE = 1_000_000
@@ -44,6 +44,16 @@ function isBinary(buf: Buffer): boolean {
   const n = Math.min(buf.length, 8192)
   for (let i = 0; i < n; i++) if (buf[i] === 0) return true
   return false
+}
+
+function walkDir(dir: string, base: string): string[] {
+  const results: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) results.push(...walkDir(full, base))
+    else if (entry.isFile()) results.push(relative(base, full))
+  }
+  return results
 }
 
 export async function gitRoutes(app: FastifyInstance) {
@@ -159,6 +169,13 @@ export async function gitRoutes(app: FastifyInstance) {
   app.post('/revert', auth, async () => {
     git('reset', '--hard', 'HEAD~1')
     return { ok: true, message: 'Last commit reverted' }
+  })
+
+  // All files in the agent config dir (including git-ignored), no status
+  app.get('/agent-tree', auth, async () => {
+    const agentDir = process.env.CLAUDE_CONFIG_DIR || '/jarvis/agent'
+    const paths = walkDir(agentDir, agentDir).sort()
+    return paths.map((path) => ({ path, status: null }))
   })
 
   // Flat tree of all tracked + untracked (non-ignored) files with their status

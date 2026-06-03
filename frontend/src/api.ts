@@ -146,6 +146,7 @@ export const api = {
   triggerWebhook: (id: string) => request<{ ok: boolean }>('POST', `/webhooks/${id}/trigger`),
 
   // Code (repo browser)
+  getAgentTree: () => request<CodeEntry[]>('GET', '/git/agent-tree'),
   getCodeTree: () => request<CodeEntry[]>('GET', '/git/tree'),
   getCodeFile: (path: string) =>
     request<CodeFile>('GET', `/git/file?path=${encodeURIComponent(path)}`),

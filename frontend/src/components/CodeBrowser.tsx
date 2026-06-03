@@ -12,7 +12,7 @@ import { api, type CodeEntry, type CodeFile, type Commit } from '../api'
 import { useToast } from '../hooks/useToast'
 import ContentLayout from './ContentLayout'
 
-type Tab = 'all' | 'changed' | 'commits'
+type Tab = 'agent' | 'all' | 'changed' | 'commits'
 
 type TreeNode =
   | {
@@ -104,7 +104,9 @@ export default function CodeBrowser() {
   const splat = (params['*'] || '').replace(/^\/+/, '')
 
   // State lives here so it survives navigation into a detail view and back.
-  const [tab, setTab] = useState<Tab>('all')
+  const [tab, setTab] = useState<Tab>('agent')
+  const [agentEntries, setAgentEntries] = useState<CodeEntry[] | null>(null)
+  const [agentError, setAgentError] = useState<string | null>(null)
   const [entries, setEntries] = useState<CodeEntry[] | null>(null)
   const [commits, setCommits] = useState<Commit[] | null>(null)
   const [treeError, setTreeError] = useState<string | null>(null)
@@ -114,6 +116,7 @@ export default function CodeBrowser() {
   const [commitFiles, setCommitFiles] = useState<Record<string, CodeEntry[]>>({})
 
   useEffect(() => {
+    api.getAgentTree().then(setAgentEntries).catch((e) => setAgentError(e.message))
     api.getCodeTree().then(setEntries).catch((e) => setTreeError(e.message))
   }, [])
 
@@ -134,6 +137,8 @@ export default function CodeBrowser() {
     <MainView
       tab={tab}
       setTab={setTab}
+      agentEntries={agentEntries}
+      agentError={agentError}
       entries={entries}
       treeError={treeError}
       commits={commits}
@@ -151,6 +156,8 @@ export default function CodeBrowser() {
 function MainView({
   tab,
   setTab,
+  agentEntries,
+  agentError,
   entries,
   treeError,
   commits,
@@ -164,6 +171,8 @@ function MainView({
 }: {
   tab: Tab
   setTab: (t: Tab) => void
+  agentEntries: CodeEntry[] | null
+  agentError: string | null
   entries: CodeEntry[] | null
   treeError: string | null
   commits: Commit[] | null
@@ -182,8 +191,11 @@ function MainView({
       {/* Tab pill */}
       <div className='flex items-center gap-2 mb-4'>
         <div className='inline-flex rounded-lg bg-surface border border-border p-0.5'>
+          <TabButton active={tab === 'agent'} onClick={() => setTab('agent')}>
+            Agent
+          </TabButton>
           <TabButton active={tab === 'all'} onClick={() => setTab('all')}>
-            Files
+            Tracked
           </TabButton>
           <TabButton active={tab === 'changed'} onClick={() => setTab('changed')}>
             Changed
@@ -203,6 +215,15 @@ function MainView({
           setExpandedCommits={setExpandedCommits}
           commitFiles={commitFiles}
           setCommitFiles={setCommitFiles}
+        />
+      ) : tab === 'agent' ? (
+        <FileTree
+          entries={agentEntries}
+          error={agentError}
+          onlyChanged={false}
+          expanded={expanded}
+          setExpanded={setExpanded}
+          basePath='/code/agent'
         />
       ) : (
         <FileTree
@@ -250,12 +271,14 @@ function FileTree({
   onlyChanged,
   expanded,
   setExpanded,
+  basePath = '/code',
 }: {
   entries: CodeEntry[] | null
   error: string | null
   onlyChanged: boolean
   expanded: Set<string>
   setExpanded: React.Dispatch<React.SetStateAction<Set<string>>>
+  basePath?: string
 }) {
   const navigate = useNavigate()
 
@@ -305,7 +328,7 @@ function FileTree({
             onlyChanged={onlyChanged}
             expanded={effectiveExpanded}
             onToggle={toggle}
-            onOpen={(p) => navigate(`/code/${p}`)}
+            onOpen={(p) => navigate(`${basePath}/${p}`)}
           />
           {onlyChanged && changedCount === 0 && (
             <div className='text-text-muted text-sm font-sans py-4'>
