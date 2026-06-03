@@ -70,6 +70,8 @@ When the user shares content and picks an app from the share picker, the app ope
 
 ## Guidelines
 - Always register first, then write files, then notify
+- **Apps are frontend-only by default** — pure HTML/CSS/JS served as static assets. Do NOT add backend routes, API endpoints, or server-side code unless the user explicitly asks for a full-stack app. The backend only serves static files from the app folder; there is no support for app-specific server processes or internal ports.
+- For data that comes from external APIs, prefer fetching it ahead of time into a static JSON file within the app folder, then loading it client-side. Use a cron job to keep the data fresh if needed.
 - Keep apps self-contained — use inline styles or separate CSS, CDN imports for libraries
 - Always call the notify endpoint after writing/updating files so the preview refreshes in real-time
 - `$JARVIS_CONVERSATION_ID` and `$INTERNAL_SECRET` environment variables are available in the shell
