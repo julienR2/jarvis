@@ -29,7 +29,7 @@ export async function webhookRoutes(app: FastifyInstance) {
     const id = uuid()
     const token = uuid()
     const enabled = body.enabled !== false ? 1 : 0
-    const model = body.model ?? 'claude-sonnet-4-6'
+    const model = body.model ?? 'claude-opus-4-8'
     const thinking = body.thinking ? 1 : 0
     const notify = body.notify ?? 'auto'
     const user_message_key = body.user_message_key ?? null
@@ -62,7 +62,7 @@ export async function webhookRoutes(app: FastifyInstance) {
       name: body.name ?? existing.name,
       prompt: body.prompt ?? existing.prompt,
       enabled: body.enabled !== undefined ? (body.enabled ? 1 : 0) : existing.enabled,
-      model: body.model ?? existing.model ?? 'claude-sonnet-4-6',
+      model: body.model ?? existing.model ?? 'claude-opus-4-8',
       thinking: body.thinking !== undefined ? (body.thinking ? 1 : 0) : existing.thinking,
       notify: body.notify ?? existing.notify ?? 'auto',
       user_message_key: body.user_message_key !== undefined ? (body.user_message_key || null) : existing.user_message_key,

@@ -3,7 +3,7 @@ FROM node:25-slim
 RUN apt-get update && apt-get install -y curl git python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code CLI globally
-RUN npm install -g @anthropic-ai/claude-code@latest
+RUN npm install -g @anthropic-ai/claude-code@2.1.177
 
 # Run as host user (UID/GID 1000) to avoid file permission issues
 ARG UID=1000

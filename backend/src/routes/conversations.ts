@@ -473,7 +473,7 @@ export async function conversationRoutes(app: FastifyInstance) {
     const id = uuid()
     getDb()
       .prepare('INSERT INTO conversations (id, title, model, thinking) VALUES (?, ?, ?, ?)')
-      .run(id, title ?? 'New conversation', 'claude-opus-4-6', 1)
+      .run(id, title ?? 'New conversation', 'claude-opus-4-8', 1)
     return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id)
   })
 

@@ -10,7 +10,7 @@ const EMPTY: CronInput = {
   prompt: '',
   enabled: true,
   once: false,
-  model: 'claude-sonnet-4-6',
+  model: 'claude-opus-4-8',
   thinking: false,
 }
 

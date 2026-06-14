@@ -8,13 +8,21 @@ export interface ModelOption {
 }
 
 export const MODELS: ModelOption[] = [
-  { id: 'claude-opus-4-7', name: 'Opus 4.7', desc: 'Most capable for ambitious work' },
-  { id: 'claude-opus-4-6', name: 'Opus 4.6', desc: 'Previous flagship, still very capable' },
+  { id: 'claude-fable-5', name: 'Fable 5', desc: 'Creative and expressive' },
+  { id: 'claude-opus-4-8', name: 'Opus 4.8', desc: 'Most capable for ambitious work' },
   { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', desc: 'Balanced speed and intelligence' },
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', desc: 'Fastest, most compact' },
 ]
 
-export const DEFAULT_MODEL = 'claude-opus-4-6'
+export const DEFAULT_MODEL = 'claude-opus-4-8'
+
+export function modelName(id: string): string {
+  const known = MODELS.find(m => m.id === id)
+  if (known) return known.name
+  const raw = id.replace(/^claude-/, '').replace(/-\d{8}.*$/, '')
+  const [family, ...vParts] = raw.split('-')
+  return `${family.charAt(0).toUpperCase()}${family.slice(1)} ${vParts.join('.')}`
+}
 
 interface Props {
   model: string
@@ -32,7 +40,7 @@ export default function ModelSelector({ model, thinking, onModelChange, onThinki
   const menuRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  const selectedModel = MODELS.find(m => m.id === model) || MODELS[0]
+  const selectedModel = MODELS.find(m => m.id === model) || { id: model, name: modelName(model), desc: '' }
 
   useEffect(() => {
     if (!showMenu) return

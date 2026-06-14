@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, Pin, PinOff, RefreshCw, ExternalLink } from 'lucide-react'
-import { MODELS, DEFAULT_MODEL } from './ModelSelector'
+import { MODELS, DEFAULT_MODEL, modelName } from './ModelSelector'
 
 type NotifyMode = 'subscribe' | 'unsubscribe' | 'auto'
 
@@ -60,8 +60,8 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     const btnRef = useRef<HTMLButtonElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
-    const selectedModel = MODELS.find(m => m.id === model) || MODELS[0]
-    const shortName = selectedModel.name
+    const selectedModel = MODELS.find(m => m.id === model)
+    const shortName = selectedModel?.name ?? modelName(model ?? DEFAULT_MODEL)
 
     useImperativeHandle(ref, () => ({
       open() { setOpen(true) },

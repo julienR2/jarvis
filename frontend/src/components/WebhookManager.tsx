@@ -8,7 +8,7 @@ const EMPTY: WebhookInput = {
   name: '',
   prompt: '',
   enabled: true,
-  model: 'claude-sonnet-4-6',
+  model: 'claude-opus-4-8',
   thinking: false,
 }
 
