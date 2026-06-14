@@ -9,6 +9,8 @@ docker-compose.override.yml
 
 # --- Backend runtime data (SQLite DB, secrets, browser sessions) ---
 agent/data/
+# Stray empty DB sometimes created at repo root (real DB lives in agent/data/)
+/jarvis.db
 
 # --- Agent's user workspace (memory, uploads, mini-apps, notes) ---
 agent/workspace/
@@ -20,6 +22,9 @@ agent/workspace/
 
 # Runtime files written by Claude Code CLI
 agent/.claude.json
+agent/.last-cleanup
+agent/policy-limits.json
+agent/remote-settings.json
 agent/session-env/
 agent/sessions/
 agent/shell-snapshots/
