@@ -48,7 +48,15 @@ curl -s -X POST ${BACKEND_URL}/internal/crons \
 
 If a cron with the same `name` exists, it is updated.
 
-**Important:** Always include `"conversation_id": "'"$JARVIS_CONVERSATION_ID"'"` so the cron posts its responses in the current chat. If the conversation no longer exists when the cron fires, a new one is created automatically.
+**Important — conversation linking:**
+
+- **If `$JARVIS_CONVERSATION_ID` is set** (you're creating the cron from inside a chat), always include `"conversation_id": "'"$JARVIS_CONVERSATION_ID"'"` so the cron posts its responses in the current chat — unless the user explicitly asks to target a different conversation or no conversation at all.
+- **If `$JARVIS_CONVERSATION_ID` is empty** (e.g., created via the cron admin page), omit `conversation_id` entirely — a new conversation will be auto-created on first fire and reused afterwards.
+
+Check before building the payload:
+```bash
+echo "$JARVIS_CONVERSATION_ID"  # empty → omit field; set → include it
+```
 
 ---
 
@@ -93,5 +101,6 @@ Timezone is read from the `TZ` environment variable (defaults to UTC). Check `$T
 
 1. List existing crons first to see what's already scheduled.
 2. Pick a descriptive kebab-case `name`.
-3. For reminders: compute the exact cron minute/hour from the user's request (use `$TZ`) and set `once: true`.
-4. Always confirm what was created/updated/deleted by showing the API response.
+3. Check `$JARVIS_CONVERSATION_ID` — if set, include it as `conversation_id`; if empty, omit the field.
+4. For reminders: compute the exact cron minute/hour from the user's request (use `$TZ`) and set `once: true`.
+5. Always confirm what was created/updated/deleted by showing the API response.

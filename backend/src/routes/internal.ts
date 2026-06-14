@@ -49,12 +49,13 @@ export async function internalRoutes(app: FastifyInstance) {
 
     if (existing) {
       getDb()
-        .prepare('UPDATE crons SET schedule=?, prompt=?, enabled=?, once=? WHERE id=?')
+        .prepare('UPDATE crons SET schedule=?, prompt=?, enabled=?, once=?, conversation_id=COALESCE(?, conversation_id) WHERE id=?')
         .run(
           body.schedule,
           body.prompt,
           body.enabled !== false ? 1 : 0,
           body.once ? 1 : 0,
+          body.conversation_id ?? null,
           existing.id,
         )
       const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(existing.id) as CronRow
