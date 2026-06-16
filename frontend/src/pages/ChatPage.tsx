@@ -6,7 +6,7 @@ import {
   useLocation,
   useSearchParams,
 } from 'react-router-dom'
-import { Plus, MessageSquare, FileText, X, AppWindow, Pin, Clock, Link2, Sparkles } from 'lucide-react'
+import { Plus, MessageSquare, FileText, X, AppWindow, Pin, Clock, Link2, Sparkles, AudioLines, Mic } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import Sidebar from '../components/Sidebar'
 import ChatView from '../components/ChatView'
@@ -287,9 +287,14 @@ function LoadingScreen() {
   )
 }
 
-// Prompt auto-sent when an audio file is shared to Jarvis. Edit freely.
-const AUDIO_SHARE_PROMPT =
-  'Please transcribe the attached audio recording, then give me a concise summary of the key points.'
+// Pre-prompts fired when the user picks a transcription engine for shared audio.
+// Each one is written to trigger the matching skill on the attached file. Edit freely.
+const TRANSCRIBE_PROMPTS = {
+  elevenlabs:
+    'Please transcribe the attached audio file using ElevenLabs (the elevenlabs skill), then return the full transcript.',
+  whisper:
+    'Please transcribe the attached audio file using the local Whisper service (the whisper skill), not ElevenLabs, then return the full transcript.',
+}
 
 // Extensions treated as audio when the browser doesn't report an audio/* MIME type
 // (some share sources hand over files with an empty or generic type).
@@ -348,7 +353,6 @@ function ShareHandler({
   const [previews, setPreviews] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
-  const [autoSending, setAutoSending] = useState(false)
   const initialized = useRef(false)
 
   useEffect(() => {
@@ -371,11 +375,6 @@ function ShareHandler({
             .filter((x) => x.type.startsWith('image/'))
             .map((x) => URL.createObjectURL(x)),
         )
-        // Audio share → skip the picker and auto-send to a new conversation
-        if (f.some(isAudioFile)) {
-          autoSendAudio(f)
-          return // keep the loading screen up until we navigate
-        }
         setLoading(false)
       })
     } else {
@@ -389,24 +388,23 @@ function ShareHandler({
     [previews],
   )
 
-  // Audio share: create a conversation, attach the file(s), and fire the default
-  // prompt automatically — no picker. Falls back to the manual picker on failure.
-  async function autoSendAudio(sharedFiles: File[]) {
-    setAutoSending(true)
+  // Transcription quick-action: create a conversation, attach the shared audio,
+  // and fire the chosen engine's pre-prompt. Falls back to the picker on failure.
+  async function transcribeWith(prompt: string) {
+    if (sending) return
+    setSending(true)
     try {
-      // Upload first so a failure (e.g. file too large) doesn't leave an empty conversation
       const attachments: Attachment[] = []
-      for (const f of sharedFiles) {
+      for (const f of files) {
         attachments.push(await api.uploadFile(f))
       }
       const conv = await api.createConversation()
-      await api.sendMessage(conv.id, AUDIO_SHARE_PROMPT, attachments)
+      await api.sendMessage(conv.id, prompt, attachments)
       onAutoSent(conv.id)
     } catch (err) {
-      console.error('Auto-send of shared audio failed:', err)
-      window.__jarvisToast?.error("Couldn't auto-send the audio — pick a conversation instead.")
-      setAutoSending(false)
-      setLoading(false)
+      console.error('Transcription send failed:', err)
+      window.__jarvisToast?.error("Couldn't start transcription — try again or pick a conversation.")
+      setSending(false)
     }
   }
 
@@ -440,13 +438,14 @@ function ShareHandler({
     return (
       <div className='flex items-center justify-center h-full'>
         <div className='animate-pulse-soft text-text-muted text-sm'>
-          {autoSending ? 'Sending your audio to a new conversation…' : 'Loading shared content...'}
+          Loading shared content...
         </div>
       </div>
     )
   }
 
   const hasContent = message.trim() || files.length > 0
+  const hasAudio = files.some(isAudioFile)
   if (!hasContent) {
     return (
       <div className='flex items-center justify-center h-full'>
@@ -505,6 +504,48 @@ function ShareHandler({
 
       {/* Conversation picker */}
       <div className='flex-1 overflow-y-auto'>
+        {/* Transcribe audio — quick actions shown only when an audio file is shared */}
+        {hasAudio && (
+          <>
+            <div className='px-4 pt-3 pb-1'>
+              <h3 className='text-xs font-medium text-text-muted uppercase tracking-wider flex items-center gap-1.5'>
+                <AudioLines size={13} />
+                Transcribe audio
+              </h3>
+            </div>
+            <button
+              onClick={() => transcribeWith(TRANSCRIBE_PROMPTS.elevenlabs)}
+              disabled={sending}
+              className='w-full flex items-center gap-3 px-4 py-2.5 hover:bg-surface transition-colors disabled:opacity-50'
+            >
+              <div className='w-9 h-9 rounded-full bg-violet-500/10 flex items-center justify-center shrink-0'>
+                <Mic size={16} className='text-violet-600 dark:text-violet-400' />
+              </div>
+              <div className='flex-1 text-left min-w-0'>
+                <span className='text-sm text-text-primary block truncate'>
+                  Transcribe with ElevenLabs
+                </span>
+                <span className='text-xs text-text-muted'>High-quality · multilingual</span>
+              </div>
+            </button>
+            <button
+              onClick={() => transcribeWith(TRANSCRIBE_PROMPTS.whisper)}
+              disabled={sending}
+              className='w-full flex items-center gap-3 px-4 py-2.5 hover:bg-surface transition-colors border-b border-border disabled:opacity-50'
+            >
+              <div className='w-9 h-9 rounded-full bg-sky-500/10 flex items-center justify-center shrink-0'>
+                <Mic size={16} className='text-sky-600 dark:text-sky-400' />
+              </div>
+              <div className='flex-1 text-left min-w-0'>
+                <span className='text-sm text-text-primary block truncate'>
+                  Transcribe with Whisper
+                </span>
+                <span className='text-xs text-text-muted'>Local · private</span>
+              </div>
+            </button>
+          </>
+        )}
+
         {/* Apps */}
         {apps.length > 0 && (
           <>

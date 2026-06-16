@@ -54,6 +54,7 @@ agent/skills/*
 !agent/skills/slack/
 !agent/skills/github/
 !agent/skills/elevenlabs/
+!agent/skills/whisper/
 !agent/skills/pocketbase/
 !agent/skills/imagerouter/
 !agent/skills/knowledge/
