@@ -18,7 +18,7 @@ import {
   SidebarToggleProvider,
   SidebarToggle,
 } from '../components/ContentLayout'
-import { api, type Conversation } from '../api'
+import { api, type Conversation, type Attachment } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { useServiceWorker } from '../hooks/useServiceWorker'
 import { useGlobalEvents } from '../hooks/useGlobalEvents'
@@ -148,6 +148,11 @@ export default function ChatPage() {
                   }}
                   onAppPick={(convId, intent) => {
                     setShareIntent(intent)
+                    useChatStore.getState().loadConversations()
+                    navigate(`/c/${convId}`, { replace: true })
+                  }}
+                  onAutoSent={(convId) => {
+                    // Audio was already uploaded + sent — just open the conversation
                     useChatStore.getState().loadConversations()
                     navigate(`/c/${convId}`, { replace: true })
                   }}
@@ -282,6 +287,23 @@ function LoadingScreen() {
   )
 }
 
+// Prompt auto-sent when an audio file is shared to Jarvis. Edit freely.
+const AUDIO_SHARE_PROMPT =
+  'Please transcribe the attached audio recording, then give me a concise summary of the key points.'
+
+// Extensions treated as audio when the browser doesn't report an audio/* MIME type
+// (some share sources hand over files with an empty or generic type).
+const AUDIO_EXTENSIONS = [
+  '.mp3', '.m4a', '.aac', '.wav', '.ogg', '.oga',
+  '.opus', '.flac', '.amr', '.3gp', '.caf', '.wma', '.aiff', '.aif',
+]
+
+function isAudioFile(file: File): boolean {
+  if (file.type.startsWith('audio/')) return true
+  const name = file.name.toLowerCase()
+  return AUDIO_EXTENSIONS.some((ext) => name.endsWith(ext))
+}
+
 async function retrieveSharedFiles(): Promise<File[]> {
   try {
     const cache = await caches.open('shared-files')
@@ -308,9 +330,11 @@ async function retrieveSharedFiles(): Promise<File[]> {
 function ShareHandler({
   onReady,
   onAppPick,
+  onAutoSent,
 }: {
   onReady: (convId: string, message: string, files?: File[]) => void
   onAppPick: (convId: string, intent: { title?: string; text?: string; url?: string; files?: File[] }) => void
+  onAutoSent: (convId: string) => void
 }) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -324,6 +348,7 @@ function ShareHandler({
   const [previews, setPreviews] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [autoSending, setAutoSending] = useState(false)
   const initialized = useRef(false)
 
   useEffect(() => {
@@ -346,6 +371,11 @@ function ShareHandler({
             .filter((x) => x.type.startsWith('image/'))
             .map((x) => URL.createObjectURL(x)),
         )
+        // Audio share → skip the picker and auto-send to a new conversation
+        if (f.some(isAudioFile)) {
+          autoSendAudio(f)
+          return // keep the loading screen up until we navigate
+        }
         setLoading(false)
       })
     } else {
@@ -358,6 +388,27 @@ function ShareHandler({
     () => () => previews.forEach((p) => URL.revokeObjectURL(p)),
     [previews],
   )
+
+  // Audio share: create a conversation, attach the file(s), and fire the default
+  // prompt automatically — no picker. Falls back to the manual picker on failure.
+  async function autoSendAudio(sharedFiles: File[]) {
+    setAutoSending(true)
+    try {
+      // Upload first so a failure (e.g. file too large) doesn't leave an empty conversation
+      const attachments: Attachment[] = []
+      for (const f of sharedFiles) {
+        attachments.push(await api.uploadFile(f))
+      }
+      const conv = await api.createConversation()
+      await api.sendMessage(conv.id, AUDIO_SHARE_PROMPT, attachments)
+      onAutoSent(conv.id)
+    } catch (err) {
+      console.error('Auto-send of shared audio failed:', err)
+      window.__jarvisToast?.error("Couldn't auto-send the audio — pick a conversation instead.")
+      setAutoSending(false)
+      setLoading(false)
+    }
+  }
 
   async function pick(convId: string | null) {
     if (sending) return
@@ -389,7 +440,7 @@ function ShareHandler({
     return (
       <div className='flex items-center justify-center h-full'>
         <div className='animate-pulse-soft text-text-muted text-sm'>
-          Loading shared content...
+          {autoSending ? 'Sending your audio to a new conversation…' : 'Loading shared content...'}
         </div>
       </div>
     )
