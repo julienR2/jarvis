@@ -19,6 +19,7 @@ const EDGE_SLOP = 20
  */
 export function useSwipeToOpen({ onOpen, onClose, isOpen, sidebarWidth }: Options) {
   const isDraggingRef = useRef(false)
+  const touchInScrollableRef = useRef(false)
   const startXRef = useRef(0)
   const startYRef = useRef(0)
   const startTimeRef = useRef(0)
@@ -61,9 +62,23 @@ export function useSwipeToOpen({ onOpen, onClose, isOpen, sidebarWidth }: Option
     currentXRef.current = isOpenRef.current ? sidebarWidth : 0
     // Read actual width so our pixel offset matches translateX(-100%) exactly
     elemWidthRef.current = sidebarRef.current?.offsetWidth ?? sidebarWidth
+
+    // If the touch started inside a horizontally scrollable element (e.g. a code
+    // block or table), let that element own the gesture instead of the sidebar.
+    touchInScrollableRef.current = false
+    let el = e.target as HTMLElement | null
+    while (el && el !== containerRef.current) {
+      if (el.scrollWidth > el.clientWidth + 1) {
+        touchInScrollableRef.current = true
+        break
+      }
+      el = el.parentElement
+    }
   }, [sidebarWidth])
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
+    if (touchInScrollableRef.current) return
+
     const t = e.touches[0]
     const dx = t.clientX - startXRef.current
     const dy = t.clientY - startYRef.current

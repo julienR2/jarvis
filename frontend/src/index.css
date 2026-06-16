@@ -119,7 +119,7 @@
 .markdown h1 { @apply text-lg; }
 .markdown h2 { @apply text-base; }
 .markdown h3 { @apply text-sm font-semibold; }
-.markdown table { @apply border-collapse w-full mb-3; }
+.markdown table { @apply border-collapse; }
 .markdown th, .markdown td { @apply border border-border px-2.5 py-1.5 text-sm; }
 .markdown th { @apply bg-surface2 font-medium; }
 .markdown a { @apply text-accent underline underline-offset-2 break-all; }

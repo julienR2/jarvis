@@ -316,6 +316,11 @@ const markdownComponents = {
     }
     return <article {...props}>{children}</article>
   },
+  table: ({ children, ...props }: React.HTMLAttributes<HTMLTableElement>) => (
+    <div className='overflow-x-auto mb-3'>
+      <table {...props}>{children}</table>
+    </div>
+  ),
   pre: CodeBlockWrapper,
   img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => {
     const translated = translateSrc(src)
