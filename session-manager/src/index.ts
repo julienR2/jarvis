@@ -88,7 +88,7 @@ function scheduleCleanup(invocationId: string): void {
 // ── Claude process spawning ──────────────────────────────────────────────────
 
 function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
-  const BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch']
+  const BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill']
   const MCP_TOOLS = ['mcp__playwright']
 
   const args = [
