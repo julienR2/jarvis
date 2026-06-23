@@ -4,9 +4,10 @@
  */
 import type { FastifyInstance } from 'fastify'
 import cron from 'node-cron'
-import { mkdirSync, rmSync, existsSync } from 'fs'
+import { mkdirSync } from 'fs'
 import { join } from 'path'
 import { getDb, uuid } from '../db.js'
+import { archiveAppDir } from '../app-archive.js'
 import { schedule, rescheduleAll } from '../crons.js'
 import { emitConversationEvent } from '../sse.js'
 import { sendPushToAll } from '../push.js'
@@ -222,11 +223,8 @@ export async function internalRoutes(app: FastifyInstance) {
 
     if (!conv) return reply.code(404).send({ error: 'Conversation not found' })
 
-    const dirName = (conv as any).app_path
-      ? (conv as any).app_path.replace(/^apps\//, '')
-      : conversationId
-    const appDir = join(config.workspaceDir, 'apps', dirName)
-    if (existsSync(appDir)) rmSync(appDir, { recursive: true, force: true })
+    // Archive the app files (instead of deleting) so they can be recovered.
+    archiveAppDir(conversationId, (conv as any).app_path)
 
     getDb()
       .prepare('UPDATE conversations SET app_path = NULL, updated_at = unixepoch() WHERE id = ?')

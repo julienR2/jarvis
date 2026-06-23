@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
-import { existsSync, rmSync } from 'fs'
-import { basename, extname, join } from 'path'
+import { existsSync } from 'fs'
+import { basename, extname } from 'path'
 import { getDb, uuid } from '../db.js'
+import { archiveAppDir } from '../app-archive.js'
 import {
   invoke,
   streamEvents,
@@ -557,13 +558,13 @@ export async function conversationRoutes(app: FastifyInstance) {
   })
 
   app.delete<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
-    // Clean up app files if this conversation has one
+    // Archive app files (instead of deleting) if this conversation has one, so
+    // the app can be recovered if the conversation was deleted by mistake.
     const conv = getDb()
       .prepare('SELECT app_path FROM conversations WHERE id = ?')
       .get(req.params.id) as ConvRow | undefined
     if (conv?.app_path) {
-      const appDir = join(config.workspaceDir, 'apps', req.params.id)
-      if (existsSync(appDir)) rmSync(appDir, { recursive: true, force: true })
+      archiveAppDir(req.params.id, conv.app_path)
     }
 
     const result = getDb()

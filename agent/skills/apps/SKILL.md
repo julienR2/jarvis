@@ -42,7 +42,7 @@ When the user asks to delete the current app:
 curl -s -X DELETE ${BACKEND_URL}/internal/apps/$JARVIS_CONVERSATION_ID \
   -H "X-Internal-Secret: $INTERNAL_SECRET"
 ```
-This removes the app files and switches the conversation back to normal chat mode.
+This archives the app files (moved to `apps-archive/<conversation_id>/`, recoverable from the file browser) and switches the conversation back to normal chat mode.
 
 ## Receiving share intents
 
