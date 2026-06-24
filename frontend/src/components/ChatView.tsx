@@ -303,7 +303,7 @@ export default function ChatView({
               </span>
             </div>
 
-            <div ref={scrollContainerRef} className={`h-full overflow-y-auto overflow-x-hidden flex flex-col-reverse pb-6 ${messages.length === 0 ? 'pt-4' : 'pt-0'}`} onScroll={handleScroll}>
+            <div ref={scrollContainerRef} className={`h-full overflow-y-auto overflow-x-clip flex flex-col-reverse pb-6 ${messages.length === 0 ? 'pt-4' : 'pt-0'}`} onScroll={handleScroll}>
               <div className='max-w-3xl mx-auto px-4 md:px-6 min-w-0 w-full'>
                 {showSkeleton ? (
                   <MessageSkeleton />

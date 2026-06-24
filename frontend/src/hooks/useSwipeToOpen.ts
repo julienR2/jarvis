@@ -19,7 +19,8 @@ const EDGE_SLOP = 20
  */
 export function useSwipeToOpen({ onOpen, onClose, isOpen, sidebarWidth }: Options) {
   const isDraggingRef = useRef(false)
-  const touchInScrollableRef = useRef(false)
+  const touchInScrollableRef = useRef(false)   // gesture ceded to a child scroller
+  const scrollTargetRef = useRef<HTMLElement | null>(null) // nearest h-scrollable ancestor
   const startXRef = useRef(0)
   const startYRef = useRef(0)
   const startTimeRef = useRef(0)
@@ -63,14 +64,18 @@ export function useSwipeToOpen({ onOpen, onClose, isOpen, sidebarWidth }: Option
     // Read actual width so our pixel offset matches translateX(-100%) exactly
     elemWidthRef.current = sidebarRef.current?.offsetWidth ?? sidebarWidth
 
-    // If the touch started inside a horizontally scrollable element (e.g. a code
-    // block or table), let that element own the gesture instead of the sidebar.
+    // Find the nearest ancestor that is a genuine horizontal scroll container
+    // with content to scroll (a code block or table). It must be checked against
+    // computed overflow-x — an element that merely clips or lets content overflow
+    // (overflow-x: hidden/clip/visible) also reports scrollWidth > clientWidth but
+    // does NOT scroll, so it must not steal the swipe.
     touchInScrollableRef.current = false
+    scrollTargetRef.current = null
     let el = e.target as HTMLElement | null
     while (el && el !== containerRef.current) {
       if (el.scrollWidth > el.clientWidth + 1) {
-        touchInScrollableRef.current = true
-        break
+        const ox = getComputedStyle(el).overflowX
+        if (ox === 'auto' || ox === 'scroll') { scrollTargetRef.current = el; break }
       }
       el = el.parentElement
     }
@@ -90,6 +95,19 @@ export function useSwipeToOpen({ onOpen, onClose, isOpen, sidebarWidth }: Option
       if (!isOpenRef.current && dx < 0) return
       // Don't engage if the swipe started inside the system back-gesture band
       if (!isOpenRef.current && startXRef.current < EDGE_SLOP) return
+
+      // If a horizontal scroll container is under the finger and can still scroll
+      // in the swipe direction, let it scroll instead of moving the sidebar.
+      // Swipe right (dx>0) reveals left content → needs scrollLeft > 0;
+      // swipe left (dx<0) reveals right content → needs room before the right edge.
+      // At the edge in that direction, the gesture falls through to the sidebar.
+      const sc = scrollTargetRef.current
+      if (sc) {
+        const maxLeft = sc.scrollWidth - sc.clientWidth
+        const canScroll = dx > 0 ? sc.scrollLeft > 1 : sc.scrollLeft < maxLeft - 1
+        if (canScroll) { touchInScrollableRef.current = true; return }
+      }
+
       isDraggingRef.current = true
       // Freeze transitions — we drive position directly
       if (sidebarRef.current) sidebarRef.current.style.transition = 'none'
