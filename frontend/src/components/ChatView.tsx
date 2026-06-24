@@ -116,9 +116,8 @@ export default function ChatView({
   }
 
   async function sendAudio(audioBlob: Blob) {
-    if (!conversationId) return undefined
-    const res = await api.sendAudio(conversationId, audioBlob)
-    return res
+    if (!conversationId) return
+    await api.sendAudio(conversationId, audioBlob)
   }
 
   function handleNotifyChange(mode: Conversation['notify']) {

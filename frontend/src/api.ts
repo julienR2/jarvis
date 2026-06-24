@@ -95,7 +95,10 @@ export const api = {
   cancelMessage: (conversationId: string) =>
     request<{ ok: boolean }>('POST', `/conversations/${conversationId}/cancel`),
 
-  sendAudio: async (conversationId: string, audioBlob: Blob): Promise<{ id: string; transcript: string }> => {
+  // Fire-and-forget: the server transcribes and posts the message in the
+  // background (survives the client navigating away), so there's nothing to
+  // return — the message arrives over the conversation event stream.
+  sendAudio: async (conversationId: string, audioBlob: Blob): Promise<void> => {
     const form = new FormData()
     form.append('file', audioBlob, 'audio.webm')
     const token = getToken()
@@ -109,7 +112,6 @@ export const api = {
       const err = await res.json().catch(() => ({ error: res.statusText }))
       throw new Error(err.error || res.statusText)
     }
-    return res.json()
   },
 
   transcribeAudio: async (audioBlob: Blob): Promise<{ transcript: string }> => {

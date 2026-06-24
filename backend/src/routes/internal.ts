@@ -213,6 +213,46 @@ export async function internalRoutes(app: FastifyInstance) {
     return { ok: true }
   })
 
+  // ── Transcribe (Whisper only) ──────────────────────────────────────────────
+  //
+  // Stateless speech-to-text for external integrations (e.g. the Telegram
+  // "transcribe this audio" bot driven by n8n). n8n can't reach the whisper
+  // container directly — it lives on a different Docker network — but it can
+  // reach the backend, which proxies the upload to whisper:9000. Language is
+  // auto-detected. Returns { transcript }.
+  app.post('/transcribe', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+
+    const file = await req.file()
+    if (!file) {
+      return reply.code(400).send({ error: 'No audio file (send multipart field "audio_file")' })
+    }
+
+    const buffer = await file.toBuffer()
+    const blob = new Blob([new Uint8Array(buffer)], {
+      type: file.mimetype || 'application/octet-stream',
+    })
+    const form = new FormData()
+    form.append('audio_file', blob, file.filename || 'audio')
+
+    let whisperRes: Response
+    try {
+      whisperRes = await fetch(`${config.whisperUrl}/asr?task=transcribe&output=txt`, {
+        method: 'POST',
+        body: form,
+      })
+    } catch (err) {
+      return reply.code(502).send({ error: `Whisper unreachable: ${(err as Error).message}` })
+    }
+
+    if (!whisperRes.ok) {
+      return reply.code(502).send({ error: `Transcription failed: ${whisperRes.status}` })
+    }
+
+    const transcript = (await whisperRes.text()).trim()
+    return { transcript }
+  })
+
   app.delete<{ Params: { conversationId: string } }>('/apps/:conversationId', async (req, reply) => {
     if (!checkSecret(req, reply)) return
 

@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import { existsSync } from 'fs'
 import { basename, extname } from 'path'
 import { getDb, uuid } from '../db.js'
@@ -88,6 +88,27 @@ export async function cancelConversation(conversationId: string): Promise<void> 
     await cancelInvocation(status.invocationId)
   }
   emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
+}
+
+/** Transcription failure carrying the HTTP status to use when reported inline. */
+class TranscriptionError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+  }
+}
+
+/** Insert an assistant-side error message and push it to any connected clients. */
+function emitConversationError(conversationId: string, content: string) {
+  const errorMsgId = uuid()
+  getDb()
+    .prepare(
+      'INSERT INTO messages (id, conversation_id, role, type, content) VALUES (?, ?, ?, ?, ?)',
+    )
+    .run(errorMsgId, conversationId, 'assistant', 'error', content)
+  const row = getDb()
+    .prepare('SELECT * FROM messages WHERE id = ?')
+    .get(errorMsgId) as MessageRow
+  emitConversationEvent(conversationId, { type: 'message', message: row })
 }
 
 export function processMessage(
@@ -185,22 +206,10 @@ export function processMessage(
     })
     .catch((err) => {
       console.error('[msg] invoke failed:', err)
-      const errorMsgId = uuid()
-      getDb()
-        .prepare(
-          'INSERT INTO messages (id, conversation_id, role, type, content) VALUES (?, ?, ?, ?, ?)',
-        )
-        .run(
-          errorMsgId,
-          conversationId,
-          'assistant',
-          'error',
-          `Failed to start Claude: ${err?.message ?? err}`,
-        )
-      const row = getDb()
-        .prepare('SELECT * FROM messages WHERE id = ?')
-        .get(errorMsgId) as MessageRow
-      emitConversationEvent(conversationId, { type: 'message', message: row })
+      emitConversationError(
+        conversationId,
+        `Failed to start Claude: ${err?.message ?? err}`,
+      )
       emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
     })
 
@@ -698,7 +707,9 @@ export async function conversationRoutes(app: FastifyInstance) {
 
   // ── Audio transcribe + send ────────────────────────────────────────────────
 
-  async function transcribeAudioBuffer(buffer: Buffer, reply: FastifyReply): Promise<string | null> {
+  // Throws on failure so callers can either send an HTTP error (transcribe-only)
+  // or surface it into the conversation (background transcribe + send).
+  async function transcribeAudioBuffer(buffer: Buffer): Promise<string> {
     const audioBlob = new Blob([new Uint8Array(buffer)], { type: 'audio/webm' })
     let transcript = ''
 
@@ -728,28 +739,31 @@ export async function conversationRoutes(app: FastifyInstance) {
         { method: 'POST', body: form },
       )
       if (!whisperRes.ok) {
-        reply.code(502).send({ error: `Transcription failed: ${whisperRes.status}` })
-        return null
+        throw new TranscriptionError(`Transcription failed: ${whisperRes.status}`, 502)
       }
       transcript = (await whisperRes.text()).trim()
     }
 
     if (!transcript) {
-      reply.code(400).send({ error: 'No speech detected' })
-      return null
+      throw new TranscriptionError('No speech detected', 400)
     }
 
     return transcript
   }
 
-  // Transcribe-only (no message sent)
+  // Transcribe-only (no message sent). Stays synchronous: the caller is waiting
+  // to drop the text into the input box.
   app.post('/audio', auth, async (req, reply) => {
     const file = await req.file()
     if (!file) return reply.code(400).send({ error: 'No audio file' })
     const buffer = await file.toBuffer()
-    const transcript = await transcribeAudioBuffer(buffer, reply)
-    if (transcript === null) return
-    return { transcript }
+    try {
+      const transcript = await transcribeAudioBuffer(buffer)
+      return { transcript }
+    } catch (err) {
+      const status = err instanceof TranscriptionError ? err.status : 502
+      return reply.code(status).send({ error: (err as Error).message })
+    }
   })
 
   app.post<{ Params: { id: string } }>(
@@ -772,12 +786,30 @@ export async function conversationRoutes(app: FastifyInstance) {
       const file = await req.file()
       if (!file) return reply.code(400).send({ error: 'No audio file' })
 
+      // Read the full upload while the client is connected. Once we hold the
+      // buffer, transcription + message creation happen server-side, so the
+      // client can navigate away or close the app without losing the message.
       const buffer = await file.toBuffer()
-      const transcript = await transcribeAudioBuffer(buffer, reply)
-      if (transcript === null) return
 
-      const userMsgId = processMessage(id, conv, transcript, [])
-      return { id: userMsgId, transcript }
+      // Light up the "working" indicator now — the user message itself only
+      // lands once transcription finishes a few seconds later.
+      emitConversationEvent(id, { type: 'thinking', thinking: true })
+
+      void (async () => {
+        try {
+          const transcript = await transcribeAudioBuffer(buffer)
+          processMessage(id, conv, transcript, [])
+        } catch (err) {
+          console.error('[audio] background transcription failed:', err)
+          emitConversationError(
+            id,
+            `Audio transcription failed: ${(err as Error)?.message ?? err}`,
+          )
+          emitConversationEvent(id, { type: 'thinking', thinking: false })
+        }
+      })()
+
+      return reply.code(202).send({ accepted: true })
     },
   )
 }

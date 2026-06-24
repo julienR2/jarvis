@@ -13,7 +13,7 @@ export interface PendingFile {
 
 interface Props {
   onSend: (text: string, attachments: Attachment[]) => void
-  onSendAudio: (blob: Blob) => Promise<{ id: string; transcript: string } | undefined>
+  onSendAudio: (blob: Blob) => Promise<void>
   onCancel: () => void
   isProcessing: boolean
   autoFocus?: boolean
