@@ -11,6 +11,9 @@ function git(...args: string[]): string {
     cwd: REPO_DIR,
     encoding: 'utf8',
     timeout: 15000,
+    // Default is 1 MiB — too small for e.g. `ls-files` on a big tree, which
+    // would throw ENOBUFS and 500 the request. Match gitBuffer's ceiling.
+    maxBuffer: 50 * 1024 * 1024,
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
   })
 }
@@ -46,14 +49,23 @@ function isBinary(buf: Buffer): boolean {
   return false
 }
 
-function walkDir(dir: string, base: string): string[] {
-  const results: string[] = []
+// Dependency / VCS dirs that would balloon the listing (and aren't worth
+// browsing). An app's node_modules alone can hold 100k+ files.
+const WALK_SKIP_DIRS = new Set(['node_modules', '.git', '.pnpm-store'])
+
+// Accumulate into a shared array — never `results.push(...walkDir())`, since
+// spreading a large array as call arguments overflows the stack (~125k limit).
+function walkDir(dir: string, base: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name)
-    if (entry.isDirectory()) results.push(...walkDir(full, base))
-    else if (entry.isFile()) results.push(relative(base, full))
+    if (entry.isDirectory()) {
+      if (WALK_SKIP_DIRS.has(entry.name)) continue
+      walkDir(full, base, out)
+    } else if (entry.isFile()) {
+      out.push(relative(base, full))
+    }
   }
-  return results
+  return out
 }
 
 export async function gitRoutes(app: FastifyInstance) {

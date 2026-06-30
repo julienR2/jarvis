@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# pnpm content-addressable store (created at repo root by some installs)
+.pnpm-store/
 frontend/src/**/*.js
 .env
 whisper-cache/
