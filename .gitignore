@@ -9,11 +9,6 @@ whisper-cache/
 # Personal docker-compose overrides (host-specific mounts, networks, etc.)
 docker-compose.override.yml
 
-# --- Parallel "utopia" instance: its own data/workspace/secrets, none of it
-#     belongs in git (same rationale as agent/data + agent/workspace below).
-#     docker-compose.utopia.yml recreates the dirs on startup. ---
-agent-utopia/
-
 # --- Backend runtime data (SQLite DB, secrets, browser sessions) ---
 agent/data/
 # Stray empty DB sometimes created at repo root (real DB lives in agent/data/)
