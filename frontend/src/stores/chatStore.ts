@@ -9,7 +9,7 @@ import {
 
 type PatchableFields = Pick<
   Conversation,
-  'title' | 'notify' | 'model' | 'thinking' | 'pinned'
+  'title' | 'notify' | 'model' | 'effort' | 'pinned'
 >
 
 interface ChatState {
@@ -150,7 +150,7 @@ export const useChatStore = create<ChatState>()(
         if (patch.title !== undefined) apiPatch.title = patch.title
         if (patch.notify !== undefined) apiPatch.notify = patch.notify
         if (patch.model !== undefined) apiPatch.model = patch.model ?? undefined
-        if (patch.thinking !== undefined) apiPatch.thinking = !!patch.thinking
+        if (patch.effort !== undefined) apiPatch.effort = patch.effort
         if (patch.pinned !== undefined) apiPatch.pinned = !!patch.pinned
         const updated = await api.updateConversation(id, apiPatch)
         set((s) => {

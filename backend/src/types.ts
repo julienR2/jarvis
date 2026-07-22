@@ -1,3 +1,5 @@
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
 export interface ConvRow {
   id: string
   title: string
@@ -5,7 +7,7 @@ export interface ConvRow {
   app_path: string | null
   notify: 'subscribe' | 'unsubscribe' | 'auto'
   model: string | null
-  thinking: number
+  effort: EffortLevel
   pinned: number
   last_read_at: number
   created_at: number
@@ -32,7 +34,7 @@ export interface CronRow {
   enabled: number
   once: number
   model: string | null
-  thinking: number
+  effort: EffortLevel
   last_run: number | null
   last_result: string | null
   created_at: number
@@ -46,7 +48,7 @@ export interface WebhookRow {
   conversation_id: string | null
   enabled: number
   model: string | null
-  thinking: number
+  effort: EffortLevel
   notify: 'auto' | 'never' | 'always'
   user_message_key: string | null
   last_run: number | null

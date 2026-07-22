@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, type Cron, type CronInput } from '../api'
 import ContentLayout from './ContentLayout'
-import ModelSelector, { MODELS } from './ModelSelector'
+import ModelSelector, { MODELS, DEFAULT_EFFORT } from './ModelSelector'
 
 const EMPTY: CronInput = {
   name: '',
@@ -11,7 +11,7 @@ const EMPTY: CronInput = {
   enabled: true,
   once: false,
   model: 'claude-opus-4-8',
-  thinking: false,
+  effort: DEFAULT_EFFORT,
 }
 
 export default function CronManager() {
@@ -70,8 +70,8 @@ export default function CronManager() {
       prompt: cron.prompt,
       enabled: !!cron.enabled,
       once: !!cron.once,
-      model: cron.model ?? 'claude-sonnet-4-6',
-      thinking: !!cron.thinking,
+      model: cron.model ?? 'claude-opus-4-8',
+      effort: cron.effort ?? DEFAULT_EFFORT,
     })
   }
 
@@ -145,10 +145,10 @@ export default function CronManager() {
             </label>
 
             <ModelSelector
-              model={form.model ?? 'claude-sonnet-4-6'}
-              thinking={form.thinking ?? true}
+              model={form.model ?? 'claude-opus-4-8'}
+              effort={form.effort ?? DEFAULT_EFFORT}
               onModelChange={(m) => setForm({ ...form, model: m })}
-              onThinkingChange={(t) => setForm({ ...form, thinking: t })}
+              onEffortChange={(e) => setForm({ ...form, effort: e })}
               direction='down'
             />
           </div>
@@ -196,8 +196,8 @@ export default function CronManager() {
               <div className='text-xs text-text-muted font-mono'>
                 {cron.schedule}
                 {cron.once ? ' \u00B7 once' : ''}
-                {' \u00B7 '}{MODELS.find(m => m.id === cron.model)?.name ?? 'Opus 4.6'}
-                {cron.thinking ? ' Extended' : ''}
+                {' \u00B7 '}{MODELS.find(m => m.id === cron.model)?.name ?? 'Opus 4.8'}
+                {cron.effort && cron.effort !== 'high' ? ` \u00B7 ${cron.effort} effort` : ''}
                 {cron.last_run
                   ? ` \u00B7 last: ${new Date(cron.last_run * 1000).toLocaleString('fr-FR')}`
                   : ''}

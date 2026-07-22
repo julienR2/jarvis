@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import cron from 'node-cron'
-import { getDb, uuid } from '../db.js'
+import { getDb, uuid, normalizeEffort } from '../db.js'
 import { schedule, rescheduleAll, fireCron } from '../crons.js'
 import type { CronRow } from '../types.js'
 
@@ -19,7 +19,7 @@ export async function cronRoutes(app: FastifyInstance) {
       enabled?: boolean
       once?: boolean
       model?: string
-      thinking?: boolean
+      effort?: string
     }
 
     if (!body.name || !body.schedule || !body.prompt) {
@@ -33,11 +33,11 @@ export async function cronRoutes(app: FastifyInstance) {
     const enabled = body.enabled !== false ? 1 : 0
     const once = body.once ? 1 : 0
     const model = body.model ?? 'claude-opus-4-8'
-    const thinking = body.thinking ? 1 : 0
+    const effort = normalizeEffort(body.effort)
 
     getDb()
-      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, model, thinking) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, body.schedule, body.prompt, enabled, once, model, thinking)
+      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, body.schedule, body.prompt, enabled, once, model, effort)
 
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(id) as CronRow
     schedule(row)
@@ -52,7 +52,7 @@ export async function cronRoutes(app: FastifyInstance) {
       enabled: boolean
       once: boolean
       model: string
-      thinking: boolean
+      effort: string
     }>
 
     if (body.schedule && !cron.validate(body.schedule)) {
@@ -72,12 +72,12 @@ export async function cronRoutes(app: FastifyInstance) {
       enabled: body.enabled !== undefined ? (body.enabled ? 1 : 0) : existing.enabled,
       once: body.once !== undefined ? (body.once ? 1 : 0) : existing.once,
       model: body.model ?? existing.model ?? 'claude-opus-4-8',
-      thinking: body.thinking !== undefined ? (body.thinking ? 1 : 0) : existing.thinking,
+      effort: body.effort !== undefined ? normalizeEffort(body.effort) : existing.effort,
     }
 
     getDb()
-      .prepare('UPDATE crons SET name=?, schedule=?, prompt=?, enabled=?, once=?, model=?, thinking=? WHERE id=?')
-      .run(updated.name, updated.schedule, updated.prompt, updated.enabled, updated.once, updated.model, updated.thinking, req.params.id)
+      .prepare('UPDATE crons SET name=?, schedule=?, prompt=?, enabled=?, once=?, model=?, effort=? WHERE id=?')
+      .run(updated.name, updated.schedule, updated.prompt, updated.enabled, updated.once, updated.model, updated.effort, req.params.id)
 
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(req.params.id) as CronRow
     schedule(row)

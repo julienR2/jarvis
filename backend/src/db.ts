@@ -3,11 +3,21 @@ import { randomUUID } from 'crypto'
 import { mkdirSync } from 'fs'
 import { dirname } from 'path'
 import { config } from './config.js'
+import type { EffortLevel } from './types.js'
 
 let db: Database.Database
 
 export function getDb(): Database.Database {
   return db
+}
+
+export const EFFORT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
+
+/** Coerce arbitrary input to a valid effort level, defaulting to 'high'. */
+export function normalizeEffort(v: unknown): EffortLevel {
+  return typeof v === 'string' && (EFFORT_LEVELS as string[]).includes(v)
+    ? (v as EffortLevel)
+    : 'high'
 }
 
 export function initDb(): void {
@@ -150,6 +160,18 @@ export function initDb(): void {
   try {
     db.exec(`ALTER TABLE webhooks ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0`)
   } catch { /* already exists */ }
+
+  // Migration: replace the boolean `thinking` flag with a granular effort level
+  // (low | medium | high | xhigh | max). Backfill preserves behaviour: the old
+  // "extended thinking" ON state mapped to `--effort max`, everything else to
+  // the model default `high`. The legacy `thinking` column is left in place
+  // (unused) so existing rows aren't disturbed.
+  for (const table of ['conversations', 'crons', 'webhooks']) {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN effort TEXT NOT NULL DEFAULT 'high'`)
+      db.exec(`UPDATE ${table} SET effort = 'max' WHERE thinking = 1`)
+    } catch { /* already exists */ }
+  }
 
   // Migration: add onboarded flag to users (existing users are considered already onboarded)
   try {

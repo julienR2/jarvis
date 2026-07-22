@@ -8,7 +8,8 @@ import {
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, Pin, PinOff, RefreshCw, ExternalLink } from 'lucide-react'
-import { MODELS, DEFAULT_MODEL, modelName } from './ModelSelector'
+import { MODELS, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, modelSupportsEffort } from './ModelSelector'
+import type { Effort } from '../api'
 
 type NotifyMode = 'subscribe' | 'unsubscribe' | 'auto'
 
@@ -24,9 +25,9 @@ interface Props {
   notify?: NotifyMode
   onNotifyChange?: (mode: NotifyMode) => void
   model?: string
-  thinking?: boolean
+  effort?: Effort
   onModelChange?: (model: string) => void
-  onThinkingChange?: (thinking: boolean) => void
+  onEffortChange?: (effort: Effort) => void
   conversationId?: string
   hasCron?: boolean
   hasWebhook?: boolean
@@ -48,7 +49,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
   function ConversationMenu({
     onDelete, onRename,
     notify = 'subscribe', onNotifyChange,
-    model = DEFAULT_MODEL, thinking = false, onModelChange, onThinkingChange,
+    model = DEFAULT_MODEL, effort = DEFAULT_EFFORT, onModelChange, onEffortChange,
     conversationId, hasCron, hasWebhook,
     pinned = false, onPinChange,
     onRefreshApp, appUrl,
@@ -62,6 +63,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
 
     const selectedModel = MODELS.find(m => m.id === model)
     const shortName = selectedModel?.name ?? modelName(model ?? DEFAULT_MODEL)
+    const supportsEffort = modelSupportsEffort(model ?? DEFAULT_MODEL)
 
     useImperativeHandle(ref, () => ({
       open() { setOpen(true) },
@@ -91,7 +93,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
           title='Conversation options'
         >
           {!compact && <span className='text-xs font-medium text-text-secondary'>{shortName}</span>}
-          {!compact && thinking && <Brain size={11} className='text-accent' />}
+          {!compact && supportsEffort && effort !== DEFAULT_EFFORT && <Brain size={11} className='text-accent' />}
           <MoreHorizontal size={14} />
         </button>
 
@@ -121,18 +123,29 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                   </div>
                 </div>
 
-                {/* Extended thinking toggle */}
-                <div className='flex items-center justify-between px-2 py-1.5'>
+                {/* Effort selector */}
+                <div className='px-2 py-1.5'>
                   <span className='text-[11px] text-text-muted font-medium flex items-center gap-1'>
                     <Brain size={11} />
-                    Extended thinking
+                    Effort
+                    {!supportsEffort && <span className='opacity-70'>· n/a</span>}
                   </span>
-                  <button
-                    onClick={() => onThinkingChange?.(!thinking)}
-                    className={`relative w-8 h-4 rounded-full transition-colors shrink-0 ${thinking ? 'bg-accent' : 'bg-border'}`}
-                  >
-                    <span className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${thinking ? 'translate-x-4' : 'translate-x-0'}`} />
-                  </button>
+                  <div className={`flex gap-0.5 mt-1 bg-surface2 rounded-lg p-0.5 ${!supportsEffort ? 'opacity-40 pointer-events-none' : ''}`}>
+                    {EFFORTS.map(e => (
+                      <button
+                        key={e.id}
+                        onClick={() => onEffortChange?.(e.id)}
+                        title={e.hint}
+                        className={`flex-1 px-1.5 py-1 text-[11px] rounded-md transition-colors ${
+                          effort === e.id
+                            ? 'bg-bg text-text-primary shadow-sm'
+                            : 'text-text-muted hover:text-text-primary'
+                        }`}
+                      >
+                        {e.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className='h-px bg-border my-1' />

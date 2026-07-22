@@ -64,7 +64,7 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
     skipUserMessage: !displayMessage,
     userMessageOverride: displayMessage,
     model: entry.model ?? undefined,
-    thinking: !!entry.thinking,
+    effort: entry.effort,
   }
 
   const donePromise = sync

@@ -78,18 +78,18 @@ export const api = {
     request<ConversationWithMessages>('GET', `/conversations/${id}`),
   updateConversation: (
     id: string,
-    data: { title?: string; notify?: string; model?: string; thinking?: boolean; pinned?: boolean },
+    data: { title?: string; notify?: string; model?: string; effort?: Effort; pinned?: boolean },
   ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
   deleteConversation: (id: string) =>
     request<{ ok: boolean }>('DELETE', `/conversations/${id}`),
 
   // Messages
-  sendMessage: (conversationId: string, content: string, attachments?: Attachment[], model?: string, thinking?: boolean) =>
+  sendMessage: (conversationId: string, content: string, attachments?: Attachment[], model?: string, effort?: Effort) =>
     request<{ id: string }>('POST', `/conversations/${conversationId}/messages`, {
       content,
       attachments: attachments?.length ? attachments : undefined,
       model,
-      thinking,
+      effort,
     }),
 
   cancelMessage: (conversationId: string) =>
@@ -278,6 +278,8 @@ export function connectEvents(
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+export type Effort = 'low' | 'medium' | 'high' | 'max'
+
 export interface Conversation {
   id: string
   title: string
@@ -285,7 +287,7 @@ export interface Conversation {
   app_path: string | null
   notify: 'subscribe' | 'unsubscribe' | 'auto'
   model: string | null
-  thinking: number
+  effort: Effort
   pinned: number
   unread_count: number
   has_cron?: number
@@ -318,7 +320,7 @@ export interface Cron {
   enabled: number
   once: number
   model: string | null
-  thinking: number
+  effort: Effort
   last_run: number | null
   last_result: string | null
   created_at: number
@@ -331,7 +333,7 @@ export interface CronInput {
   enabled?: boolean
   once?: boolean
   model?: string
-  thinking?: boolean
+  effort?: Effort
 }
 
 export interface Webhook {
@@ -342,7 +344,7 @@ export interface Webhook {
   conversation_id: string | null
   enabled: number
   model: string | null
-  thinking: number
+  effort: Effort
   last_run: number | null
   last_result: string | null
   created_at: number
@@ -353,7 +355,7 @@ export interface WebhookInput {
   prompt: string
   enabled?: boolean
   model?: string
-  thinking?: boolean
+  effort?: Effort
 }
 
 export interface CodeEntry {

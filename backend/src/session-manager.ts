@@ -8,6 +8,8 @@
 //   - invokeAndWait()→ promise-based one-shot (used for title generation)
 //   - cancelInvocation() / isRunning() / getRunningInvocation() / listActive()
 
+import type { EffortLevel } from './types.js'
+
 export type ClaudeEvent =
   | { type: 'thinking' }
   | { type: 'tool'; name: string }
@@ -25,7 +27,7 @@ export interface InvokeOptions {
   sessionId: string | null
   conversationId: string
   model?: string
-  thinking?: boolean
+  effort?: EffortLevel
   envVars?: Record<string, string>
 }
 

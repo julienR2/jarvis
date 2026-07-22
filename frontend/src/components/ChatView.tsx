@@ -12,7 +12,7 @@ import { useChatStore } from '../stores/chatStore'
 import { useChatEvents } from '../hooks/useChatEvents'
 import MessageBubble from './MessageBubble'
 import ChatInput from './ChatInput'
-import { DEFAULT_MODEL } from './ModelSelector'
+import { DEFAULT_MODEL, DEFAULT_EFFORT } from './ModelSelector'
 import AppPreview from './AppPreview'
 import { ContentTitle } from './ContentLayout'
 import ConversationMenu from './ConversationMenu'
@@ -65,7 +65,7 @@ export default function ChatView({
   const hasApp = !!conv?.app_path
   const notify: Conversation['notify'] = conv?.notify ?? 'subscribe'
   const model = conv?.model ?? DEFAULT_MODEL
-  const thinking = !!conv?.thinking
+  const effort = conv?.effort ?? DEFAULT_EFFORT
   const hasCron = !!conv?.has_cron
   const hasWebhook = !!conv?.has_webhook
   const pinned = !!conv?.pinned
@@ -130,11 +130,11 @@ export default function ChatView({
     useChatStore.getState().patchConversation(conversationId, { model: newModel })
   }
 
-  function handleThinkingChange(newThinking: boolean) {
+  function handleEffortChange(newEffort: Conversation['effort']) {
     if (!conversationId) return
     useChatStore
       .getState()
-      .patchConversation(conversationId, { thinking: newThinking ? 1 : 0 })
+      .patchConversation(conversationId, { effort: newEffort })
   }
 
   function handlePinChange(newPinned: boolean) {
@@ -243,7 +243,7 @@ export default function ChatView({
             action={conversationId ? (
               <span className='flex items-center gap-2'>
                 <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
-                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} thinking={thinking} onModelChange={handleModelChange} onThinkingChange={handleThinkingChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} pinned={pinned} onPinChange={handlePinChange} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? `/api/apps/${conv!.app_path!.replace(/^apps\//, '')}/index.html?token=${localStorage.getItem('token') || ''}&v=${appRefreshKey}` : undefined} />
+                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} pinned={pinned} onPinChange={handlePinChange} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? `/api/apps/${conv!.app_path!.replace(/^apps\//, '')}/index.html?token=${localStorage.getItem('token') || ''}&v=${appRefreshKey}` : undefined} />
               </span>
             ) : undefined}
           >
@@ -283,7 +283,7 @@ export default function ChatView({
                 action={conversationId ? (
                   <span className='flex items-center gap-2'>
                     <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
-                    <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} thinking={thinking} onModelChange={handleModelChange} onThinkingChange={handleThinkingChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} pinned={pinned} onPinChange={handlePinChange} />
+                    <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} pinned={pinned} onPinChange={handlePinChange} />
                   </span>
                 ) : undefined}
               >

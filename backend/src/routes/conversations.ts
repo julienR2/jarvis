@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { existsSync } from 'fs'
 import { basename, extname } from 'path'
-import { getDb, uuid } from '../db.js'
+import { getDb, uuid, normalizeEffort } from '../db.js'
 import { archiveAppDir } from '../app-archive.js'
 import {
   invoke,
@@ -19,7 +19,7 @@ import {
 } from '../sse.js'
 import { config } from '../config.js'
 import { getConnectorEnvVars, getConnectorSecrets } from '../connectors.js'
-import type { ConvRow, MessageRow } from '../types.js'
+import type { ConvRow, MessageRow, EffortLevel } from '../types.js'
 
 interface Attachment {
   id: string
@@ -121,7 +121,7 @@ export function processMessage(
     userMessageOverride?: string
     onDone?: (text: string) => void
     model?: string
-    thinking?: boolean
+    effort?: EffortLevel
   },
 ): string | null {
   // Slash commands pass through untouched — no notify prefix, no attachment refs.
@@ -196,7 +196,7 @@ export function processMessage(
     sessionId: conv.claude_session_id,
     conversationId,
     model: options?.model,
-    thinking: options?.thinking,
+    effort: options?.effort,
     envVars: getConnectorEnvVars(),
   })
     .then((invocationId) => {
@@ -482,8 +482,8 @@ export async function conversationRoutes(app: FastifyInstance) {
     const { title } = (req.body as { title?: string }) ?? {}
     const id = uuid()
     getDb()
-      .prepare('INSERT INTO conversations (id, title, model, thinking) VALUES (?, ?, ?, ?)')
-      .run(id, title ?? 'New conversation', 'claude-opus-4-8', 1)
+      .prepare('INSERT INTO conversations (id, title, model, effort) VALUES (?, ?, ?, ?)')
+      .run(id, title ?? 'New conversation', 'claude-opus-4-8', 'high')
     return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id)
   })
 
@@ -514,11 +514,11 @@ export async function conversationRoutes(app: FastifyInstance) {
   })
 
   app.patch<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
-    const { title, notify, model, thinking, pinned } = req.body as {
+    const { title, notify, model, effort, pinned } = req.body as {
       title?: string
       notify?: string
       model?: string
-      thinking?: boolean
+      effort?: string
       pinned?: boolean
     }
 
@@ -540,9 +540,9 @@ export async function conversationRoutes(app: FastifyInstance) {
       sets.push('model = ?')
       params.push(model)
     }
-    if (thinking !== undefined) {
-      sets.push('thinking = ?')
-      params.push(thinking ? 1 : 0)
+    if (effort !== undefined) {
+      sets.push('effort = ?')
+      params.push(normalizeEffort(effort))
     }
     if (pinned !== undefined) {
       sets.push('pinned = ?')
@@ -662,11 +662,11 @@ export async function conversationRoutes(app: FastifyInstance) {
     auth,
     async (req, reply) => {
       const { id } = req.params
-      const { content, attachments, model, thinking } = req.body as {
+      const { content, attachments, model, effort } = req.body as {
         content?: string
         attachments?: Attachment[]
         model?: string
-        thinking?: boolean
+        effort?: string
       }
 
       const conv = getDb()
@@ -691,7 +691,7 @@ export async function conversationRoutes(app: FastifyInstance) {
         attachments || [],
         {
           model: model ?? conv.model ?? undefined,
-          thinking: thinking ?? !!conv.thinking,
+          effort: normalizeEffort(effort ?? conv.effort),
         },
       )
       return { id: userMsgId }

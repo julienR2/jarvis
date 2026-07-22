@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { getDb, uuid } from '../db.js'
+import { getDb, uuid, normalizeEffort } from '../db.js'
 import { fireWebhook, fireWebhookSync } from '../webhooks.js'
 import { cancelConversation } from './conversations.js'
 import type { WebhookRow } from '../types.js'
@@ -17,7 +17,7 @@ export async function webhookRoutes(app: FastifyInstance) {
       prompt: string
       enabled?: boolean
       model?: string
-      thinking?: boolean
+      effort?: string
       notify?: 'auto' | 'never' | 'always'
       user_message_key?: string
     }
@@ -30,13 +30,13 @@ export async function webhookRoutes(app: FastifyInstance) {
     const token = uuid()
     const enabled = body.enabled !== false ? 1 : 0
     const model = body.model ?? 'claude-opus-4-8'
-    const thinking = body.thinking ? 1 : 0
+    const effort = normalizeEffort(body.effort)
     const notify = body.notify ?? 'auto'
     const user_message_key = body.user_message_key ?? null
 
     getDb()
-      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, model, thinking, notify, user_message_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, token, body.prompt, enabled, model, thinking, notify, user_message_key)
+      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, model, effort, notify, user_message_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, token, body.prompt, enabled, model, effort, notify, user_message_key)
 
     return getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(id)
   })
@@ -47,7 +47,7 @@ export async function webhookRoutes(app: FastifyInstance) {
       prompt: string
       enabled: boolean
       model: string
-      thinking: boolean
+      effort: string
       notify: 'auto' | 'never' | 'always'
       user_message_key: string | null
     }>
@@ -63,14 +63,14 @@ export async function webhookRoutes(app: FastifyInstance) {
       prompt: body.prompt ?? existing.prompt,
       enabled: body.enabled !== undefined ? (body.enabled ? 1 : 0) : existing.enabled,
       model: body.model ?? existing.model ?? 'claude-opus-4-8',
-      thinking: body.thinking !== undefined ? (body.thinking ? 1 : 0) : existing.thinking,
+      effort: body.effort !== undefined ? normalizeEffort(body.effort) : existing.effort,
       notify: body.notify ?? existing.notify ?? 'auto',
       user_message_key: body.user_message_key !== undefined ? (body.user_message_key || null) : existing.user_message_key,
     }
 
     getDb()
-      .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=?, model=?, thinking=?, notify=?, user_message_key=? WHERE id=?')
-      .run(updated.name, updated.prompt, updated.enabled, updated.model, updated.thinking, updated.notify, updated.user_message_key, req.params.id)
+      .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=?, model=?, effort=?, notify=?, user_message_key=? WHERE id=?')
+      .run(updated.name, updated.prompt, updated.enabled, updated.model, updated.effort, updated.notify, updated.user_message_key, req.params.id)
 
     return getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(req.params.id)
   })

@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, type Webhook, type WebhookInput } from '../api'
 import ContentLayout from './ContentLayout'
-import ModelSelector, { MODELS } from './ModelSelector'
+import ModelSelector, { MODELS, DEFAULT_EFFORT } from './ModelSelector'
 
 const EMPTY: WebhookInput = {
   name: '',
   prompt: '',
   enabled: true,
   model: 'claude-opus-4-8',
-  thinking: false,
+  effort: DEFAULT_EFFORT,
 }
 
 export default function WebhookManager() {
@@ -67,8 +67,8 @@ export default function WebhookManager() {
       name: webhook.name,
       prompt: webhook.prompt,
       enabled: !!webhook.enabled,
-      model: webhook.model ?? 'claude-sonnet-4-6',
-      thinking: !!webhook.thinking,
+      model: webhook.model ?? 'claude-opus-4-8',
+      effort: webhook.effort ?? DEFAULT_EFFORT,
     })
   }
 
@@ -152,10 +152,10 @@ export default function WebhookManager() {
             </label>
 
             <ModelSelector
-              model={form.model ?? 'claude-sonnet-4-6'}
-              thinking={form.thinking ?? true}
+              model={form.model ?? 'claude-opus-4-8'}
+              effort={form.effort ?? DEFAULT_EFFORT}
               onModelChange={(m) => setForm({ ...form, model: m })}
-              onThinkingChange={(t) => setForm({ ...form, thinking: t })}
+              onEffortChange={(e) => setForm({ ...form, effort: e })}
               direction='down'
             />
           </div>
@@ -202,8 +202,8 @@ export default function WebhookManager() {
               <div className='flex-1 min-w-0'>
                 <div className='font-medium text-sm'>{webhook.name}</div>
                 <div className='text-xs text-text-muted font-mono'>
-                  {MODELS.find(m => m.id === webhook.model)?.name ?? 'Opus 4.6'}
-                  {webhook.thinking ? ' Extended' : ''}
+                  {MODELS.find(m => m.id === webhook.model)?.name ?? 'Opus 4.8'}
+                  {webhook.effort && webhook.effort !== 'high' ? ` · ${webhook.effort} effort` : ''}
                   {webhook.last_run
                     ? ` \u00B7 last: ${new Date(webhook.last_run * 1000).toLocaleString('fr-FR')}`
                     : ' \u00B7 never triggered'}
