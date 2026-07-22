@@ -59,7 +59,7 @@ export async function manifestRoutes(app: FastifyInstance) {
       description: 'AI assistant powered by Claude',
       start_url: '/',
       display: 'standalone',
-      orientation: 'natural',
+      orientation: 'any',
       background_color: '#faf9f7',
       theme_color: '#f3f1ed',
       icons: [
