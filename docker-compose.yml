@@ -25,25 +25,25 @@ services:
       SECRETS_PATH: /jarvis/agent/data/secrets.json
       JARVIS_REPO_DIR: /jarvis
       WHISPER_URL: http://whisper:9000
-      SESSION_MANAGER_URL: http://session-manager:3010
+      ENGINE_URL: http://engine:3010
       TZ: ${TZ:-UTC}
     ports:
       - '3005:3005'
     depends_on:
       setup:
         condition: service_completed_successfully
-      session-manager:
+      engine:
         condition: service_started
     restart: unless-stopped
 
-  session-manager:
-    build: ./session-manager
-    container_name: jarvis-session-manager
-    working_dir: /jarvis/session-manager
+  engine:
+    build: ./engine
+    container_name: jarvis-engine
+    working_dir: /jarvis/engine
     command: sh -c "npm install && npx tsx src/index.ts"
     volumes:
       - ./:/jarvis
-      - /jarvis/session-manager/node_modules
+      - /jarvis/engine/node_modules
     env_file: .env
     depends_on:
       setup:

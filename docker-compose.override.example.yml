@@ -15,7 +15,7 @@ services:
     #   - default
 
   # Mirror the same network overrides on other services if you use them.
-  # session-manager:
+  # engine:
   #   networks:
   #     - my-existing-network
   #     - default

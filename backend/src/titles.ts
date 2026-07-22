@@ -1,8 +1,8 @@
-import { invokeAndWait } from './session-manager.js'
+import { invokeAndWait } from './engine.js'
 
 // Ask Claude for a short title for the conversation. Runs as a separate
 // invocation against the existing session (so Claude has context) but does not
-// show up in the conversation message history — we call the session-manager
+// show up in the conversation message history — we call the engine
 // with a fresh conversationId so any concurrency/running state stays isolated
 // from the main thread.
 export async function generateTitle(

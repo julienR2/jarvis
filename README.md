@@ -14,7 +14,7 @@
   <img src="docs/screenshot-chat.png" alt="Chat conversation with inline image" width="700">
 </p>
 
-Jarvis is a web-based chat interface backed by the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code). What makes it different from other AI chat wrappers: the assistant has full read/write access to its own source code. Ask it to add a feature, fix a bug, or build a new integration -- it edits the frontend and backend directly, and you can review, commit, or revert every change through git. A separate recovery container ensures you can always undo whatever it breaks.
+Jarvis is a web-based chat interface backed by the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code). What makes it different from other AI chat wrappers: the assistant has full read/write access to its own source code. Ask it to add a feature, fix a bug, or build a new integration -- it edits the frontend and backend directly, and you can review, commit, or revert every change through git.
 
 The idea is less "deploy and use" and more "deploy and shape." You start with a general-purpose assistant and vibe-code it into something personal.
 
@@ -100,7 +100,7 @@ Open `http://localhost:5173`. First visit prompts you to create an admin account
 jarvis/
 ├── backend/          Fastify API + WebSocket streaming + cron scheduler
 ├── frontend/         React SPA (chat, settings, connectors, app preview)
-├── session-manager/  Owns the Claude CLI subprocess lifecycle
+├── engine/           Owns the Claude CLI subprocess lifecycle
 ├── agent/            Claude config: system prompt, skills, rules
 ├── workspace/        Claude's scratch space: memory, uploads, apps
 └── docker-compose.yml
@@ -110,7 +110,7 @@ jarvis/
 |---------|------|-------------|
 | frontend | 5173 | Web UI |
 | backend | 3005 | REST API + WebSocket |
-| session-manager | -- | Internal: owns Claude CLI process |
+| engine | -- | Internal: owns Claude CLI process |
 | whisper | -- | Internal: speech-to-text |
 | playwright | -- | Internal: browser automation via MCP |
 

@@ -25,7 +25,7 @@ import { manifestRoutes } from './routes/manifest.js'
 import { startCronScheduler } from './crons.js'
 import { initPush } from './push.js'
 import { subscribeGlobal, addGlobalClient, removeGlobalClient } from './sse.js'
-import { listActiveInvocations } from './session-manager.js'
+import { listActiveInvocations } from './engine.js'
 import type { ConvRow } from './types.js'
 
 // ── Fastify type augmentation ────────────────────────────────────────────────
@@ -163,9 +163,9 @@ app.get('/health', async () => ({ ok: true }))
 
 startCronScheduler()
 
-// ── Reconnect to in-flight session-manager invocations ──────────────────────
+// ── Reconnect to in-flight engine invocations ──────────────────────
 //
-// If the backend was restarted while Claude was running, the session-manager
+// If the backend was restarted while Claude was running, the engine
 // kept the process alive and buffered its events. Re-subscribe so we finish
 // persisting the conversation to the DB and let the frontend see the result.
 
@@ -198,7 +198,7 @@ async function reconnectActiveSessions(): Promise<void> {
   }
 }
 
-// Fire off reconnection without blocking startup — the session-manager may
+// Fire off reconnection without blocking startup — the engine may
 // still be booting when the backend comes up.
 reconnectActiveSessions()
 

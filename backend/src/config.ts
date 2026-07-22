@@ -32,7 +32,7 @@ function loadOrGenerateSecrets(): { jwt: string; internal: string } {
     console.log(`[config] Secrets persisted to ${secretsPath}`)
   }
 
-  // Expose so subprocesses (session-manager → Claude CLI) inherit the same values
+  // Expose so subprocesses (engine → Claude CLI) inherit the same values
   process.env.JWT_SECRET = jwt
   process.env.INTERNAL_SECRET = internal
 
@@ -49,7 +49,7 @@ export const config = {
   workspaceDir: process.env.WORKSPACE_DIR || '/jarvis/agent/workspace',
   claudeConfigDir: process.env.CLAUDE_CONFIG_DIR || '/jarvis/agent',
   whisperUrl: process.env.WHISPER_URL || 'http://whisper:9000',
-  // URL that external containers (session-manager / claude) use to reach us.
+  // URL that external containers (engine / claude) use to reach us.
   // Baked into prompts and skills so claude's curl calls resolve.
   internalUrl: process.env.BACKEND_URL || 'http://backend:3005',
   adminEmail: process.env.ADMIN_EMAIL,

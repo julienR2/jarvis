@@ -67,7 +67,7 @@ function pushEvent(inv: Invocation, event: ClaudeEvent): void {
     try {
       sub(event)
     } catch (err) {
-      console.error('[session-manager] subscriber error:', err)
+      console.error('[engine] subscriber error:', err)
     }
   }
 }
@@ -77,7 +77,7 @@ function scheduleCleanup(invocationId: string): void {
     const inv = invocations.get(invocationId)
     if (inv && inv.status !== 'running' && inv.subscribers.size === 0) {
       invocations.delete(invocationId)
-      console.log(`[session-manager] cleaned up invocation ${invocationId}`)
+      console.log(`[engine] cleaned up invocation ${invocationId}`)
     } else if (inv && inv.status !== 'running') {
       // Subscribers still around — retry later
       scheduleCleanup(invocationId)
@@ -521,4 +521,4 @@ app.get('/health', async () => ({ ok: true }))
 // ── Start ────────────────────────────────────────────────────────────────────
 
 await app.listen({ port: PORT, host: '0.0.0.0' })
-console.log(`Jarvis session-manager running on :${PORT}`)
+console.log(`Jarvis engine running on :${PORT}`)

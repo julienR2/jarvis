@@ -9,7 +9,7 @@ import {
   cancelInvocation,
   isRunning,
   getRunningInvocation,
-} from '../session-manager.js'
+} from '../engine.js'
 import { generateTitle } from '../titles.js'
 import { sendPushToAll } from '../push.js'
 import {
@@ -188,7 +188,7 @@ export function processMessage(
   console.log(`[msg] emit thinking: true`)
   emitConversationEvent(conversationId, { type: 'thinking', thinking: true })
 
-  // Kick off the claude invocation asynchronously. The session-manager owns
+  // Kick off the claude invocation asynchronously. The engine owns
   // the process lifecycle now; we just stream its events back into an
   // event handler that persists everything to the DB.
   invoke({
@@ -217,7 +217,7 @@ export function processMessage(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// attachInvocationStream — subscribe to a session-manager invocation and
+// attachInvocationStream — subscribe to a engine invocation and
 // stream its events into the DB + SSE. Used by both fresh invocations (from
 // processMessage) and by the reconnection path after a backend restart
 // (resumeProcessMessage).
@@ -263,7 +263,7 @@ export function attachInvocationStream(
     emitConversationEvent(conversationId, { type: 'message', message: row })
   }
 
-  const onEvent = (ev: import('../session-manager.js').ClaudeEvent) => {
+  const onEvent = (ev: import('../engine.js').ClaudeEvent) => {
       if (ev.type === 'tool') {
         appendLine('tool', ev.name)
       }
@@ -420,7 +420,7 @@ export function attachInvocationStream(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // resumeProcessMessage — re-attach to a running invocation after a backend
-// restart. The session-manager kept the process alive and buffered its events;
+// restart. The engine kept the process alive and buffered its events;
 // we drop any partial assistant message that was being written before the
 // restart (so the replay doesn't duplicate content) and then stream normally.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -431,7 +431,7 @@ export function resumeProcessMessage(
   conv: ConvRow,
 ): void {
   // Delete any partial assistant message (no result, no error type) that was
-  // being streamed before the restart — the session-manager will replay all
+  // being streamed before the restart — the engine will replay all
   // its buffered events and we'd otherwise get a duplicate.
   const deleted = getDb()
     .prepare(

@@ -11,7 +11,7 @@ ARG GID=1000
 RUN groupmod -g ${GID} node && usermod -u ${UID} -g ${GID} node
 # Pre-create the mount path with correct ownership so the anonymous
 # volume for node_modules inherits node:1000 on first creation.
-RUN mkdir -p /jarvis/session-manager/node_modules && chown -R node:node /jarvis
-WORKDIR /jarvis/session-manager
+RUN mkdir -p /jarvis/engine/node_modules && chown -R node:node /jarvis
+WORKDIR /jarvis/engine
 
 USER node

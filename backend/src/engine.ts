@@ -1,6 +1,6 @@
-// HTTP/SSE client for the session-manager service.
+// HTTP/SSE client for the engine service.
 //
-// The session-manager is a separate container that spawns the `claude` CLI so
+// The engine is a separate container that spawns the `claude` CLI so
 // that in-flight invocations survive backend restarts. This module exposes the
 // same surface the backend used to get from the now-removed claude.ts:
 //   - invoke()       → spawn a process (returns invocationId)
@@ -17,8 +17,8 @@ export type ClaudeEvent =
   | { type: 'done'; result: string; sessionId: string | null }
   | { type: 'error'; message: string }
 
-const SESSION_MANAGER_URL =
-  process.env.SESSION_MANAGER_URL || 'http://session-manager:3010'
+const ENGINE_URL =
+  process.env.ENGINE_URL || 'http://engine:3010'
 
 // ── invoke ───────────────────────────────────────────────────────────────────
 
@@ -32,14 +32,14 @@ export interface InvokeOptions {
 }
 
 export async function invoke(opts: InvokeOptions): Promise<string> {
-  const res = await fetch(`${SESSION_MANAGER_URL}/invoke`, {
+  const res = await fetch(`${ENGINE_URL}/invoke`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(opts),
   })
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`session-manager /invoke failed: ${res.status} ${text}`)
+    throw new Error(`engine /invoke failed: ${res.status} ${text}`)
   }
   const data = (await res.json()) as { invocationId: string }
   return data.invocationId
@@ -61,14 +61,14 @@ export function streamEvents(
   ;(async () => {
     try {
       const res = await fetch(
-        `${SESSION_MANAGER_URL}/stream/${invocationId}`,
+        `${ENGINE_URL}/stream/${invocationId}`,
         { signal: controller.signal },
       )
       if (!res.ok || !res.body) {
         if (!closed) {
           onEvent({
             type: 'error',
-            message: `session-manager /stream failed: ${res.status}`,
+            message: `engine /stream failed: ${res.status}`,
           })
         }
         return
@@ -112,7 +112,7 @@ export function streamEvents(
       }
     } catch (err: any) {
       if (!closed && err.name !== 'AbortError') {
-        console.error('[session-manager client] stream error:', err)
+        console.error('[engine client] stream error:', err)
         onEvent({
           type: 'error',
           message: `stream connection lost: ${err.message ?? err}`,
@@ -146,7 +146,7 @@ export function invokeAndWait(opts: InvokeOptions): Promise<string> {
         })
       })
       .catch((err) => {
-        console.error('[session-manager client] invokeAndWait error:', err)
+        console.error('[engine client] invokeAndWait error:', err)
         resolve('')
       })
   })
@@ -155,10 +155,10 @@ export function invokeAndWait(opts: InvokeOptions): Promise<string> {
 // ── cancelInvocation ─────────────────────────────────────────────────────────
 
 export async function cancelInvocation(invocationId: string): Promise<void> {
-  await fetch(`${SESSION_MANAGER_URL}/cancel/${invocationId}`, {
+  await fetch(`${ENGINE_URL}/cancel/${invocationId}`, {
     method: 'POST',
   }).catch((err) => {
-    console.error('[session-manager client] cancel failed:', err)
+    console.error('[engine client] cancel failed:', err)
   })
 }
 
@@ -177,14 +177,14 @@ export async function getRunningInvocation(
 > {
   try {
     const res = await fetch(
-      `${SESSION_MANAGER_URL}/running/${conversationId}`,
+      `${ENGINE_URL}/running/${conversationId}`,
     )
     if (!res.ok) return { running: false }
     return (await res.json()) as
       | { running: true; invocationId: string }
       | { running: false }
   } catch (err) {
-    console.error('[session-manager client] isRunning failed:', err)
+    console.error('[engine client] isRunning failed:', err)
     return { running: false }
   }
 }
@@ -202,12 +202,12 @@ export interface InvocationStatus {
 
 export async function listActiveInvocations(): Promise<InvocationStatus[]> {
   try {
-    const res = await fetch(`${SESSION_MANAGER_URL}/status`)
+    const res = await fetch(`${ENGINE_URL}/status`)
     if (!res.ok) return []
     const data = (await res.json()) as { invocations: InvocationStatus[] }
     return data.invocations
   } catch (err) {
-    console.error('[session-manager client] listActive failed:', err)
+    console.error('[engine client] listActive failed:', err)
     return []
   }
 }
