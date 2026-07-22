@@ -8,12 +8,11 @@ A self-hosted, full-stack AI assistant powered by Claude Code CLI, with a chat w
 jarvis/
 ├── backend/       # Fastify 5 API + WebSocket server (TypeScript, Node 25)
 ├── frontend/      # React 19 SPA with Vite + Tailwind CSS 4 (TypeScript)
-├── admin/         # Emergency recovery page (plain Node.js, zero deps)
 ├── agent/         # Claude config + runtime state (skills, rules, data/, workspace/)
 └── docker-compose.yml
 ```
 
-All services run in Docker containers (backend, frontend, admin, whisper). The admin service is an independent recovery page that can revert git changes and restart Jarvis if a bad change breaks the main UI.
+All services run in Docker containers (backend, frontend, whisper).
 
 ## Tech Stack
 
@@ -39,7 +38,6 @@ All services run in Docker containers (backend, frontend, admin, whisper). The a
 docker-compose up
 # Backend:  localhost:3005
 # Frontend: localhost:5173
-# Admin:    localhost:3006  (recovery page)
 ```
 
 Source directories are mounted as volumes for hot reload in development.
@@ -87,20 +85,11 @@ Source directories are mounted as volumes for hot reload in development.
 | POST | `/internal/apps` | Register conversation as app |
 | POST | `/internal/apps/:id/notify` | Trigger frontend preview refresh |
 
-## Admin Recovery Service (port 3006)
-
-A dead-simple, standalone Node.js server with zero dependencies. Serves a static HTML page for emergency recovery when Jarvis breaks itself. Cannot be broken by Jarvis changes because it runs in its own container with its own code.
-
-- Shows git status (clean/dirty) and recent commits
-- **Discard changes**: `git checkout -- . && git clean -fd` (for uncommitted breaking changes)
-- **Revert last commit**: `git reset --hard HEAD~1` (for committed breaking changes)
-- **Restart Jarvis**: Restarts backend + frontend containers via Docker socket API
-
 ## Git Integration
 
-The Jarvis repo itself is git-controlled. When Claude modifies backend/frontend code, changes can be reviewed (diff), committed, or reverted through the API. The backend mounts the whole repo at `/jarvis` (working dir), so source, agent config, workspace, and data all live under one tree. The admin service mounts it separately at `/jarvis` too (different container, git recovery only).
+The Jarvis repo itself is git-controlled. When Claude modifies backend/frontend code, changes can be reviewed (diff), committed, or reverted through the API. The backend mounts the whole repo at `/jarvis` (working dir), so source, agent config, workspace, and data all live under one tree.
 
-**Recovery strategy**: First try discarding uncommitted changes. If the repo is clean but still broken, revert the last commit.
+**Recovery strategy**: First try discarding uncommitted changes (`/api/git/discard`). If the repo is clean but still broken, revert the last commit (`/api/git/revert`).
 
 ## Database (SQLite)
 

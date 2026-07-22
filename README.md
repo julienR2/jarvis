@@ -66,9 +66,7 @@ Browse the codebase, review diffs, and commit -- all from the web UI. Every chan
 
 Giving an AI write access to its own code sounds reckless. Here is what makes it workable:
 
-- **Admin recovery page** -- A standalone Node.js server (zero dependencies, separate container) at `localhost:3006`. It can show git status, discard uncommitted changes, revert the last commit, and restart services. Because it runs in its own container with its own code, Jarvis cannot break it.
 - **Full git integration** -- The repo is the safety net. Every modification Claude makes is a file change you can diff, commit, or throw away. The web UI exposes git status, diff, log, commit, discard, and revert.
-- **Container isolation** -- The admin service mounts the Docker socket to restart backend/frontend containers independently. Even if the main app is completely broken, recovery is one click away.
 
 The recovery strategy: try discarding uncommitted changes first. If the repo is clean but still broken, revert the last commit.
 
@@ -96,8 +94,6 @@ docker compose up -d
 
 Open `http://localhost:5173`. First visit prompts you to create an admin account.
 
-The recovery page is at `http://localhost:3006` (bound to localhost only).
-
 ## Architecture
 
 ```
@@ -105,7 +101,6 @@ jarvis/
 ├── backend/          Fastify API + WebSocket streaming + cron scheduler
 ├── frontend/         React SPA (chat, settings, connectors, app preview)
 ├── session-manager/  Owns the Claude CLI subprocess lifecycle
-├── admin/            Emergency recovery page (zero-dep Node.js)
 ├── agent/            Claude config: system prompt, skills, rules
 ├── workspace/        Claude's scratch space: memory, uploads, apps
 └── docker-compose.yml
@@ -115,7 +110,6 @@ jarvis/
 |---------|------|-------------|
 | frontend | 5173 | Web UI |
 | backend | 3005 | REST API + WebSocket |
-| admin | 3006 | Recovery page (localhost only) |
 | session-manager | -- | Internal: owns Claude CLI process |
 | whisper | -- | Internal: speech-to-text |
 | playwright | -- | Internal: browser automation via MCP |
@@ -135,7 +129,7 @@ The point of Jarvis is that it adapts to you. A few ways in:
 
 **Write skills.** Skills are Markdown files in `agent/skills/<name>/SKILL.md`. Each one describes a capability -- when to use it, what tools to call, what APIs to hit. Claude reads the relevant skill automatically based on conversation context. You can also ask Claude to write skills for itself: "create a skill that queries my Notion database."
 
-**Self-edit through chat.** This is the big one. Ask Jarvis to change its own interface, add a new API endpoint, or build a feature you want. It modifies the source directly, and hot reload picks up the changes. If something breaks, the admin page is there to revert.
+**Self-edit through chat.** This is the big one. Ask Jarvis to change its own interface, add a new API endpoint, or build a feature you want. It modifies the source directly, and hot reload picks up the changes. If something breaks, git discard/revert (in the web UI) is there to roll it back.
 
 ## Stack
 

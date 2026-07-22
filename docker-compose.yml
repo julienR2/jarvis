@@ -71,22 +71,6 @@ services:
       - backend
     restart: unless-stopped
 
-  admin:
-    build: ./admin
-    container_name: jarvis-admin
-    working_dir: /app
-    command: node server.js
-    volumes:
-      - ./admin:/app
-      - ./:/jarvis
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      PORT: 3006
-      REPO_DIR: /jarvis
-    ports:
-      - '127.0.0.1:3006:3006'
-    restart: unless-stopped
-
   whisper:
     image: onerahmet/openai-whisper-asr-webservice:latest
     container_name: jarvis-whisper
