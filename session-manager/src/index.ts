@@ -38,7 +38,7 @@ interface Invocation {
   prompt: string
   initialSessionId: string | null
   model?: string
-  thinking?: boolean
+  effort?: string
   allowRetry: boolean
   envVars?: Record<string, string>
 }
@@ -85,15 +85,30 @@ function scheduleCleanup(invocationId: string): void {
   }, CLEANUP_TTL_MS)
 }
 
+// Mark an invocation failed and — critically — release the per-conversation
+// lock. Without this, a failed spawn leaves status='running' forever and every
+// later /invoke for the conversation gets a permanent 409 (see spawnClaudeProcess).
+function failInvocation(inv: Invocation, message: string): void {
+  inv.status = 'error'
+  inv.endedAt = Date.now()
+  if (activeByConversation.get(inv.conversationId) === inv.id) {
+    activeByConversation.delete(inv.conversationId)
+  }
+  pushEvent(inv, { type: 'error', message })
+  scheduleCleanup(inv.id)
+}
+
 // ── Claude process spawning ──────────────────────────────────────────────────
 
 function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
   const BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill']
   const MCP_TOOLS = ['mcp__playwright']
 
+  // NB: the prompt is fed over stdin (see below), NOT passed as an argv entry.
+  // A large prompt (e.g. a full HTML email payload) exceeds the OS single-arg
+  // limit (MAX_ARG_STRLEN, 128 KiB on Linux) and makes spawn() fail with E2BIG.
   const args = [
     '-p',
-    inv.prompt,
     '--output-format',
     'stream-json',
     '--verbose',
@@ -106,17 +121,48 @@ function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
 
   if (sessionId) args.push('--resume', sessionId)
   if (inv.model) args.push('--model', inv.model)
-  if (inv.thinking) args.push('--effort', 'max')
+  // Effort level (low|medium|high|xhigh|max). Haiku uses classic extended
+  // thinking rather than adaptive effort and errors if --effort is passed,
+  // so skip the flag for it.
+  if (inv.effort && !/haiku/i.test(inv.model ?? '')) {
+    args.push('--effort', inv.effort)
+  }
 
-  console.log('[claude] spawning:', 'claude', args.join(' '))
+  console.log(
+    '[claude] spawning:', 'claude', args.join(' '),
+    `(prompt ${inv.prompt.length} chars via stdin)`,
+  )
 
-  const proc = spawn('claude', args, {
-    env: { ...process.env, ...inv.envVars, JARVIS_CONVERSATION_ID: inv.conversationId },
-    cwd: WORKSPACE_DIR,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  let proc: ChildProcess
+  try {
+    proc = spawn('claude', args, {
+      env: { ...process.env, ...inv.envVars, JARVIS_CONVERSATION_ID: inv.conversationId },
+      cwd: WORKSPACE_DIR,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+  } catch (err: any) {
+    // spawn() throws synchronously for some failures (notably E2BIG). This
+    // guard is what stops a failed spawn from wedging the conversation.
+    console.error('[claude] spawn threw:', err)
+    failInvocation(inv, `Claude failed to start: ${err?.message ?? err}`)
+    return
+  }
 
   inv.process = proc
+
+  // Async spawn failures (ENOENT, and some E2BIG paths) arrive here, not as a
+  // throw. Without a listener Node escalates 'error' to an uncaught exception.
+  proc.on('error', (err: any) => {
+    console.error('[claude] process error:', err)
+    if (inv.status === 'running') {
+      failInvocation(inv, `Claude process error: ${err?.message ?? err}`)
+    }
+  })
+
+  // Feed the prompt over stdin (see the args note above re: E2BIG).
+  proc.stdin!.on('error', (err) => console.error('[claude] stdin error:', err))
+  proc.stdin!.write(inv.prompt)
+  proc.stdin!.end()
 
   let buf = ''
   let accumulated = ''
@@ -258,7 +304,8 @@ function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
       `[claude] process closed with code ${code}, session: ${newSessionId}`,
     )
 
-    if (doneEmitted) return
+    // Already resolved (success) or already failed via the 'error' handler.
+    if (doneEmitted || inv.status !== 'running') return
 
     // Session-lost fallback: if --resume failed because the session no longer
     // exists, retry once without --resume. Claude will start a fresh session;
@@ -321,11 +368,11 @@ app.post<{
     sessionId: string | null
     conversationId: string
     model?: string
-    thinking?: boolean
+    effort?: string
     envVars?: Record<string, string>
   }
 }>('/invoke', async (req, reply) => {
-  const { prompt, sessionId, conversationId, model, thinking, envVars } = req.body || ({} as any)
+  const { prompt, sessionId, conversationId, model, effort, envVars } = req.body || ({} as any)
 
   if (!prompt || !conversationId) {
     return reply.code(400).send({ error: 'prompt and conversationId are required' })
@@ -355,7 +402,7 @@ app.post<{
     prompt,
     initialSessionId: sessionId ?? null,
     model,
-    thinking,
+    effort,
     allowRetry: true,
     envVars: envVars || undefined,
   }
