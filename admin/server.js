@@ -109,10 +109,16 @@ async function handleApi(req, res) {
       return json(res, 200, { ok: true, message: 'Last commit reverted (reset --hard HEAD~1)' })
     }
 
-    // POST /api/restart — restart jarvis backend + frontend containers
+    // POST /api/restart — restart jarvis backend + frontend containers.
+    // Names are configurable via RESTART_CONTAINERS (comma-separated) so a
+    // parallel instance's admin restarts its own containers, not the primary's.
     if (req.method === 'POST' && req.url === '/api/restart') {
       const errors = []
-      for (const name of ['jarvis-backend', 'jarvis']) {
+      const targets = (process.env.RESTART_CONTAINERS || 'jarvis-backend,jarvis')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+      for (const name of targets) {
         try {
           await restartContainer(name)
         } catch (err) {

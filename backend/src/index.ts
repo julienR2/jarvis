@@ -54,7 +54,13 @@ await app.register(rateLimit, {
   global: true,
   max: 300,
   timeWindow: '1 minute',
-  allowList: (req) => req.url === '/health',
+  // Exempt static asset routes: apps can serve hundreds of images (grids,
+  // map tiles) that would otherwise blow past the API limit. These are
+  // auth-gated static file serves, cheap and safe to leave unthrottled.
+  allowList: (req) =>
+    req.url === '/health' ||
+    req.url.startsWith('/api/apps/') ||
+    req.url.startsWith('/api/uploads/'),
 })
 await app.register(cors, { origin: true })
 await app.register(jwt, { secret: config.jwtSecret })
