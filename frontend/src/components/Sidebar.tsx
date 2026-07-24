@@ -329,7 +329,7 @@ function ConvItem({
         {...longPress}
         className={`
           relative flex items-center px-3 py-1.5 rounded-lg cursor-pointer group select-none transition-colors gap-2
-          ${active ? 'bg-surface2 text-text-primary' : 'text-text-secondary hover:bg-surface2'}
+          ${active ? 'bg-selected text-text-primary' : 'text-text-secondary hover:bg-surface2'}
         `}
       >
         <span
