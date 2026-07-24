@@ -52,7 +52,7 @@ agent/skills/*
 !agent/skills/apps/
 !agent/skills/gmail/
 !agent/skills/linear/
-!agent/skills/add-connector/
+!agent/skills/connectors/
 !agent/skills/self-edit/
 !agent/skills/slack/
 !agent/skills/github/
