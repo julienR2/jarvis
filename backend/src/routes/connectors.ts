@@ -1,178 +1,56 @@
 import type { FastifyInstance } from 'fastify'
 import { Readable } from 'node:stream'
-import type { ConnectorField } from '../connectors.js'
+import type { ConnectorInput } from '../connectors.js'
 import {
-  CONNECTOR_CATALOG,
-  getCatalogDef,
-  getFullCatalog,
   getAllConnectors,
   getConnector,
-  getCustomConnector,
-  upsertConnector,
+  createConnector,
+  updateConnector,
   deleteConnector,
-  createCustomConnector,
-  updateCustomConnector,
-  deleteCustomConnector,
+  getConnectorValues,
 } from '../connectors.js'
 
 export async function connectorRoutes(app: FastifyInstance) {
   const auth = { onRequest: [app.authenticate] }
 
-  // GET / — list all connectors (built-in + custom, merged with DB status)
+  // GET / — list all connectors (without field values)
   app.get('/', auth, async () => {
-    const saved = new Map(getAllConnectors().map((r) => [r.id, r]))
-
-    return getFullCatalog().map((def) => {
-      const row = saved.get(def.id)
-      const isCustom = !CONNECTOR_CATALOG.some((c) => c.id === def.id)
-      return {
-        ...def,
-        custom: isCustom,
-        connected: !!row,
-        connected_at: row?.connected_at ?? null,
-        updated_at: row?.updated_at ?? null,
-      }
-    })
+    return getAllConnectors().map((c) => ({
+      ...c,
+      fields: c.fields.map(({ key, label, type }) => ({ key, label, type })),
+    }))
   })
 
-  // GET /:id — single connector with current values (for editing)
+  // GET /:id — single connector with current field values (for editing)
   app.get<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
-    const def = getCatalogDef(req.params.id)
-    if (!def) return reply.code(404).send({ error: 'Unknown connector' })
-
-    const row = getConnector(req.params.id)
-    let secrets: Record<string, string> = {}
-    if (row) {
-      try { secrets = JSON.parse(row.secrets_json) } catch { /* */ }
-    }
-
-    return {
-      ...def,
-      connected: !!row,
-      secrets,
-      connected_at: row?.connected_at ?? null,
-      updated_at: row?.updated_at ?? null,
-    }
+    const conn = getConnector(req.params.id)
+    if (!conn) return reply.code(404).send({ error: 'Unknown connector' })
+    return conn
   })
 
-  // POST /:id — save connector secrets
-  app.post<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
-    const def = getCatalogDef(req.params.id)
-    if (!def) return reply.code(404).send({ error: 'Unknown connector' })
-
-    const body = req.body as { secrets: Record<string, string> }
-    if (!body.secrets || typeof body.secrets !== 'object') {
-      return reply.code(400).send({ error: 'secrets object is required' })
-    }
-
-    // Validate all required fields are present and non-empty
-    for (const field of def.fields) {
-      const val = body.secrets[field.key]
-      if (!val || !val.trim()) {
-        return reply.code(400).send({ error: `${field.label} is required` })
-      }
-    }
-
-    // Only keep known fields
-    const clean: Record<string, string> = {}
-    for (const field of def.fields) {
-      clean[field.key] = body.secrets[field.key].trim()
-    }
-
-    const row = upsertConnector(req.params.id, clean)
-    return {
-      ...def,
-      connected: true,
-      connected_at: row.connected_at,
-      updated_at: row.updated_at,
-    }
-  })
-
-  // POST /:id/test — run the connector's test function against stored or provided secrets
-  app.post<{ Params: { id: string } }>('/:id/test', auth, async (req, reply) => {
-    const def = getCatalogDef(req.params.id)
-    if (!def) return reply.code(404).send({ error: 'Unknown connector' })
-    if (!def.test) return { ok: false, message: 'No test available for this connector' }
-
-    // Prefer secrets in the request body (lets the user test unsaved changes).
-    // Fall back to what's already saved.
-    const body = (req.body ?? {}) as { secrets?: Record<string, string> }
-    let secrets = body.secrets
-    if (!secrets) {
-      const row = getConnector(req.params.id)
-      if (!row) return reply.code(400).send({ error: 'Not configured — save secrets first' })
-      try { secrets = JSON.parse(row.secrets_json) } catch { secrets = {} }
-    }
-
+  // POST / — create a connector
+  app.post('/', auth, async (req, reply) => {
     try {
-      return await def.test(secrets ?? {})
+      return reply.code(201).send(createConnector((req.body ?? {}) as ConnectorInput))
     } catch (err: any) {
-      return { ok: false, message: err?.message || 'Test failed' }
+      return reply.code(400).send({ error: err?.message ?? 'Invalid connector' })
     }
   })
 
-  // DELETE /:id — disconnect (remove secrets)
-  app.delete<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
-    if (!deleteConnector(req.params.id)) {
-      return reply.code(404).send({ error: 'Not found' })
-    }
-    return { ok: true }
-  })
-
-  // ── Custom connector definition CRUD ──────────────────────────────────────
-
-  app.post('/custom', auth, async (req, reply) => {
-    const body = req.body as { name?: string; description?: string; icon?: string; fields?: ConnectorField[] }
-    if (!body.name?.trim()) return reply.code(400).send({ error: 'Name is required' })
-    if (!body.fields?.length) return reply.code(400).send({ error: 'At least one field is required' })
-
-    const id = body.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-    if (!id) return reply.code(400).send({ error: 'Name must contain alphanumeric characters' })
-
-    const existing = getCatalogDef(id)
-    if (existing) return reply.code(409).send({ error: 'A connector with this ID already exists' })
-
-    const row = createCustomConnector({
-      id,
-      name: body.name.trim(),
-      description: (body.description ?? '').trim(),
-      icon: body.icon ?? 'Plug',
-      fields: body.fields.map((f) => ({
-        key: f.key.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_'),
-        label: f.label.trim(),
-        type: f.type || 'password',
-        ...(f.placeholder ? { placeholder: f.placeholder } : {}),
-      })),
-    })
-    return reply.code(201).send(row)
-  })
-
-  app.patch<{ Params: { id: string } }>('/custom/:id', auth, async (req, reply) => {
-    const custom = getCustomConnector(req.params.id)
-    if (!custom) return reply.code(404).send({ error: 'Custom connector not found' })
-
-    const body = req.body as { name?: string; description?: string; icon?: string; fields?: ConnectorField[] }
-    const updated = updateCustomConnector(req.params.id, {
-      name: body.name?.trim(),
-      description: body.description?.trim(),
-      icon: body.icon,
-      fields: body.fields?.map((f) => ({
-        key: f.key.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_'),
-        label: f.label.trim(),
-        type: f.type || 'password',
-        ...(f.placeholder ? { placeholder: f.placeholder } : {}),
-      })),
-    })
+  // PATCH /:id — update a connector (name, icon, fields, proxy)
+  app.patch<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
+    const updated = updateConnector(req.params.id, (req.body ?? {}) as ConnectorInput)
+    if (!updated) return reply.code(404).send({ error: 'Unknown connector' })
     return updated
   })
 
-  app.delete<{ Params: { id: string } }>('/custom/:id', auth, async (req, reply) => {
-    if (!deleteCustomConnector(req.params.id)) {
-      return reply.code(404).send({ error: 'Custom connector not found' })
-    }
+  // DELETE /:id — remove a connector entirely
+  app.delete<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
+    if (!deleteConnector(req.params.id)) return reply.code(404).send({ error: 'Not found' })
     return { ok: true }
   })
 
+  // ── Proxy ──────────────────────────────────────────────────────────────────
   // Parse form-encoded bodies for the write proxy (act=rm etc.)
   app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => done(null, body))
   // Accept any other content type as raw buffer (file uploads via proxy)
@@ -180,17 +58,12 @@ export async function connectorRoutes(app: FastifyInstance) {
 
   async function handleProxy(req: any, reply: any, method: string) {
     const id = (req.params as any).id as string
-    const def = getCatalogDef(id)
-    if (!def?.proxy) return reply.code(404).send({ error: 'Connector has no proxy' })
+    const conn = getConnector(id)
+    if (!conn?.proxy) return reply.code(404).send({ error: 'Connector has no proxy' })
 
-    const row = getConnector(id)
-    if (!row) return reply.code(404).send({ error: 'Connector not configured' })
-
-    let secrets: Record<string, string>
-    try { secrets = JSON.parse(row.secrets_json) } catch { return reply.code(500).send({ error: 'Invalid secrets' }) }
-
-    const baseUrl = secrets[def.proxy.baseUrlField]
-    if (!baseUrl) return reply.code(500).send({ error: `${def.proxy.baseUrlField} not set` })
+    const values = getConnectorValues(id) ?? {}
+    const baseUrl = values[conn.proxy.baseUrlField]
+    if (!baseUrl) return reply.code(500).send({ error: `${conn.proxy.baseUrlField} not set` })
 
     const path = ((req.params as any)['*'] as string) ?? ''
     const qIndex = (req.url as string).indexOf('?')
@@ -198,13 +71,13 @@ export async function connectorRoutes(app: FastifyInstance) {
     const target = `${baseUrl.replace(/\/$/, '')}/${path}${qs}`
 
     const headers: Record<string, string> = {}
-    if (def.proxy.authHeader) {
-      const v = secrets[def.proxy.authHeader.valueField]
-      if (v) headers[def.proxy.authHeader.name] = v
+    if (conn.proxy.authHeader) {
+      const v = values[conn.proxy.authHeader.valueField]
+      if (v) headers[conn.proxy.authHeader.name] = v
     }
-    if (def.proxy.cookieField) {
-      const v = secrets[def.proxy.cookieField.valueField]
-      if (v) headers['Cookie'] = `${def.proxy.cookieField.name}=${v}`
+    if (conn.proxy.cookieField) {
+      const v = values[conn.proxy.cookieField.valueField]
+      if (v) headers['Cookie'] = `${conn.proxy.cookieField.name}=${v}`
     }
 
     const fetchInit: RequestInit = { method, headers }

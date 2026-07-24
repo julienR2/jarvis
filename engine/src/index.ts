@@ -14,6 +14,17 @@ if (!process.env.INTERNAL_SECRET || process.env.INTERNAL_SECRET === 'internal') 
   } catch { /* backend hasn't booted yet — Claude invocations will fail until it does */ }
 }
 
+// Back-fill the Claude OAuth token from the persisted secrets file when it is
+// not already in the environment. Read fresh (not cached) so a token saved via
+// the onboarding flow is usable immediately, without a container restart.
+function claudeOauthToken(): string | undefined {
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return process.env.CLAUDE_CODE_OAUTH_TOKEN
+  try {
+    const secretsPath = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
+    return JSON.parse(readFileSync(secretsPath, 'utf8')).claudeOauthToken || undefined
+  } catch { return undefined }
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type ClaudeEvent =
@@ -136,7 +147,12 @@ function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
   let proc: ChildProcess
   try {
     proc = spawn('claude', args, {
-      env: { ...process.env, ...inv.envVars, JARVIS_CONVERSATION_ID: inv.conversationId },
+      env: {
+        ...process.env,
+        ...(claudeOauthToken() ? { CLAUDE_CODE_OAUTH_TOKEN: claudeOauthToken() } : {}),
+        ...inv.envVars,
+        JARVIS_CONVERSATION_ID: inv.conversationId,
+      },
       cwd: WORKSPACE_DIR,
       stdio: ['pipe', 'pipe', 'pipe'],
     })

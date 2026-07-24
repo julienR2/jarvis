@@ -10,7 +10,8 @@ Access Linear via the GraphQL API.
 
 ## Credentials
 
-- **API Key:** `${LINEAR_API_KEY}` (injected automatically from the Linear connector)
+Uses the **`linear`** connector → sets `$LINEAR_API_KEY`. Load it per *Connectors* in CLAUDE.md, in the same shell block as the commands that use it.
+
 - **Endpoint:** `https://api.linear.app/graphql`
 
 ## How to query

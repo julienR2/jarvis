@@ -188,37 +188,144 @@ export function initDb(): void {
     db.exec(`ALTER TABLE webhooks ADD COLUMN user_message_key TEXT DEFAULT NULL`)
   } catch { /* already exists */ }
 
-  // Connectors table — stores API keys/tokens for external services
-  // Drop legacy schema (had connector_id instead of id, extra metadata_json column)
-  try {
-    const info = db.prepare("SELECT sql FROM sqlite_master WHERE name='connectors'").get() as { sql: string } | undefined
-    if (info?.sql?.includes('connector_id')) {
-      db.exec('DROP TABLE connectors')
-    }
-  } catch { /* */ }
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS connectors (
-      id TEXT PRIMARY KEY,
-      secrets_json TEXT NOT NULL DEFAULT '{}',
-      connected_at INTEGER NOT NULL DEFAULT (unixepoch()),
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-    )
-  `)
-
-  // Custom connector definitions — user-created connectors (no test/proxy)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS custom_connectors (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      icon TEXT NOT NULL DEFAULT 'Plug',
-      fields_json TEXT NOT NULL DEFAULT '[]',
-      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-    )
-  `)
+  // Connectors — one row per connector holding its definition AND its values.
+  // Unified from the former three-way split (hardcoded catalog + custom_connectors
+  // definitions + connectors secrets). See connectors.ts.
+  migrateConnectors(db)
 }
 
 export function uuid(): string {
   return randomUUID()
+}
+
+// ── Connector migration ──────────────────────────────────────────────────────
+// Seed definitions for the eight connectors that used to live in the hardcoded
+// catalog. Used ONLY to reconstruct rows during the one-time migration — after
+// that, connectors are plain DB rows with no code counterpart.
+type SeedField = { key: string; label: string; type: string }
+const CONNECTOR_SEED: Record<string, { name: string; description: string; icon: string; fields: SeedField[]; proxy?: unknown }> = {
+  gmail: { name: 'Gmail', description: 'Send and read emails via Gmail', icon: 'Mail', fields: [
+    { key: 'GMAIL_ADDRESS', label: 'Email address', type: 'email' },
+    { key: 'GMAIL_APP_PASSWORD', label: 'App password', type: 'password' },
+  ] },
+  github: { name: 'GitHub', description: 'Push code and manage repositories', icon: 'Github', fields: [
+    { key: 'GITHUB_TOKEN', label: 'Personal access token', type: 'password' },
+  ] },
+  linear: { name: 'Linear', description: 'Track issues and projects', icon: 'SquareKanban', fields: [
+    { key: 'LINEAR_API_KEY', label: 'API key', type: 'password' },
+  ] },
+  slack: { name: 'Slack', description: 'Send and read messages as yourself', icon: 'MessageSquare', fields: [
+    { key: 'SLACK_USER_TOKEN', label: 'User OAuth token', type: 'password' },
+  ] },
+  elevenlabs: { name: 'ElevenLabs', description: 'Speech-to-text + text-to-speech', icon: 'AudioLines', fields: [
+    { key: 'ELEVENLABS_API_KEY', label: 'API key', type: 'password' },
+  ] },
+  pocketbase: { name: 'PocketBase', description: 'Self-hosted backend — collections, records, financial data', icon: 'Database', fields: [
+    { key: 'POCKETBASE_URL', label: 'Base URL', type: 'text' },
+    { key: 'POCKETBASE_EMAIL', label: 'Admin email', type: 'email' },
+    { key: 'POCKETBASE_PASSWORD', label: 'Admin password', type: 'password' },
+  ] },
+  copyparty: { name: 'Copyparty', description: 'Personal file drive — browse, upload, and manage files', icon: 'HardDrive', fields: [
+    { key: 'COPYPARTY_BASE_URL', label: 'Base URL', type: 'text' },
+    { key: 'COPYPARTY_PASSWORD', label: 'Password', type: 'password' },
+  ], proxy: { baseUrlField: 'COPYPARTY_BASE_URL', cookieField: { name: 'cppwd', valueField: 'COPYPARTY_PASSWORD' } } },
+  imagerouter: { name: 'ImageRouter', description: 'Generate AI images (Flux, SDXL, DALL·E, Ideogram…)', icon: 'Image', fields: [
+    { key: 'IMAGEROUTER_API_KEY', label: 'API key', type: 'password' },
+  ] },
+}
+
+function migrateConnectors(db: Database.Database): void {
+  const info = db.prepare("SELECT sql FROM sqlite_master WHERE name='connectors'").get() as { sql?: string } | undefined
+  // Legacy schemas: the very old one had `connector_id`; the previous one had
+  // `secrets_json` but no `fields_json`. Both need folding into the new shape.
+  const isLegacy = !!info && !info.sql?.includes('fields_json')
+
+  if (isLegacy) {
+    db.exec('DROP TABLE IF EXISTS connectors_legacy')
+    db.exec('ALTER TABLE connectors RENAME TO connectors_legacy')
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS connectors (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      icon TEXT NOT NULL DEFAULT 'Plug',
+      fields_json TEXT NOT NULL DEFAULT '[]',
+      proxy_json TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `)
+
+  if (!isLegacy) return
+
+  const legacy = db.prepare('SELECT id, secrets_json, connected_at, updated_at FROM connectors_legacy').all() as
+    Array<{ id: string; secrets_json: string; connected_at: number; updated_at: number }>
+
+  const hasCustom = !!db.prepare("SELECT name FROM sqlite_master WHERE name='custom_connectors'").get()
+  const customById = new Map<string, { id: string; name: string; description: string; icon: string; fields_json: string; created_at: number; updated_at: number }>()
+  if (hasCustom) {
+    for (const c of db.prepare('SELECT * FROM custom_connectors').all() as any[]) customById.set(c.id, c)
+  }
+
+  const insert = db.prepare(`
+    INSERT OR REPLACE INTO connectors (id, name, description, icon, fields_json, proxy_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  // Build fields from a definition, then append any saved secret keys the
+  // definition didn't cover — custom-connector definitions can drift from the
+  // keys actually saved, and we must never drop a real value.
+  const buildFields = (defs: SeedField[], secrets: Record<string, string>) => {
+    const used = new Set<string>()
+    const out = defs.map((f) => {
+      used.add(f.key)
+      return { key: f.key, label: f.label, type: f.type || 'password', value: secrets[f.key] ?? '' }
+    })
+    for (const [k, v] of Object.entries(secrets)) {
+      if (!used.has(k)) out.push({ key: k, label: k, type: 'password', value: v })
+    }
+    return out
+  }
+
+  const seen = new Set<string>()
+
+  // 1. Every connector that had saved values (built-in seed or custom definition).
+  for (const row of legacy) {
+    let secrets: Record<string, string> = {}
+    try { secrets = JSON.parse(row.secrets_json) } catch { /* */ }
+    const seed = CONNECTOR_SEED[row.id]
+    const custom = customById.get(row.id)
+
+    let name: string, description: string, icon: string, fields: any[], proxy: unknown | undefined
+    if (seed) {
+      name = seed.name; description = seed.description; icon = seed.icon
+      fields = buildFields(seed.fields, secrets); proxy = seed.proxy
+    } else if (custom) {
+      let defs: SeedField[] = []
+      try { defs = JSON.parse(custom.fields_json) } catch { /* */ }
+      name = custom.name; description = custom.description; icon = custom.icon
+      fields = buildFields(defs, secrets); proxy = undefined
+    } else {
+      // Orphan secrets with no definition anywhere — synthesize from the keys.
+      name = row.id; description = ''; icon = 'Plug'
+      fields = Object.entries(secrets).map(([k, v]) => ({ key: k, label: k, type: 'password', value: v }))
+      proxy = undefined
+    }
+    insert.run(row.id, name, description, icon, JSON.stringify(fields), proxy ? JSON.stringify(proxy) : null, row.connected_at, row.updated_at)
+    seen.add(row.id)
+  }
+
+  // 2. Custom definitions that were never connected (no values row).
+  for (const [id, custom] of customById) {
+    if (seen.has(id)) continue
+    let defs: SeedField[] = []
+    try { defs = JSON.parse(custom.fields_json) } catch { /* */ }
+    const fields = defs.map((f) => ({ key: f.key, label: f.label, type: f.type || 'password', value: '' }))
+    insert.run(id, custom.name, custom.description, custom.icon, JSON.stringify(fields), null, custom.created_at, custom.updated_at)
+  }
+
+  db.exec('DROP TABLE connectors_legacy')
+  if (hasCustom) db.exec('DROP TABLE custom_connectors')
 }

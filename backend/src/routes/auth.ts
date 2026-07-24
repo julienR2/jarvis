@@ -123,7 +123,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     const trimmed = token.trim()
 
-    // Persist to secrets.json (immediate availability via getConnectorEnvVars)
+    // Persist to secrets.json (read by the engine when spawning claude)
     const secrets = readSecrets()
     secrets.claudeOauthToken = trimmed
     writeSecrets(secrets)

@@ -84,6 +84,8 @@ Source directories are mounted as volumes for hot reload in development.
 | GET | `/internal/webhooks` | List webhooks |
 | POST | `/internal/apps` | Register conversation as app |
 | POST | `/internal/apps/:id/notify` | Trigger frontend preview refresh |
+| GET | `/internal/connectors` | List connectors (labels/keys, no values) |
+| GET | `/internal/connectors/:id` | Read one connector's values (+ `env` map) |
 
 ## Git Integration
 
@@ -97,24 +99,25 @@ Tables: `users`, `conversations` (includes `app_path`), `messages`, `crons`, `we
 
 ### Connectors table
 
-Third-party API credentials are stored in the `connectors` table (not in `.env`). Schema:
+Third-party API credentials are stored in the `connectors` table (not in `.env`). Every connector — built-in or user-added — is a single row; there is no hardcoded catalog. Schema:
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `id` | TEXT | Connector name (e.g. `linear`, `gmail`, `github`) |
-| `secrets_json` | TEXT | JSON object of env var name → value |
+| `id` | TEXT | Connector slug (e.g. `linear`, `gmail`, `gmail-papa`) |
+| `name` / `description` / `icon` | TEXT | Display metadata (`icon` = Lucide name or image URL) |
+| `fields_json` | TEXT | Array of `{ key, label, value, type }` — label+value pairs; `key` auto-derived from label |
+| `proxy_json` | TEXT | Optional `{ baseUrlField, authHeader?, cookieField? }` for the proxy passthrough |
 
-To read all secrets (e.g. to get a key for a direct API call):
+Secrets are **not** injected as env vars. Skills read them on demand from the internal API (see the `connectors` skill):
 
-```js
-node -e "
-const D = require('/jarvis/backend/node_modules/better-sqlite3');
-const db = new D('/jarvis/agent/data/jarvis.db');
-console.log(db.prepare('SELECT id, secrets_json FROM connectors').all());
-"
+```bash
+# inventory (labels/keys, no values)
+curl -s -H "X-Internal-Secret: $INTERNAL_SECRET" "$BACKEND_URL/internal/connectors"
+# one connector's values (+ a flat `env` map)
+curl -s -H "X-Internal-Secret: $INTERNAL_SECRET" "$BACKEND_URL/internal/connectors/<id>"
 ```
 
-At runtime, all connector secrets are automatically injected as environment variables into the Claude process — so skills can reference them directly (e.g. `${LINEAR_API_KEY}`, `${GITHUB_TOKEN}`) without reading the DB.
+Managed via `GET/POST /api/connectors`, `GET/PATCH/DELETE /api/connectors/:id` (JWT), and the proxy at `/api/connectors/:id/proxy/*`.
 
 ## Environment Variables
 

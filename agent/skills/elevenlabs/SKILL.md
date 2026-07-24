@@ -10,7 +10,8 @@ Transcription and voice synthesis via ElevenLabs.
 
 ## Credentials
 
-- **API Key:** `${ELEVENLABS_API_KEY}`
+Uses the **`elevenlabs`** connector → sets `$ELEVENLABS_API_KEY`. Load it per *Connectors* in CLAUDE.md, in the same shell block as the commands that use it.
+
 - **API base:** `https://api.elevenlabs.io/v1`
 - **Auth header:** `xi-api-key: ${ELEVENLABS_API_KEY}`
 

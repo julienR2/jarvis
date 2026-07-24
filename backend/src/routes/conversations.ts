@@ -18,7 +18,7 @@ import {
   emitGlobalEvent,
 } from '../sse.js'
 import { config } from '../config.js'
-import { getConnectorEnvVars, getConnectorSecrets } from '../connectors.js'
+import { getConnectorValues } from '../connectors.js'
 import type { ConvRow, MessageRow, EffortLevel } from '../types.js'
 
 interface Attachment {
@@ -197,7 +197,6 @@ export function processMessage(
     conversationId,
     model: options?.model,
     effort: options?.effort,
-    envVars: getConnectorEnvVars(),
   })
     .then((invocationId) => {
       attachInvocationStream(invocationId, conversationId, conv, {
@@ -713,7 +712,7 @@ export async function conversationRoutes(app: FastifyInstance) {
     const audioBlob = new Blob([new Uint8Array(buffer)], { type: 'audio/webm' })
     let transcript = ''
 
-    const elSecrets = getConnectorSecrets('elevenlabs')
+    const elSecrets = getConnectorValues('elevenlabs')
     if (elSecrets?.ELEVENLABS_API_KEY) {
       try {
         const form = new FormData()

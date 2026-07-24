@@ -10,7 +10,8 @@ Post and read Slack messages using a **User OAuth Token** (messages appear as th
 
 ## Credentials
 
-- **Token:** `${SLACK_USER_TOKEN}` (starts with `xoxp-`)
+Uses the **`slack`** connector → sets `$SLACK_USER_TOKEN` (starts with `xoxp-`). Load it per *Connectors* in CLAUDE.md, in the same shell block as the commands that use it.
+
 - **API base:** `https://slack.com/api/`
 
 All methods are HTTP POST with `Authorization: Bearer ${SLACK_USER_TOKEN}`.

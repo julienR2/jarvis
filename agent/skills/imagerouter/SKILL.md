@@ -10,7 +10,8 @@ Generate images through [ImageRouter](https://imagerouter.io) — a unified API 
 
 ## Credentials
 
-- **API Key:** `${IMAGEROUTER_API_KEY}`
+Uses the **`imagerouter`** connector → sets `$IMAGEROUTER_API_KEY`. Load it per *Connectors* in CLAUDE.md, in the same shell block as the commands that use it.
+
 - **API base:** `https://api.imagerouter.io/v1`
 - **Auth header:** `Authorization: Bearer ${IMAGEROUTER_API_KEY}`
 

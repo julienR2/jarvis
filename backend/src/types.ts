@@ -65,17 +65,11 @@ export interface UserRow {
 
 export interface ConnectorRow {
   id: string
-  secrets_json: string
-  connected_at: number
-  updated_at: number
-}
-
-export interface CustomConnectorRow {
-  id: string
   name: string
   description: string
   icon: string
   fields_json: string
+  proxy_json: string | null
   created_at: number
   updated_at: number
 }

@@ -10,11 +10,10 @@ Access GitHub via the REST API and via `git`/`gh` over HTTPS.
 
 ## Credentials
 
-- **Token:** `${GITHUB_TOKEN}` (Personal Access Token, classic or fine-grained)
+Uses the **`github`** connector → sets `$GITHUB_TOKEN` (Personal Access Token, classic or fine-grained). Load it per *Connectors* in CLAUDE.md, in the same shell block as the commands that use it, then `export GH_TOKEN="$GITHUB_TOKEN"` for the gh CLI.
+
 - **API base:** `https://api.github.com`
 - **Git push URL pattern:** `https://x-access-token:${GITHUB_TOKEN}@github.com/<owner>/<repo>.git`
-
-The token is also picked up automatically by the `gh` CLI when exported as `GH_TOKEN` (already done in this environment).
 
 ---
 

@@ -10,9 +10,7 @@ Self-hosted [PocketBase](https://pocketbase.io) backend running in the homelab n
 
 ## Credentials
 
-- **Base URL (internal):** `${POCKETBASE_URL}` (typically `http://pocketbase:8080`)
-- **Admin email:** `${POCKETBASE_EMAIL}`
-- **Admin password:** `${POCKETBASE_PASSWORD}`
+Uses the **`pocketbase`** connector → sets `$POCKETBASE_URL` (typically `http://pocketbase:8080`), `$POCKETBASE_EMAIL`, `$POCKETBASE_PASSWORD`. Load them per *Connectors* in CLAUDE.md, in the same shell block as the commands that use them.
 
 ---
 

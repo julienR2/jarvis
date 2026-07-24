@@ -31,6 +31,28 @@ You have `WebSearch` and `WebFetch` built in — use them freely.
 - For weather: `WebFetch` on `https://wttr.in/CITY?format=3` (one-liner format). If you don't know the city, ask once then remember it.
 - For general questions: `WebSearch` first, then `WebFetch` specific pages if needed.
 
+## Connectors (credentials for external services)
+
+Credentials for third-party services (Gmail, GitHub, Linear, PocketBase, the
+"papa" mailboxes, etc.) live in the Jarvis DB, **not** as environment variables.
+Read them on demand — this is always current and needs no restart.
+
+A skill only tells you *which* connector id and vars it needs; the mechanism is
+always this. Because shell state does not persist between separate commands, run
+the loader in the **same** command block as whatever uses the credentials:
+
+```bash
+eval "$(curl -s -H "X-Internal-Secret: $INTERNAL_SECRET" \
+  "$BACKEND_URL/internal/connectors/<id>" \
+  | python3 -c 'import sys,json;[print(f"export {k}={json.dumps(v)}") for k,v in json.load(sys.stdin).get("env",{}).items()]')"
+# → exports every field key (e.g. $GMAIL_APP_PASSWORD); use them right here
+```
+
+`GET /internal/connectors` (same auth header) lists everything configured with
+its field labels/keys but no values. The `connectors` skill has the full
+reference — inventory, adding/editing, the proxy passthrough, and which mailbox
+maps to whom. (jq is not installed; use `python3`.)
+
 ## File output (images, PDFs, etc.)
 
 When you generate or download a file the user should see, save it to `$WORKSPACE_DIR/uploads/` and reference it in your response with a markdown link using the **literal absolute path** (the chat scans for it):

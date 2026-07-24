@@ -10,8 +10,8 @@ Access Gmail via IMAP (read/search) and SMTP (send).
 
 ## Credentials
 
-- **Email:** ${GMAIL_ADDRESS}
-- **App Password:** ${GMAIL_APP_PASSWORD}
+Uses the **`gmail`** connector → sets `$GMAIL_ADDRESS`, `$GMAIL_APP_PASSWORD`. Load them per *Connectors* in CLAUDE.md, in the same shell block as the commands that use them.
+
 - **IMAP:** `imaps://imap.gmail.com:993`
 - **SMTP:** `smtp://smtp.gmail.com:587` (STARTTLS)
 

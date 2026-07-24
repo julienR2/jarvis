@@ -170,16 +170,11 @@ export const api = {
   // Connectors
   getConnectors: () => request<ConnectorInfo[]>('GET', '/connectors'),
   getConnector: (id: string) => request<ConnectorDetail>('GET', `/connectors/${id}`),
-  saveConnector: (id: string, secrets: Record<string, string>) =>
-    request<ConnectorInfo>('POST', `/connectors/${id}`, { secrets }),
-  testConnector: (id: string, secrets?: Record<string, string>) =>
-    request<{ ok: boolean; message: string }>('POST', `/connectors/${id}/test`, secrets ? { secrets } : {}),
+  createConnector: (def: ConnectorInput) =>
+    request<ConnectorDetail>('POST', '/connectors', def),
+  updateConnector: (id: string, def: ConnectorInput) =>
+    request<ConnectorDetail>('PATCH', `/connectors/${id}`, def),
   deleteConnector: (id: string) => request<{ ok: boolean }>('DELETE', `/connectors/${id}`),
-  createCustomConnector: (def: { name: string; description: string; icon: string; fields: ConnectorField[] }) =>
-    request<{ id: string }>('POST', '/connectors/custom', def),
-  updateCustomConnector: (id: string, def: { name?: string; description?: string; icon?: string; fields?: ConnectorField[] }) =>
-    request<{ id: string }>('PATCH', `/connectors/custom/${id}`, def),
-  deleteCustomConnector: (id: string) => request<{ ok: boolean }>('DELETE', `/connectors/custom/${id}`),
 }
 
 // ── SSE connection ───────────────────────────────────────────────────────────
@@ -396,24 +391,39 @@ export interface Attachment {
 export interface ConnectorField {
   key: string
   label: string
-  type: 'text' | 'password' | 'email'
-  placeholder?: string
+  value: string
+  type?: 'text' | 'password' | 'email'
 }
 
+export interface ConnectorProxy {
+  baseUrlField: string
+  authHeader?: { name: string; valueField: string }
+  cookieField?: { name: string; valueField: string }
+}
+
+// List view: fields carry no values.
 export interface ConnectorInfo {
   id: string
   name: string
   description: string
   icon: string
-  fields: ConnectorField[]
-  custom?: boolean
-  connected: boolean
-  connected_at: number | null
-  updated_at: number | null
+  fields: Array<Pick<ConnectorField, 'key' | 'label' | 'type'>>
+  proxy?: ConnectorProxy
+  created_at: number
+  updated_at: number
 }
 
-export interface ConnectorDetail extends ConnectorInfo {
-  secrets: Record<string, string>
+// Detail view (for editing): fields include their values.
+export interface ConnectorDetail extends Omit<ConnectorInfo, 'fields'> {
+  fields: ConnectorField[]
+}
+
+export interface ConnectorInput {
+  name?: string
+  description?: string
+  icon?: string
+  fields?: Array<{ key?: string; label: string; value: string; type?: ConnectorField['type'] }>
+  proxy?: ConnectorProxy | null
 }
 
 export type ChatEvent =

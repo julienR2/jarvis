@@ -58,7 +58,9 @@ Open questions:
 
 ---
 
-## CopyParty access
+## Credentials
+
+Uses the **`copyparty`** connector → sets `$COPYPARTY_BASE_URL`, `$COPYPARTY_PASSWORD`. Load them per *Connectors* in CLAUDE.md, in the same shell block as the CopyParty calls. The rest of this skill uses the `${AUTH}` / `${BASE}` aliases — define them in that same block after loading the creds:
 
 ```bash
 AUTH="--cookie cppwd=${COPYPARTY_PASSWORD}"

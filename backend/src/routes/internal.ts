@@ -7,6 +7,7 @@ import cron from 'node-cron'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
 import { getDb, uuid } from '../db.js'
+import { getAllConnectors, getConnector } from '../connectors.js'
 import { archiveAppDir } from '../app-archive.js'
 import { schedule, rescheduleAll } from '../crons.js'
 import { emitConversationEvent } from '../sse.js'
@@ -271,5 +272,37 @@ export async function internalRoutes(app: FastifyInstance) {
       .run(conversationId)
 
     return { ok: true }
+  })
+
+  // ── Connectors (for skills) ────────────────────────────────────────────────
+  // Skills fetch credentials on demand instead of reading injected env vars.
+
+  // GET /connectors — inventory: every connector + its field labels, NO values.
+  app.get('/connectors', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    return getAllConnectors().map((c) => ({
+      id: c.id,
+      name: c.name,
+      description: c.description,
+      hasProxy: !!c.proxy,
+      fields: c.fields.map(({ key, label }) => ({ key, label })),
+    }))
+  })
+
+  // GET /connectors/:id — one connector's field values, plus a flat `env`
+  // convenience map keyed by field key (e.g. `jq -r .env.GMAIL_APP_PASSWORD`).
+  app.get<{ Params: { id: string } }>('/connectors/:id', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    const conn = getConnector(req.params.id)
+    if (!conn) return reply.code(404).send({ error: 'Unknown connector' })
+    const env: Record<string, string> = {}
+    for (const f of conn.fields) env[f.key] = f.value
+    return {
+      id: conn.id,
+      name: conn.name,
+      description: conn.description,
+      fields: conn.fields.map(({ key, label, value }) => ({ key, label, value })),
+      env,
+    }
   })
 }
