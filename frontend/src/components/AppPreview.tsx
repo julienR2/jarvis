@@ -33,9 +33,23 @@ export default function AppPreview({
   onShareIntentConsumed,
 }: Props) {
   const token = localStorage.getItem('token') || ''
-  const src = `/api/apps/${appSlug}/index.html?token=${token}&v=${refreshKey}`
+  const appPathRef = useRef(window.location.hash.replace(/^#\/?/, ''))
+  const hash = appPathRef.current ? `#${appPathRef.current}` : ''
+  const src = `/api/apps/${appSlug}/index.html?token=${token}&v=${refreshKey}${hash}`
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingIntentRef = useRef<ShareIntent | null>(null)
+
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (e.data?.type === 'app:navigate') {
+        const path = e.data.path || ''
+        appPathRef.current = path
+        window.location.hash = path ? `#${path}` : ''
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
 
   useEffect(() => {
     if (shareIntent) pendingIntentRef.current = shareIntent
