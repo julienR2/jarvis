@@ -3,15 +3,18 @@ import { spawn, type ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { readFileSync, existsSync } from 'fs'
 
-// Inherit the shared INTERNAL_SECRET from the backend's persisted secrets
-// file when the env var is not set. Claude subprocesses spawned here need it
-// to call the backend's /internal/* API.
-if (!process.env.INTERNAL_SECRET || process.env.INTERNAL_SECRET === 'internal') {
+// The shared INTERNAL_SECRET is the auth token for this service AND is needed by
+// Claude subprocesses to call the backend's /internal/* API. Read it fresh (not
+// cached at module load) so that on a cold boot — where the backend generates and
+// persists the secret only after the engine has started — the engine picks it up
+// as soon as secrets.json appears, without a restart.
+function internalSecret(): string | undefined {
+  const env = process.env.INTERNAL_SECRET
+  if (env && env !== 'internal') return env
   try {
     const secretsPath = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
-    const { internal } = JSON.parse(readFileSync(secretsPath, 'utf8'))
-    if (internal) process.env.INTERNAL_SECRET = internal
-  } catch { /* backend hasn't booted yet — Claude invocations will fail until it does */ }
+    return JSON.parse(readFileSync(secretsPath, 'utf8')).internal || undefined
+  } catch { return undefined }
 }
 
 // Back-fill the Claude OAuth token from the persisted secrets file when it is
@@ -144,11 +147,22 @@ function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
     `(prompt ${inv.prompt.length} chars via stdin)`,
   )
 
+  // Curate the child env. The agent runs arbitrary Bash and fetches untrusted web
+  // pages, so it must not inherit secrets it never needs — a prompt-injected page
+  // could otherwise exfiltrate them. Stripped:
+  //   JWT_SECRET      — the backend's token-signing key; with it the agent could forge
+  //                     a valid token for any user, bypassing login entirely.
+  //   ADMIN_PASSWORD/ — the owner's login. No skill needs it: the agent reaches the
+  //   ADMIN_EMAIL       backend via INTERNAL_SECRET and writes to services (CopyParty)
+  //                     directly with connector credentials, never by logging in.
+  const { JWT_SECRET, ADMIN_PASSWORD, ADMIN_EMAIL, ...inheritedEnv } = process.env
+  void JWT_SECRET; void ADMIN_PASSWORD; void ADMIN_EMAIL
   let proc: ChildProcess
   try {
     proc = spawn('claude', args, {
       env: {
-        ...process.env,
+        ...inheritedEnv,
+        INTERNAL_SECRET: internalSecret() ?? inheritedEnv.INTERNAL_SECRET,
         ...(claudeOauthToken() ? { CLAUDE_CODE_OAUTH_TOKEN: claudeOauthToken() } : {}),
         ...inv.envVars,
         JARVIS_CONVERSATION_ID: inv.conversationId,
@@ -376,6 +390,18 @@ function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
 // ── Fastify app ──────────────────────────────────────────────────────────────
 
 const app = Fastify({ logger: false })
+
+// Require the shared internal secret on every request except /health. /invoke runs
+// arbitrary Claude prompts (Bash/Write/Edit enabled), so this endpoint must never be
+// callable by other containers on the shared `homelab` network — the Bearer check is
+// the only thing standing between a compromised neighbour and code execution here.
+app.addHook('onRequest', async (req, reply) => {
+  if (req.url === '/health') return
+  const secret = internalSecret()
+  if (!secret || req.headers['authorization'] !== `Bearer ${secret}`) {
+    return reply.code(401).send({ error: 'unauthorized' })
+  }
+})
 
 // POST /invoke — spawn a claude process for a conversation
 app.post<{

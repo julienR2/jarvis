@@ -9,6 +9,13 @@
 //   - cancelInvocation() / isRunning() / getRunningInvocation() / listActive()
 
 import type { EffortLevel } from './types.js'
+import { config } from './config.js'
+
+// The engine authenticates every request against the shared internal secret
+// (it runs arbitrary Claude prompts, so it must reject unknown callers).
+const authHeader = (): Record<string, string> => ({
+  Authorization: `Bearer ${config.internalSecret}`,
+})
 
 export type ClaudeEvent =
   | { type: 'thinking' }
@@ -34,7 +41,7 @@ export interface InvokeOptions {
 export async function invoke(opts: InvokeOptions): Promise<string> {
   const res = await fetch(`${ENGINE_URL}/invoke`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify(opts),
   })
   if (!res.ok) {
@@ -62,7 +69,7 @@ export function streamEvents(
     try {
       const res = await fetch(
         `${ENGINE_URL}/stream/${invocationId}`,
-        { signal: controller.signal },
+        { signal: controller.signal, headers: authHeader() },
       )
       if (!res.ok || !res.body) {
         if (!closed) {
@@ -157,6 +164,7 @@ export function invokeAndWait(opts: InvokeOptions): Promise<string> {
 export async function cancelInvocation(invocationId: string): Promise<void> {
   await fetch(`${ENGINE_URL}/cancel/${invocationId}`, {
     method: 'POST',
+    headers: authHeader(),
   }).catch((err) => {
     console.error('[engine client] cancel failed:', err)
   })
@@ -178,6 +186,7 @@ export async function getRunningInvocation(
   try {
     const res = await fetch(
       `${ENGINE_URL}/running/${conversationId}`,
+      { headers: authHeader() },
     )
     if (!res.ok) return { running: false }
     return (await res.json()) as
@@ -202,7 +211,7 @@ export interface InvocationStatus {
 
 export async function listActiveInvocations(): Promise<InvocationStatus[]> {
   try {
-    const res = await fetch(`${ENGINE_URL}/status`)
+    const res = await fetch(`${ENGINE_URL}/status`, { headers: authHeader() })
     if (!res.ok) return []
     const data = (await res.json()) as { invocations: InvocationStatus[] }
     return data.invocations

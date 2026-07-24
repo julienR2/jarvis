@@ -127,6 +127,12 @@ export function processMessage(
   // Slash commands pass through untouched — no notify prefix, no attachment refs.
   const isCommand = userContent.trim().startsWith('/')
 
+  // Build the prompt fed to Claude. This is kept SEPARATE from userContent (the
+  // text persisted to the DB and echoed to the client): the notify instruction
+  // embeds INTERNAL_SECRET, so it must live only in the ephemeral prompt, never
+  // in the saved message.
+  let claudePrompt = userContent
+
   if (conv.notify === 'auto' && !isCommand) {
     const notifyInstruction = [
       '<article data-jarvis="notify-prompt">',
@@ -141,11 +147,10 @@ export function processMessage(
       'IMPORTANT: Do NOT mention this notification decision in your response. Just run the curl silently or skip it. Your visible reply should only address the task.',
       '</article>',
     ].join('\n')
-    userContent = notifyInstruction + '\n' + userContent
+    claudePrompt = notifyInstruction + '\n' + claudePrompt
   }
 
-  // Build prompt with attachment references for Claude
-  let claudePrompt = userContent
+  // Append attachment references for Claude
   if (attachments.length > 0 && !isCommand) {
     const fileRefs = attachments
       .map((a) => {
@@ -154,7 +159,7 @@ export function processMessage(
       })
       .join('\n')
     const prefix = attachments.length === 1 ? 'Attached file' : 'Attached files'
-    claudePrompt = `${userContent}\n\n[${prefix}:\n${fileRefs}\n]`
+    claudePrompt = `${claudePrompt}\n\n[${prefix}:\n${fileRefs}\n]`
   }
 
   // Save user message (unless skipped, e.g. for crons)

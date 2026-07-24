@@ -1,3 +1,12 @@
+# Cap per-container log growth. Without this the default json-file driver never
+# rotates, and the engine (which logs every Claude stream event, including file
+# contents from tool results) grows /var/lib/docker without bound.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
+
 services:
   # Pre-creates agent/{data,workspace} with uid 1000 ownership so playwright
   # (which runs as root and would otherwise win the race) doesn't materialize
@@ -28,13 +37,17 @@ services:
       ENGINE_URL: http://engine:3010
       TZ: ${TZ:-UTC}
     ports:
-      - '3005:3005'
+      # Bind to loopback only — external traffic reaches the backend through nginx
+      # over the `homelab` network (by container name), not this published port.
+      # This keeps the plain-HTTP API (JWT login, /internal) off the LAN.
+      - '127.0.0.1:3005:3005'
     depends_on:
       setup:
         condition: service_completed_successfully
       engine:
         condition: service_started
     restart: unless-stopped
+    logging: *default-logging
 
   engine:
     build: ./engine
@@ -56,6 +69,7 @@ services:
       PORT: 3010
       TZ: ${TZ:-UTC}
     restart: unless-stopped
+    logging: *default-logging
 
   frontend:
     image: node:25
@@ -66,10 +80,12 @@ services:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      - '5173:5173'
+      # Loopback only — served to the LAN through nginx, not this port. See backend.
+      - '127.0.0.1:5173:5173'
     depends_on:
       - backend
     restart: unless-stopped
+    logging: *default-logging
 
   whisper:
     image: onerahmet/openai-whisper-asr-webservice:latest
@@ -80,6 +96,7 @@ services:
       ASR_ENGINE: faster_whisper
     volumes:
       - whisper-cache:/root/.cache
+    logging: *default-logging
 
   playwright:
     image: mcr.microsoft.com/playwright/mcp
@@ -91,6 +108,7 @@ services:
       setup:
         condition: service_completed_successfully
     restart: unless-stopped
+    logging: *default-logging
 
 volumes:
   whisper-cache:

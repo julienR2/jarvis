@@ -9,12 +9,13 @@ export default defineConfig({
       chokidar: { usePolling: true, interval: 1000 },
     } : null,
   },
+  // NB: no '/internal' proxy — that API is backend-internal (connector secrets,
+  // cron/webhook upserts) and must never be reachable from a browser.
   server: {
     port: 5173,
     allowedHosts: true,
     proxy: {
       '/api': 'http://backend:3005',
-      '/internal': 'http://backend:3005',
       '/health': 'http://backend:3005',
     },
   },
@@ -23,7 +24,6 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': 'http://backend:3005',
-      '/internal': 'http://backend:3005',
       '/health': 'http://backend:3005',
     },
   },
