@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ChevronRight,
   Folder,
@@ -103,15 +103,44 @@ export default function CodeBrowser() {
   const params = useParams()
   const splat = (params['*'] || '').replace(/^\/+/, '')
 
-  // State lives here so it survives navigation into a detail view and back.
-  const [tab, setTab] = useState<Tab>('agent')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const TABS: Tab[] = ['agent', 'all', 'commits']
+  const tabParam = searchParams.get('tab') as Tab | null
+  const initialTab = tabParam && TABS.includes(tabParam) ? tabParam : 'agent'
+  const expandedParam = searchParams.get('open')
+  const initialExpanded = expandedParam ? new Set(expandedParam.split(',')) : new Set<string>()
+
+  const updateParams = useCallback((t: Tab, exp: Set<string>) => {
+    const p: Record<string, string> = {}
+    if (t !== 'agent') p.tab = t
+    if (exp.size > 0) p.open = [...exp].join(',')
+    setSearchParams(p, { replace: true })
+  }, [setSearchParams])
+
+  const [tab, _setTab] = useState<Tab>(initialTab)
+  const setTab = useCallback((t: Tab) => {
+    _setTab(t)
+    updateParams(t, expandedRef.current)
+  }, [updateParams])
+
   const [agentEntries, setAgentEntries] = useState<CodeEntry[] | null>(null)
   const [agentError, setAgentError] = useState<string | null>(null)
   const [entries, setEntries] = useState<CodeEntry[] | null>(null)
   const [commits, setCommits] = useState<Commit[] | null>(null)
   const [treeError, setTreeError] = useState<string | null>(null)
   const [commitsError, setCommitsError] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  const [expanded, _setExpanded] = useState<Set<string>>(initialExpanded)
+  const expandedRef = useRef(expanded)
+  const setExpanded = useCallback((update: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+    _setExpanded(prev => {
+      const next = typeof update === 'function' ? update(prev) : update
+      expandedRef.current = next
+      updateParams(tab, next)
+      return next
+    })
+  }, [updateParams, tab])
+
   const [expandedCommits, setExpandedCommits] = useState<Set<string>>(new Set())
   const [commitFiles, setCommitFiles] = useState<Record<string, CodeEntry[]>>({})
 
