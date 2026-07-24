@@ -93,7 +93,7 @@ export default function Sidebar({
       <div className='px-3 pt-4 pb-2 space-y-0.5'>
         <button
           onClick={() => handleNav('/')}
-          className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${location.pathname === '/' ? 'text-text-primary bg-surface2' : 'text-text-secondary hover:bg-surface2'}`}
+          className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${location.pathname === '/' ? 'text-text-primary bg-selected' : 'text-text-secondary hover:bg-surface2'}`}
         >
           <Home size={16} />
           <span>Home</span>
@@ -407,7 +407,7 @@ function NavItem({
       onClick={onClick}
       className={`
         w-full text-left px-3 py-2 text-sm rounded-lg flex items-center gap-2.5
-        ${active ? 'text-text-primary bg-surface2' : 'text-text-secondary hover:text-text-primary hover:bg-surface2'}
+        ${active ? 'text-text-primary bg-selected' : 'text-text-secondary hover:text-text-primary hover:bg-surface2'}
         transition-colors
       `}
     >
