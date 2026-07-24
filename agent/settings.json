@@ -4,6 +4,10 @@
       "Bash",
       "Read",
       "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Skill",
       "WebSearch",
       "WebFetch"
     ],

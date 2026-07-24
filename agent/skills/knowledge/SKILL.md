@@ -178,12 +178,10 @@ Display the content in a readable format. Show title, type, date, source, tags, 
 
 ## Updating an entry
 
-CopyParty PUT does not overwrite — it creates duplicates. To update:
-
-1. Download the current content
-2. Modify it
-3. Delete the old file
-4. Upload the new version
+CopyParty PUT does not overwrite — it creates duplicates. To update, follow the
+canonical delete-then-PUT recipe in the **`copyparty`** skill. The delete API is
+`POST /path?delete` (query param) — **not** `POST -d "act=rm"`, which is a no-op
+that silently leaves a duplicate behind.
 
 ```bash
 FILE="knowledge/2026-05-25-attention-economy-video.md"
@@ -193,8 +191,8 @@ CONTENT=$(curl -s ${AUTH} "${BASE}/${FILE}")
 
 # 2. Modify (in script or temp file)
 
-# 3. Delete old
-curl -s ${AUTH} -X POST -d "act=rm" "${BASE}/${FILE}"
+# 3. Delete old (query param, not act=rm)
+curl -s ${AUTH} -X POST "${BASE}/${FILE}?delete"
 
 # 4. Upload new
 printf '%s\n' "${UPDATED}" | curl -s ${AUTH} -T - "${BASE}/${FILE}"

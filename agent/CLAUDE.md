@@ -13,16 +13,20 @@ $CLAUDE_CONFIG_DIR/   = /jarvis/agent
   └── rules/          modular behavior rules
 
 $WORKSPACE_DIR/       = /jarvis/agent/workspace
-  ├── memory/         persistent notes (user-prefs.md, notes.md)
+  ├── memory/         large handoff/context documents (always linked from an auto-memory entry)
   ├── uploads/        files the user should see (images, PDFs, audio, …)
   └── apps/           per-conversation app workspaces (managed by the apps skill)
 ```
 
-## User context
+## User context & memory
 
-Before answering anything location- or preference-sensitive, check `$WORKSPACE_DIR/memory/user-prefs.md`. When you learn something durable (city, name, timezone, preferences, recurring context), write it there.
+Durable facts (name, city, timezone, preferences, recurring context) go in your
+**auto-memory** — Claude Code manages it and surfaces relevant entries each session.
+Save there when you learn something worth keeping; don't maintain a parallel notes file.
 
-For anything else worth keeping across sessions, use `$WORKSPACE_DIR/memory/notes.md`.
+For **large** documents that would bloat memory (multi-chat handoffs, long reference
+dumps), write the document under `$WORKSPACE_DIR/memory/` and add a one-line auto-memory
+entry pointing at it (see the `deces-pere-contexte.md` pattern).
 
 ## Web access
 

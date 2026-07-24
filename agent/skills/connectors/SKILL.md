@@ -102,10 +102,9 @@ There is **no hardcoded connector catalog** — every connector is just a DB row
 
 ## People → mailboxes
 
-Julien's family email is spread across connectors — check the inventory before
-assuming. Notably:
-
-- **"papa" / Alain's email**: `gmail-papa` (`person@example.com`) **and**
-  `aol-papa` (`other@example.com`). Both are IMAP/SMTP mailboxes usable exactly
-  like the `gmail` skill's pattern — load the connector, then connect over IMAP.
-  If the user says "get papa's email" without naming the provider, check both.
+Family email may be spread across several connectors, and one person can have more
+than one mailbox (e.g. a Gmail **and** an AOL account). Always **check the live
+inventory** (`GET /internal/connectors`) before assuming an address — if the user
+names a person without naming a provider, look at every connector that could be
+theirs and check each. All mailbox connectors are IMAP/SMTP, usable exactly like the
+`gmail` skill's pattern. Personal person→connector mappings live in `CLAUDE.local.md`.
