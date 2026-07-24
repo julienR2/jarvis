@@ -53,14 +53,12 @@ agent/skills/*
 !agent/skills/gmail/
 !agent/skills/linear/
 !agent/skills/connectors/
-!agent/skills/self-edit/
+!agent/skills/jarvis/
 !agent/skills/slack/
 !agent/skills/github/
 !agent/skills/elevenlabs/
 !agent/skills/whisper/
 !agent/skills/pocketbase/
-!agent/skills/imagerouter/
-!agent/skills/knowledge/
 
 # Whitelist default rules — anything else under agent/rules/ is gitignored
 agent/rules/*
