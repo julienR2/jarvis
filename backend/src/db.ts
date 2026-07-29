@@ -134,7 +134,8 @@ export function initDb(): void {
 
   // Migration: add model + thinking to conversations
   try {
-    db.exec(`ALTER TABLE conversations ADD COLUMN model TEXT DEFAULT 'claude-sonnet-4-6'`)
+    // No column default: NULL means "use the global default" (see backend/src/models.ts)
+    db.exec(`ALTER TABLE conversations ADD COLUMN model TEXT`)
   } catch { /* already exists */ }
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0`)
@@ -147,7 +148,7 @@ export function initDb(): void {
 
   // Migration: add model + thinking to crons
   try {
-    db.exec(`ALTER TABLE crons ADD COLUMN model TEXT DEFAULT 'claude-sonnet-4-6'`)
+    db.exec(`ALTER TABLE crons ADD COLUMN model TEXT`)
   } catch { /* already exists */ }
   try {
     db.exec(`ALTER TABLE crons ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0`)
@@ -155,11 +156,20 @@ export function initDb(): void {
 
   // Migration: add model + thinking to webhooks
   try {
-    db.exec(`ALTER TABLE webhooks ADD COLUMN model TEXT DEFAULT 'claude-sonnet-4-6'`)
+    db.exec(`ALTER TABLE webhooks ADD COLUMN model TEXT`)
   } catch { /* already exists */ }
   try {
     db.exec(`ALTER TABLE webhooks ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0`)
   } catch { /* already exists */ }
+
+  // Migration: normalize the legacy model column default to the NULL marker.
+  // Older DBs added the `model` column with DEFAULT 'claude-sonnet-4-6', so rows
+  // created without an explicit model carry that stale id. NULL now means "use
+  // the global default" (backend/src/models.ts → resolveModel), so rewrite the
+  // legacy value; real user selections use current ids and are untouched.
+  for (const table of ['conversations', 'crons', 'webhooks']) {
+    db.exec(`UPDATE ${table} SET model = NULL WHERE model = 'claude-sonnet-4-6'`)
+  }
 
   // Migration: replace the boolean `thinking` flag with a granular effort level
   // (low | medium | high | xhigh | max). Backfill preserves behaviour: the old

@@ -32,7 +32,7 @@ export async function cronRoutes(app: FastifyInstance) {
     const id = uuid()
     const enabled = body.enabled !== false ? 1 : 0
     const once = body.once ? 1 : 0
-    const model = body.model ?? 'claude-opus-4-8'
+    const model = body.model ?? null // null → global default (resolved at fire time)
     const effort = normalizeEffort(body.effort)
 
     getDb()
@@ -71,7 +71,7 @@ export async function cronRoutes(app: FastifyInstance) {
       prompt: body.prompt ?? existing.prompt,
       enabled: body.enabled !== undefined ? (body.enabled ? 1 : 0) : existing.enabled,
       once: body.once !== undefined ? (body.once ? 1 : 0) : existing.once,
-      model: body.model ?? existing.model ?? 'claude-opus-4-8',
+      model: body.model ?? existing.model ?? null,
       effort: body.effort !== undefined ? normalizeEffort(body.effort) : existing.effort,
     }
 

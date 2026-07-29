@@ -11,6 +11,7 @@ import {
   getRunningInvocation,
 } from '../engine.js'
 import { generateTitle } from '../titles.js'
+import { resolveModel } from '../models.js'
 import { sendPushToAll } from '../push.js'
 import {
   emitConversationEvent,
@@ -200,7 +201,7 @@ export function processMessage(
     prompt: claudePrompt,
     sessionId: conv.claude_session_id,
     conversationId,
-    model: options?.model,
+    model: resolveModel(options?.model),
     effort: options?.effort,
   })
     .then((invocationId) => {
@@ -487,7 +488,8 @@ export async function conversationRoutes(app: FastifyInstance) {
     const id = uuid()
     getDb()
       .prepare('INSERT INTO conversations (id, title, model, effort) VALUES (?, ?, ?, ?)')
-      .run(id, title ?? 'New conversation', 'claude-opus-4-8', 'high')
+      // model = null → "use the global default" (resolved at invoke time)
+      .run(id, title ?? 'New conversation', null, 'high')
     return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id)
   })
 

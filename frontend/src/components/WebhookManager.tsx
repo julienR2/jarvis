@@ -2,13 +2,13 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, type Webhook, type WebhookInput } from '../api'
 import ContentLayout from './ContentLayout'
-import ModelSelector, { MODELS, DEFAULT_EFFORT } from './ModelSelector'
+import ModelSelector, { DEFAULT_MODEL, DEFAULT_EFFORT, modelName } from './ModelSelector'
 
 const EMPTY: WebhookInput = {
   name: '',
   prompt: '',
   enabled: true,
-  model: 'claude-opus-4-8',
+  model: DEFAULT_MODEL,
   effort: DEFAULT_EFFORT,
 }
 
@@ -67,7 +67,7 @@ export default function WebhookManager() {
       name: webhook.name,
       prompt: webhook.prompt,
       enabled: !!webhook.enabled,
-      model: webhook.model ?? 'claude-opus-4-8',
+      model: webhook.model ?? DEFAULT_MODEL,
       effort: webhook.effort ?? DEFAULT_EFFORT,
     })
   }
@@ -152,7 +152,7 @@ export default function WebhookManager() {
             </label>
 
             <ModelSelector
-              model={form.model ?? 'claude-opus-4-8'}
+              model={form.model ?? DEFAULT_MODEL}
               effort={form.effort ?? DEFAULT_EFFORT}
               onModelChange={(m) => setForm({ ...form, model: m })}
               onEffortChange={(e) => setForm({ ...form, effort: e })}
@@ -202,7 +202,7 @@ export default function WebhookManager() {
               <div className='flex-1 min-w-0'>
                 <div className='font-medium text-sm'>{webhook.name}</div>
                 <div className='text-xs text-text-muted font-mono'>
-                  {MODELS.find(m => m.id === webhook.model)?.name ?? 'Opus 4.8'}
+                  {modelName(webhook.model ?? DEFAULT_MODEL)}
                   {webhook.effort && webhook.effort !== 'high' ? ` · ${webhook.effort} effort` : ''}
                   {webhook.last_run
                     ? ` \u00B7 last: ${new Date(webhook.last_run * 1000).toLocaleString('fr-FR')}`

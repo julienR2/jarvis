@@ -12,12 +12,12 @@ export interface ModelOption {
 
 export const MODELS: ModelOption[] = [
   { id: 'claude-fable-5', name: 'Fable 5', desc: 'Most capable, for long-running agents' },
-  { id: 'claude-opus-4-8', name: 'Opus 4.8', desc: 'Complex agentic coding & enterprise work' },
+  { id: 'claude-opus-5', name: 'Opus 5', desc: 'Most capable — complex agentic coding & enterprise work' },
   { id: 'claude-sonnet-5', name: 'Sonnet 5', desc: 'Best mix of speed and intelligence' },
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', desc: 'Fastest, near-frontier', effort: false },
 ]
 
-export const DEFAULT_MODEL = 'claude-opus-4-8'
+export const DEFAULT_MODEL = 'claude-opus-5'
 
 /** Effort levels exposed in the UI (the CLI also accepts `xhigh`). */
 export const EFFORTS: { id: Effort; label: string; hint: string }[] = [

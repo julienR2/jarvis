@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, type Cron, type CronInput } from '../api'
 import ContentLayout from './ContentLayout'
-import ModelSelector, { MODELS, DEFAULT_EFFORT } from './ModelSelector'
+import ModelSelector, { DEFAULT_MODEL, DEFAULT_EFFORT, modelName } from './ModelSelector'
 
 const EMPTY: CronInput = {
   name: '',
@@ -10,7 +10,7 @@ const EMPTY: CronInput = {
   prompt: '',
   enabled: true,
   once: false,
-  model: 'claude-opus-4-8',
+  model: DEFAULT_MODEL,
   effort: DEFAULT_EFFORT,
 }
 
@@ -70,7 +70,7 @@ export default function CronManager() {
       prompt: cron.prompt,
       enabled: !!cron.enabled,
       once: !!cron.once,
-      model: cron.model ?? 'claude-opus-4-8',
+      model: cron.model ?? DEFAULT_MODEL,
       effort: cron.effort ?? DEFAULT_EFFORT,
     })
   }
@@ -145,7 +145,7 @@ export default function CronManager() {
             </label>
 
             <ModelSelector
-              model={form.model ?? 'claude-opus-4-8'}
+              model={form.model ?? DEFAULT_MODEL}
               effort={form.effort ?? DEFAULT_EFFORT}
               onModelChange={(m) => setForm({ ...form, model: m })}
               onEffortChange={(e) => setForm({ ...form, effort: e })}
@@ -196,7 +196,7 @@ export default function CronManager() {
               <div className='text-xs text-text-muted font-mono'>
                 {cron.schedule}
                 {cron.once ? ' \u00B7 once' : ''}
-                {' \u00B7 '}{MODELS.find(m => m.id === cron.model)?.name ?? 'Opus 4.8'}
+                {' \u00B7 '}{modelName(cron.model ?? DEFAULT_MODEL)}
                 {cron.effort && cron.effort !== 'high' ? ` \u00B7 ${cron.effort} effort` : ''}
                 {cron.last_run
                   ? ` \u00B7 last: ${new Date(cron.last_run * 1000).toLocaleString('fr-FR')}`

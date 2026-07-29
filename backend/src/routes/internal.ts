@@ -67,8 +67,10 @@ export async function internalRoutes(app: FastifyInstance) {
 
     const id = uuid()
     getDb()
-      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, conversation_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, body.schedule, body.prompt, body.enabled !== false ? 1 : 0, body.once ? 1 : 0, body.conversation_id || null)
+      // model = null → "use the global default" (resolved at fire time); never
+      // rely on the column default, which may be a stale value on older DBs.
+      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, conversation_id, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, body.schedule, body.prompt, body.enabled !== false ? 1 : 0, body.once ? 1 : 0, body.conversation_id || null, null)
 
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(id) as CronRow
     schedule(row)
@@ -129,8 +131,9 @@ export async function internalRoutes(app: FastifyInstance) {
     const id = uuid()
     const token = uuid()
     getDb()
-      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, conversation_id) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, token, body.prompt, body.enabled !== false ? 1 : 0, body.conversation_id || null)
+      // model = null → "use the global default" (resolved at fire time)
+      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, conversation_id, model) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, token, body.prompt, body.enabled !== false ? 1 : 0, body.conversation_id || null, null)
 
     const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(id)
     return { created: true, webhook: row }
