@@ -59,7 +59,9 @@ export async function manifestRoutes(app: FastifyInstance) {
       description: 'AI assistant powered by Claude',
       start_url: '/',
       display: 'standalone',
-      orientation: 'any',
+      // No `orientation` member on purpose: any value (even 'any') locks the PWA
+      // and overrides the device rotation lock. Omitting it lets Android decide —
+      // rotation lock is respected, with the usual manual rotate button.
       background_color: '#faf9f7',
       theme_color: '#f3f1ed',
       icons: [
