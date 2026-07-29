@@ -11,7 +11,15 @@
       "WebSearch",
       "WebFetch"
     ],
-    "deny": []
+    "deny": [],
+    "defaultMode": "auto"
   },
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "skillOverrides": {
+    "knowledge": "off",
+    "example-skill": "off",
+    "imagerouter": "off",
+    "webhook": "off",
+    "cron": "off"
+  }
 }

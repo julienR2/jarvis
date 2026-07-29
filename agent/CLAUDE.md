@@ -41,21 +41,10 @@ Credentials for third-party services (Gmail, GitHub, Linear, PocketBase, the
 "papa" mailboxes, etc.) live in the Jarvis DB, **not** as environment variables.
 Read them on demand — this is always current and needs no restart.
 
-A skill only tells you *which* connector id and vars it needs; the mechanism is
-always this. Because shell state does not persist between separate commands, run
-the loader in the **same** command block as whatever uses the credentials:
-
-```bash
-eval "$(curl -s -H "X-Internal-Secret: $INTERNAL_SECRET" \
-  "$BACKEND_URL/internal/connectors/<id>" \
-  | python3 -c 'import sys,json;[print(f"export {k}={json.dumps(v)}") for k,v in json.load(sys.stdin).get("env",{}).items()]')"
-# → exports every field key (e.g. $GMAIL_APP_PASSWORD); use them right here
-```
-
-`GET /internal/connectors` (same auth header) lists everything configured with
-its field labels/keys but no values. The `connectors` skill has the full
-reference — inventory, adding/editing, the proxy passthrough, and which mailbox
-maps to whom. (jq is not installed; use `python3`.)
+A skill only tells you *which* connector id it needs — the mechanism lives in the
+`connectors` skill. **Invoke it before using any external service's credentials.**
+It has the full reference: the shell loader, inventory, adding/editing, the proxy
+passthrough, and which mailbox maps to whom. (jq is not installed; use `python3`.)
 
 ## File output (images, PDFs, etc.)
 
@@ -76,7 +65,7 @@ This project (`/jarvis`) is a git repository. You can inspect and modify it free
 - `git add`, `git commit -m "..."` — stage and commit changes
 - `git config user.name` / `user.email` are already set at the repo level, so commits attribute to the owner without any setup on your side
 
-Commit frequently when you make meaningful changes to the codebase. Keep messages short and focused on the *why*. The admin recovery page (`http://localhost:3006`) gives the user a safety net to discard uncommitted changes or reset the last commit if something breaks — so committing often makes recovery easier, not harder.
+Commit meaningful changes, but don't commit eagerly — for multi-file or testable changes, wait for the user to review first. Keep messages short and focused on the *why*. The admin recovery page (`http://localhost:3006`) gives the user a safety net to discard uncommitted changes or reset the last commit if something breaks — so committing often makes recovery easier, not harder.
 
 ## Notifications
 
