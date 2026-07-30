@@ -7,7 +7,7 @@ import {
   useCallback,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, Pin, PinOff, RefreshCw, ExternalLink } from 'lucide-react'
+import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, FolderInput, RefreshCw, ExternalLink } from 'lucide-react'
 import { MODELS, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, modelSupportsEffort } from './ModelSelector'
 import type { Effort } from '../api'
 
@@ -31,8 +31,8 @@ interface Props {
   conversationId?: string
   hasCron?: boolean
   hasWebhook?: boolean
-  pinned?: boolean
-  onPinChange?: (pinned: boolean) => void
+  /** Opens the parent's section picker — the menu itself stays dumb, like onRename. */
+  onMove?: () => void
   onRefreshApp?: () => void
   appUrl?: string
   /** Extra classes for the trigger button */
@@ -51,7 +51,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     notify = 'subscribe', onNotifyChange,
     model = DEFAULT_MODEL, effort = DEFAULT_EFFORT, onModelChange, onEffortChange,
     conversationId, hasCron, hasWebhook,
-    pinned = false, onPinChange,
+    onMove,
     onRefreshApp, appUrl,
     triggerClassName = '',
     compact = false,
@@ -225,13 +225,13 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
               </>
             )}
 
-            {onPinChange && (
+            {onMove && (
               <button
-                onClick={() => { setOpen(false); onPinChange(!pinned) }}
-                className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+                onClick={() => { setOpen(false); onMove() }}
+                className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg whitespace-nowrap'
               >
-                {pinned ? <PinOff size={14} /> : <Pin size={14} />}
-                {pinned ? 'Unpin' : 'Pin'}
+                <FolderInput size={14} />
+                Move to section
               </button>
             )}
 

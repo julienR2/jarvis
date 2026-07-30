@@ -13,6 +13,7 @@ import {
   conversationRoutes,
   resumeProcessMessage,
 } from './routes/conversations.js'
+import { sectionRoutes } from './routes/sections.js'
 import { cronRoutes } from './routes/crons.js'
 import { webhookRoutes, webhookTriggerRoute } from './routes/webhooks.js'
 import { uploadRoutes, UPLOADS_DIR, MAX_FILE_SIZE } from './routes/uploads.js'
@@ -104,6 +105,7 @@ if (config.adminEmail && config.adminPassword) {
 
 await app.register(authRoutes, { prefix: '/api/auth' })
 await app.register(conversationRoutes, { prefix: '/api/conversations' })
+await app.register(sectionRoutes, { prefix: '/api/sections' })
 await app.register(cronRoutes, { prefix: '/api/crons' })
 await app.register(webhookRoutes, { prefix: '/api/webhooks' })
 await app.register(webhookTriggerRoute, { prefix: '/api/hooks' })

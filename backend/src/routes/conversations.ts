@@ -520,13 +520,14 @@ export async function conversationRoutes(app: FastifyInstance) {
   })
 
   app.patch<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
-    const { title, notify, model, effort, pinned } = req.body as {
+    const body = (req.body ?? {}) as {
       title?: string
       notify?: string
       model?: string
       effort?: string
-      pinned?: boolean
+      section_id?: string | null
     }
+    const { title, notify, model, effort } = body
 
     const sets: string[] = []
     const params: unknown[] = []
@@ -550,16 +551,27 @@ export async function conversationRoutes(app: FastifyInstance) {
       sets.push('effort = ?')
       params.push(normalizeEffort(effort))
     }
-    if (pinned !== undefined) {
-      sets.push('pinned = ?')
-      params.push(pinned ? 1 : 0)
+    // null moves the conversation back to the default "Chats" group.
+    if ('section_id' in body) {
+      const sectionId = body.section_id ?? null
+      if (sectionId !== null) {
+        const exists = getDb()
+          .prepare('SELECT 1 FROM sections WHERE id = ?')
+          .get(sectionId)
+        if (!exists) return reply.code(400).send({ error: 'Unknown section' })
+      }
+      sets.push('section_id = ?')
+      params.push(sectionId)
     }
 
     if (sets.length === 0) {
       return reply.code(400).send({ error: 'Nothing to update' })
     }
 
-    sets.push('updated_at = unixepoch()')
+    // Filing a chat isn't activity: bumping updated_at here would shuffle it to
+    // the top of its new section, since sections sort by most recent activity.
+    const onlyMoved = sets.length === 1 && sets[0] === 'section_id = ?'
+    if (!onlyMoved) sets.push('updated_at = unixepoch()')
     params.push(req.params.id)
 
     const result = getDb()

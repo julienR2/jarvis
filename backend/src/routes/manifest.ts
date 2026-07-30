@@ -1,58 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { getDb } from '../db.js'
-
-// Android supports up to 4 static shortcuts on most launchers.
-const MAX_SHORTCUTS = 4
-
-type ConvRow = { id: string; title: string | null }
-
-// Extract the first emoji character from a string.
-function extractEmoji(str: string): string | null {
-  const match = str.match(/\p{Extended_Pictographic}/u)
-  return match ? match[0] : null
-}
-
-// Return a Twemoji CDN URL for the given emoji, or null if conversion fails.
-// Twemoji names files by lowercase hex codepoints joined with dashes,
-// excluding the variation selector FE0F for standalone emoji.
-function emojiIconUrl(emoji: string): string | null {
-  const points = [...emoji]
-    .map((c) => c.codePointAt(0)!.toString(16).toLowerCase())
-    .filter((cp) => cp !== 'fe0f')
-
-  if (points.length === 0) return null
-  return `https://cdn.jsdelivr.net/gh/twitter/twemoji@v14.0.2/assets/72x72/${points.join('-')}.png`
-}
 
 export async function manifestRoutes(app: FastifyInstance) {
   app.get('/manifest.webmanifest', async (_req, reply) => {
-    const pinned = getDb()
-      .prepare(
-        `SELECT id, title FROM conversations
-         WHERE pinned = 1
-         ORDER BY updated_at DESC
-         LIMIT ?`,
-      )
-      .all(MAX_SHORTCUTS) as ConvRow[]
-
-    const shortcuts = pinned.map((c) => {
-      const name = c.title?.trim() || 'Chat'
-      const emoji = extractEmoji(name)
-      const cdnUrl = emoji ? emojiIconUrl(emoji) : null
-
-      const icons = cdnUrl
-        ? [{ src: cdnUrl, sizes: '72x72', type: 'image/png' }]
-        : [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }]
-
-      return {
-        name,
-        short_name: name.slice(0, 12),
-        description: name,
-        url: `/c/${c.id}`,
-        icons,
-      }
-    })
-
+    // No `shortcuts` member: launcher shortcuts used to be generated from pinned
+    // conversations, which no longer exist (pinning became sidebar sections) and
+    // which nobody used.
     const manifest = {
       name: 'Jarvis',
       short_name: 'Jarvis',
@@ -90,7 +42,6 @@ export async function manifestRoutes(app: FastifyInstance) {
           ],
         },
       },
-      shortcuts,
     }
 
     return reply

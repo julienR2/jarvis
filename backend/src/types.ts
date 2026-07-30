@@ -8,10 +8,17 @@ export interface ConvRow {
   notify: 'subscribe' | 'unsubscribe' | 'auto'
   model: string | null
   effort: EffortLevel
-  pinned: number
+  section_id: string | null
   last_read_at: number
   created_at: number
   updated_at: number
+}
+
+export interface SectionRow {
+  id: string
+  name: string
+  position: number
+  created_at: number
 }
 
 export interface MessageRow {

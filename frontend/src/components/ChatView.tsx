@@ -16,6 +16,7 @@ import { DEFAULT_MODEL, DEFAULT_EFFORT } from './ModelSelector'
 import AppPreview from './AppPreview'
 import { ContentTitle } from './ContentLayout'
 import ConversationMenu from './ConversationMenu'
+import SectionPicker from './SectionPicker'
 
 const EMPTY_MESSAGES: readonly Message[] = []
 
@@ -68,13 +69,14 @@ export default function ChatView({
   const effort = conv?.effort ?? DEFAULT_EFFORT
   const hasCron = !!conv?.has_cron
   const hasWebhook = !!conv?.has_webhook
-  const pinned = !!conv?.pinned
+  const sectionId = conv?.section_id ?? null
   const showSkeleton = !loaded && messages.length === 0
 
   const { appRefreshKey, bumpApp } = useChatEvents(conversationId)
   const [showPreview, setShowPreview] = useState(true)
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
+  const [moving, setMoving] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -137,11 +139,11 @@ export default function ChatView({
       .patchConversation(conversationId, { effort: newEffort })
   }
 
-  function handlePinChange(newPinned: boolean) {
+  function handleMove(newSectionId: string | null) {
     if (!conversationId) return
     useChatStore
       .getState()
-      .patchConversation(conversationId, { pinned: newPinned ? 1 : 0 })
+      .patchConversation(conversationId, { section_id: newSectionId })
   }
 
   function startRename() {
@@ -235,6 +237,13 @@ export default function ChatView({
       </div>,
       document.body,
     )}
+    {moving && (
+      <SectionPicker
+        currentId={sectionId}
+        onPick={handleMove}
+        onClose={() => setMoving(false)}
+      />
+    )}
     <div className='flex flex-col h-full'>
       {/* Mobile title bar + toggle — above both panes */}
       {title && (
@@ -243,7 +252,7 @@ export default function ChatView({
             action={conversationId ? (
               <span className='flex items-center gap-2'>
                 <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
-                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} pinned={pinned} onPinChange={handlePinChange} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? `/api/apps/${conv!.app_path!.replace(/^apps\//, '')}/index.html?token=${localStorage.getItem('token') || ''}&v=${appRefreshKey}` : undefined} />
+                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? `/api/apps/${conv!.app_path!.replace(/^apps\//, '')}/index.html?token=${localStorage.getItem('token') || ''}&v=${appRefreshKey}` : undefined} />
               </span>
             ) : undefined}
           >
@@ -283,7 +292,7 @@ export default function ChatView({
                 action={conversationId ? (
                   <span className='flex items-center gap-2'>
                     <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
-                    <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} pinned={pinned} onPinChange={handlePinChange} />
+                    <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} />
                   </span>
                 ) : undefined}
               >

@@ -5,16 +5,18 @@ import {
   type Conversation,
   type ConversationWithMessages,
   type Message,
+  type Section,
 } from '../api'
 
 type PatchableFields = Pick<
   Conversation,
-  'title' | 'notify' | 'model' | 'effort' | 'pinned'
+  'title' | 'notify' | 'model' | 'effort' | 'section_id'
 >
 
 interface ChatState {
   conversations: Record<string, Conversation>
   order: string[]
+  sections: Section[]
   messages: Record<string, Message[]>
   processing: Record<string, boolean>
   listLoaded: boolean
@@ -24,6 +26,13 @@ interface ChatState {
   loadConversations: () => Promise<void>
   createConversation: (title?: string) => Promise<Conversation>
   deleteConversation: (id: string) => Promise<void>
+
+  // ── Section actions ──────────────────────────────────────────────────────
+  loadSections: () => Promise<void>
+  createSection: (name: string) => Promise<Section | null>
+  renameSection: (id: string, name: string) => Promise<void>
+  deleteSection: (id: string) => Promise<void>
+  moveSection: (id: string, delta: -1 | 1) => Promise<void>
 
   // ── Single-conversation actions ──────────────────────────────────────────
   loadConversation: (id: string) => Promise<void>
@@ -59,6 +68,7 @@ export const useChatStore = create<ChatState>()(
   immer((set, get) => ({
     conversations: {},
     order: [],
+    sections: [],
     messages: {},
     processing: {},
     listLoaded: false,
@@ -123,6 +133,95 @@ export const useChatStore = create<ChatState>()(
       }
     },
 
+    async loadSections() {
+      try {
+        const sections = await api.getSections()
+        set((s) => {
+          s.sections = sections
+        })
+      } catch (err) {
+        console.error('Failed to load sections:', err)
+      }
+    },
+
+    async createSection(name) {
+      try {
+        const section = await api.createSection(name)
+        set((s) => {
+          s.sections.push(section)
+        })
+        return section
+      } catch (err) {
+        console.error('Failed to create section:', err)
+        toast('error', 'Failed to create section')
+        return null
+      }
+    },
+
+    async renameSection(id, name) {
+      const before = get().sections
+      set((s) => {
+        const target = s.sections.find((x) => x.id === id)
+        if (target) target.name = name
+      })
+      try {
+        await api.renameSection(id, name)
+      } catch (err) {
+        console.error('Failed to rename section:', err)
+        toast('error', 'Failed to rename section')
+        set((s) => {
+          s.sections = before
+        })
+      }
+    },
+
+    async deleteSection(id) {
+      const before = { sections: get().sections, conversations: get().conversations }
+      // The server drops the section's conversations back into the default group
+      // (ON DELETE SET NULL) — mirror that locally so the sidebar doesn't blink.
+      set((s) => {
+        s.sections = s.sections.filter((x) => x.id !== id)
+        for (const conv of Object.values(s.conversations)) {
+          if (conv.section_id === id) conv.section_id = null
+        }
+      })
+      try {
+        await api.deleteSection(id)
+      } catch (err) {
+        console.error('Failed to delete section:', err)
+        toast('error', 'Failed to delete section')
+        set((s) => {
+          s.sections = before.sections
+          s.conversations = before.conversations
+        })
+      }
+    },
+
+    async moveSection(id, delta) {
+      const before = get().sections
+      const idx = before.findIndex((x) => x.id === id)
+      const target = idx + delta
+      if (idx < 0 || target < 0 || target >= before.length) return
+
+      const reordered = before.slice()
+      ;[reordered[idx], reordered[target]] = [reordered[target], reordered[idx]]
+      set((s) => {
+        s.sections = reordered
+      })
+      try {
+        const saved = await api.reorderSections(reordered.map((x) => x.id))
+        set((s) => {
+          s.sections = saved
+        })
+      } catch (err) {
+        console.error('Failed to reorder sections:', err)
+        toast('error', 'Failed to reorder sections')
+        set((s) => {
+          s.sections = before
+        })
+      }
+    },
+
     async loadConversation(id) {
       try {
         const conv = await api.getConversation(id)
@@ -151,7 +250,7 @@ export const useChatStore = create<ChatState>()(
         if (patch.notify !== undefined) apiPatch.notify = patch.notify
         if (patch.model !== undefined) apiPatch.model = patch.model ?? undefined
         if (patch.effort !== undefined) apiPatch.effort = patch.effort
-        if (patch.pinned !== undefined) apiPatch.pinned = !!patch.pinned
+        if (patch.section_id !== undefined) apiPatch.section_id = patch.section_id
         const updated = await api.updateConversation(id, apiPatch)
         set((s) => {
           s.conversations[id] = updated

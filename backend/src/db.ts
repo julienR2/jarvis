@@ -53,6 +53,16 @@ export function initDb(): void {
 
     CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
 
+    -- Sidebar groups. The catch-all "Chats" group is NOT a row here: it is
+    -- conversations with section_id IS NULL, so it can never be renamed,
+    -- deleted, or left in an inconsistent state.
+    CREATE TABLE IF NOT EXISTS sections (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER DEFAULT (unixepoch())
+    );
+
     CREATE TABLE IF NOT EXISTS crons (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -144,6 +154,24 @@ export function initDb(): void {
   // Migration: add pinned to conversations
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`)
+  } catch { /* already exists */ }
+
+  // Migration: sections replace the pinned flag. Existing pins are folded into a
+  // real "Pinned" section at the top of the sidebar; deleting a section drops its
+  // conversations back into the default group via ON DELETE SET NULL. The legacy
+  // `pinned` column is left in place (unused) so existing rows aren't disturbed.
+  try {
+    db.exec(
+      `ALTER TABLE conversations ADD COLUMN section_id TEXT REFERENCES sections(id) ON DELETE SET NULL`,
+    )
+    const { n } = db
+      .prepare('SELECT COUNT(*) AS n FROM conversations WHERE pinned = 1')
+      .get() as { n: number }
+    if (n > 0) {
+      const id = randomUUID()
+      db.prepare('INSERT INTO sections (id, name, position) VALUES (?, ?, 0)').run(id, 'Pinned')
+      db.prepare('UPDATE conversations SET section_id = ? WHERE pinned = 1').run(id)
+    }
   } catch { /* already exists */ }
 
   // Migration: add model + thinking to crons

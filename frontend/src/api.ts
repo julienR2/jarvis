@@ -78,10 +78,20 @@ export const api = {
     request<ConversationWithMessages>('GET', `/conversations/${id}`),
   updateConversation: (
     id: string,
-    data: { title?: string; notify?: string; model?: string; effort?: Effort; pinned?: boolean },
+    data: { title?: string; notify?: string; model?: string; effort?: Effort; section_id?: string | null },
   ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
   deleteConversation: (id: string) =>
     request<{ ok: boolean }>('DELETE', `/conversations/${id}`),
+
+  // Sections (sidebar groups). The default "Chats" group is section_id === null
+  // and has no row of its own.
+  getSections: () => request<Section[]>('GET', '/sections'),
+  createSection: (name: string) => request<Section>('POST', '/sections', { name }),
+  renameSection: (id: string, name: string) =>
+    request<Section>('PATCH', `/sections/${id}`, { name }),
+  reorderSections: (ids: string[]) =>
+    request<Section[]>('PUT', '/sections/order', { ids }),
+  deleteSection: (id: string) => request<{ ok: boolean }>('DELETE', `/sections/${id}`),
 
   // Messages
   sendMessage: (conversationId: string, content: string, attachments?: Attachment[], model?: string, effort?: Effort) =>
@@ -283,7 +293,7 @@ export interface Conversation {
   notify: 'subscribe' | 'unsubscribe' | 'auto'
   model: string | null
   effort: Effort
-  pinned: number
+  section_id: string | null
   unread_count: number
   has_cron?: number
   has_webhook?: number
@@ -304,6 +314,13 @@ export interface Message {
 
 export interface ConversationWithMessages extends Conversation {
   messages: Message[]
+}
+
+export interface Section {
+  id: string
+  name: string
+  position: number
+  created_at: number
 }
 
 export interface Cron {

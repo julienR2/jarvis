@@ -6,7 +6,7 @@ import {
   useLocation,
   useSearchParams,
 } from 'react-router-dom'
-import { Plus, MessageSquare, FileText, X, AppWindow, Pin, Clock, Link2, Sparkles, AudioLines, Mic } from 'lucide-react'
+import { Plus, MessageSquare, FileText, X, AppWindow, Folder, Clock, Link2, Sparkles, AudioLines, Mic } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import Sidebar from '../components/Sidebar'
 import ChatView from '../components/ChatView'
@@ -63,6 +63,7 @@ export default function ChatPage() {
     }).catch(() => {})
 
     const store = useChatStore.getState()
+    store.loadSections()
     store.loadConversations().then(() => {
       const match = locationRef.current.match(/^\/c\/(.+)$/)
       if (match) store.markRead(match[1])
@@ -116,8 +117,8 @@ export default function ChatPage() {
             if (onCurrent) navigate('/', { replace: true })
           }}
           onRename={(id, title) => useChatStore.getState().patchConversation(id, { title })}
-          onPinChange={(id, pinned) =>
-            useChatStore.getState().patchConversation(id, { pinned: pinned ? 1 : 0 })
+          onMove={(id, sectionId) =>
+            useChatStore.getState().patchConversation(id, { section_id: sectionId })
           }
           onSelect={() => setSidebarOpen(false)}
         />
@@ -193,13 +194,18 @@ function getGreeting(): string {
 
 function Welcome({ onNew }: { onNew: () => void }) {
   const navigate = useNavigate()
-  const pinned = useChatStore(
-    useShallow((s) =>
-      s.order
-        .map((id) => s.conversations[id])
-        .filter((c) => c && c.pinned),
-    ),
+  // Home surfaces the chats you filed into sections, in section order. The
+  // catch-all "Chats" group is left to the sidebar.
+  const sections = useChatStore(useShallow((s) => s.sections))
+  const conversations = useChatStore(
+    useShallow((s) => s.order.map((id) => s.conversations[id]).filter(Boolean)),
   )
+  const filed = sections
+    .map((section) => ({
+      section,
+      convs: conversations.filter((c) => c.section_id === section.id),
+    }))
+    .filter((g) => g.convs.length > 0)
 
   return (
     <div className='flex flex-col h-full overflow-y-auto'>
@@ -239,15 +245,15 @@ function Welcome({ onNew }: { onNew: () => void }) {
         </div>
       </div>
 
-      {/* Pinned grid */}
-      {pinned.length > 0 && (
-        <div className='max-w-2xl w-full mx-auto px-4 pb-8 mt-2'>
+      {/* One grid per section */}
+      {filed.map(({ section, convs }) => (
+        <div key={section.id} className='max-w-2xl w-full mx-auto px-4 pb-8 mt-2'>
           <h2 className='text-xs font-medium text-text-muted uppercase tracking-wider mb-3 flex items-center gap-1.5'>
-            <Pin size={13} />
-            Pinned
+            <Folder size={13} />
+            {section.name}
           </h2>
           <div className='grid grid-cols-2 md:grid-cols-3 gap-3'>
-            {pinned.map((conv) => (
+            {convs.map((conv) => (
               <button
                 key={conv.id}
                 onClick={() => navigate(`/c/${conv.id}`)}
@@ -272,7 +278,7 @@ function Welcome({ onNew }: { onNew: () => void }) {
             ))}
           </div>
         </div>
-      )}
+      ))}
     </div>
   )
 }
