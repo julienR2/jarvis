@@ -402,16 +402,12 @@ function SectionGroup({
         >
           <span className='truncate'>{section ? section.name : 'Chats'}</span>
         </button>
-        {/* With no chevron, a collapsed group would look identical to an empty
-            one — the badge is what says "there's something folded in here". */}
+        {/* Only unread is worth a badge here — a plain chat count on every group
+            was more noise than signal. An empty group still reads as empty via
+            its "Empty — move a chat here" row, which a collapsed one never shows. */}
         {collapsed && unread > 0 && (
           <span className='shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[11px] font-medium'>
             {unread}
-          </span>
-        )}
-        {collapsed && unread === 0 && convs.length > 0 && (
-          <span className='shrink-0 px-1.5 text-[11px] font-medium text-text-muted/70'>
-            {convs.length}
           </span>
         )}
         {section && (

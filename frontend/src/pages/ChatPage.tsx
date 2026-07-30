@@ -6,7 +6,7 @@ import {
   useLocation,
   useSearchParams,
 } from 'react-router-dom'
-import { Plus, MessageSquare, FileText, X, AppWindow, Folder, Clock, Link2, Sparkles, AudioLines, Mic } from 'lucide-react'
+import { Plus, MessageSquare, FileText, X, AppWindow, Clock, Link2, Sparkles, AudioLines, Mic } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import Sidebar from '../components/Sidebar'
 import ChatView from '../components/ChatView'
@@ -192,6 +192,18 @@ function getGreeting(): string {
   return 'Good evening'
 }
 
+/** Home's section folds are per-device, and separate from the sidebar's. */
+const HOME_COLLAPSE_KEY = 'home-sections-collapsed'
+
+function readHomeCollapsed(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(HOME_COLLAPSE_KEY) || '[]')
+    return Array.isArray(raw) ? raw.filter((x) => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 function Welcome({ onNew }: { onNew: () => void }) {
   const navigate = useNavigate()
   // Home surfaces the chats you filed into sections, in section order. The
@@ -206,6 +218,17 @@ function Welcome({ onNew }: { onNew: () => void }) {
       convs: conversations.filter((c) => c.section_id === section.id),
     }))
     .filter((g) => g.convs.length > 0)
+
+  // Kept out of the sidebar's key: folding a section on home shouldn't fold it
+  // in the sidebar too, they're browsed differently.
+  const [collapsed, setCollapsed] = useState<string[]>(readHomeCollapsed)
+  useEffect(() => {
+    localStorage.setItem(HOME_COLLAPSE_KEY, JSON.stringify(collapsed))
+  }, [collapsed])
+  const toggle = (id: string) =>
+    setCollapsed((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
 
   return (
     <div className='flex flex-col h-full overflow-y-auto'>
@@ -246,13 +269,25 @@ function Welcome({ onNew }: { onNew: () => void }) {
       </div>
 
       {/* One grid per section */}
-      {filed.map(({ section, convs }) => (
+      {filed.map(({ section, convs }) => {
+        const isCollapsed = collapsed.includes(section.id)
+        const unread = convs.reduce((n, c) => n + (c.unread_count || 0), 0)
+        return (
         <div key={section.id} className='max-w-2xl w-full mx-auto px-4 pb-8 mt-2'>
-          <h2 className='text-xs font-medium text-text-muted uppercase tracking-wider mb-3 flex items-center gap-1.5'>
-            <Folder size={13} />
+          <button
+            onClick={() => toggle(section.id)}
+            className='flex items-center gap-1.5 mb-3 text-xs font-medium text-text-muted uppercase tracking-wider hover:text-text-secondary transition-colors'
+          >
             {section.name}
-          </h2>
-          <div className='grid grid-cols-2 md:grid-cols-3 gap-3'>
+            {isCollapsed && unread > 0 && (
+              <span className='min-w-[18px] h-[18px] px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[10px] font-medium'>
+                {unread}
+              </span>
+            )}
+          </button>
+          <div
+            className={`grid grid-cols-2 md:grid-cols-3 gap-3 ${isCollapsed ? 'hidden' : ''}`}
+          >
             {convs.map((conv) => (
               <button
                 key={conv.id}
@@ -278,7 +313,8 @@ function Welcome({ onNew }: { onNew: () => void }) {
             ))}
           </div>
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
