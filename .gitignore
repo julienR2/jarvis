@@ -64,3 +64,4 @@ agent/skills/*
 agent/rules/*
 !agent/rules/safety.md
 !agent/rules/formatting.md
+!agent/rules/emails.md
