@@ -74,8 +74,20 @@ export const api = {
     request<Conversation[]>('GET', '/conversations'),
   createConversation: (title?: string) =>
     request<Conversation>('POST', '/conversations', { title }),
-  getConversation: (id: string) =>
-    request<ConversationWithMessages>('GET', `/conversations/${id}`),
+  // Messages come back as the newest page (oldest-first within the page).
+  // `limit` is how many of them to load — pass the count already held to keep
+  // previously paged-in history when re-syncing.
+  getConversation: (id: string, limit?: number) =>
+    request<ConversationWithMessages>(
+      'GET',
+      `/conversations/${id}${limit ? `?limit=${limit}` : ''}`,
+    ),
+  // Older messages, walking backwards from a message's `seq`.
+  getOlderMessages: (id: string, before: number, limit?: number) =>
+    request<MessagePage>(
+      'GET',
+      `/conversations/${id}/messages?before=${before}${limit ? `&limit=${limit}` : ''}`,
+    ),
   updateConversation: (
     id: string,
     data: { title?: string; notify?: string; model?: string; effort?: Effort; section_id?: string | null },
@@ -310,11 +322,17 @@ export interface Message {
   result?: string | null
   metadata?: string | null
   created_at: number
+  /** Server-side insertion order — the pagination cursor. */
+  seq: number
 }
 
-export interface ConversationWithMessages extends Conversation {
+export interface MessagePage {
   messages: Message[]
+  /** Whether older messages exist before `messages[0]`. */
+  has_more: boolean
 }
+
+export interface ConversationWithMessages extends Conversation, MessagePage {}
 
 export interface Section {
   id: string

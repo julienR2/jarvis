@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, connectEvents, type ChatEvent } from '../api'
+import { connectEvents, type ChatEvent } from '../api'
 import { useChatStore } from '../stores/chatStore'
 
 // Subscribes to the per-conversation SSE stream and dispatches into the chat store.
@@ -47,9 +47,7 @@ export function useChatEvents(conversationId: string | undefined): {
     let wasConnected = false
     const conn = connectEvents(conversationId, handleEvent, (status) => {
       if (status && wasConnected) {
-        api.getConversation(conversationId).then((full) => {
-          useChatStore.getState().reconcileConversation(full)
-        })
+        useChatStore.getState().resyncConversation(conversationId)
       }
       wasConnected = true
     })

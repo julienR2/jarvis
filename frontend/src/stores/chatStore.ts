@@ -13,11 +13,19 @@ type PatchableFields = Pick<
   'title' | 'notify' | 'model' | 'effort' | 'section_id'
 >
 
+// How many messages to pull per page. Deliberately generous: one round-trip
+// covers most conversations entirely, and paging is only there to keep very
+// long ones (mail triage, crons) from rendering thousands of bubbles at once.
+export const MESSAGE_PAGE_SIZE = 100
+
 interface ChatState {
   conversations: Record<string, Conversation>
   order: string[]
   sections: Section[]
   messages: Record<string, Message[]>
+  /** Older messages exist before `messages[convId][0]`. */
+  hasMore: Record<string, boolean>
+  loadingOlder: Record<string, boolean>
   processing: Record<string, boolean>
   listLoaded: boolean
   convsLoaded: Record<string, boolean>
@@ -36,6 +44,8 @@ interface ChatState {
 
   // ── Single-conversation actions ──────────────────────────────────────────
   loadConversation: (id: string) => Promise<void>
+  loadOlderMessages: (id: string) => Promise<void>
+  resyncConversation: (id: string) => Promise<void>
   patchConversation: (id: string, patch: Partial<PatchableFields>) => Promise<void>
 
   // ── SSE-driven mutations (no API call) ───────────────────────────────────
@@ -49,6 +59,13 @@ interface ChatState {
 
 function toast(kind: 'error' | 'info', msg: string) {
   window.__jarvisToast?.[kind](msg)
+}
+
+// Any refetch of a conversation must ask for at least as many messages as are
+// already on screen, otherwise re-syncing (SSE reconnect, app refresh) would
+// throw away the older pages the user scrolled back through.
+function loadedWindow(state: ChatState, id: string): number {
+  return Math.max(MESSAGE_PAGE_SIZE, state.messages[id]?.length ?? 0)
 }
 
 function mergeMessages(prev: Message[], next: Message[]): Message[] {
@@ -70,6 +87,8 @@ export const useChatStore = create<ChatState>()(
     order: [],
     sections: [],
     messages: {},
+    hasMore: {},
+    loadingOlder: {},
     processing: {},
     listLoaded: false,
     convsLoaded: {},
@@ -113,6 +132,8 @@ export const useChatStore = create<ChatState>()(
         delete s.conversations[id]
         s.order = s.order.filter((x) => x !== id)
         delete s.messages[id]
+        delete s.hasMore[id]
+        delete s.loadingOlder[id]
         delete s.processing[id]
         delete s.convsLoaded[id]
       })
@@ -224,16 +245,56 @@ export const useChatStore = create<ChatState>()(
 
     async loadConversation(id) {
       try {
-        const conv = await api.getConversation(id)
+        const conv = await api.getConversation(id, loadedWindow(get(), id))
         set((s) => {
-          const { messages, ...meta } = conv
+          const { messages, has_more, ...meta } = conv
           s.conversations[id] = meta
           if (!s.order.includes(id)) s.order.unshift(id)
           s.messages[id] = mergeMessages(s.messages[id] ?? [], messages)
+          s.hasMore[id] = has_more
           s.convsLoaded[id] = true
         })
       } catch (err) {
         console.error('Failed to load conversation:', err)
+      }
+    },
+
+    async loadOlderMessages(id) {
+      const state = get()
+      if (state.loadingOlder[id] || !state.hasMore[id]) return
+      const oldest = state.messages[id]?.[0]
+      if (!oldest?.seq) return
+
+      set((s) => {
+        s.loadingOlder[id] = true
+      })
+      try {
+        const page = await api.getOlderMessages(id, oldest.seq, MESSAGE_PAGE_SIZE)
+        set((s) => {
+          const list = s.messages[id] ?? []
+          const known = new Set(list.map((m) => m.id))
+          const older = page.messages.filter((m) => !known.has(m.id))
+          s.messages[id] = [...older, ...list]
+          // If a page brought nothing new the cursor can't advance, so stop
+          // rather than let the scroll sentinel refetch it forever.
+          s.hasMore[id] = page.has_more && older.length > 0
+        })
+      } catch (err) {
+        console.error('Failed to load older messages:', err)
+        toast('error', 'Failed to load older messages')
+      } finally {
+        set((s) => {
+          s.loadingOlder[id] = false
+        })
+      }
+    },
+
+    async resyncConversation(id) {
+      try {
+        const full = await api.getConversation(id, loadedWindow(get(), id))
+        get().reconcileConversation(full)
+      } catch (err) {
+        console.error('Failed to resync conversation:', err)
       }
     },
 
@@ -304,10 +365,11 @@ export const useChatStore = create<ChatState>()(
 
     reconcileConversation(full) {
       set((s) => {
-        const { messages, ...meta } = full
+        const { messages, has_more, ...meta } = full
         s.conversations[full.id] = meta
         if (!s.order.includes(full.id)) s.order.unshift(full.id)
         s.messages[full.id] = mergeMessages(s.messages[full.id] ?? [], messages)
+        s.hasMore[full.id] = has_more
         s.convsLoaded[full.id] = true
         s.processing[full.id] = false
       })

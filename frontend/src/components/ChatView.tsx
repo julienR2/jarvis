@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Clock, Link2, BellOff, BellRing } from 'lucide-react'
+import { Clock, Link2, BellOff, BellRing, Loader2 } from 'lucide-react'
 import {
   api,
   type Message,
@@ -61,6 +61,9 @@ export default function ChatView({
   const loaded = useChatStore((s) =>
     conversationId ? !!s.convsLoaded[conversationId] : false,
   )
+  const hasMore = useChatStore((s) =>
+    conversationId ? !!s.hasMore[conversationId] : false,
+  )
 
   const title = conv?.title ?? ''
   const hasApp = !!conv?.app_path
@@ -78,6 +81,7 @@ export default function ChatView({
   const [renameValue, setRenameValue] = useState('')
   const [moving, setMoving] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const topSentinelRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [floatingLabel, setFloatingLabel] = useState<string | null>(null)
@@ -100,9 +104,42 @@ export default function ChatView({
     }
   }, [initialMessage])
 
+  // Start each conversation at the bottom (col-reverse: scrollTop 0 = bottom).
   useEffect(() => {
+    const container = scrollContainerRef.current
+    if (container) container.scrollTop = 0
+  }, [conversationId])
+
+  // Follow the conversation as it grows — but only when already at the bottom.
+  // Scrolled up means the user is reading history: neither new messages nor
+  // prepended older pages should yank the viewport away. (The list lives in a
+  // flex-col-reverse container, so a prepend keeps visible messages in place
+  // and scrollTop is 0 at the bottom, going negative upward.)
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    if (container && Math.abs(container.scrollTop) > 100) return
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isProcessing])
+
+  // Load the previous page as the top of the list approaches the viewport.
+  // Re-created on every length change so that a page which lands entirely
+  // inside the prefetch margin immediately triggers the next one.
+  useEffect(() => {
+    const sentinel = topSentinelRef.current
+    const root = scrollContainerRef.current
+    if (!conversationId || !hasMore || !sentinel || !root) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          useChatStore.getState().loadOlderMessages(conversationId)
+        }
+      },
+      { root, rootMargin: '600px 0px 0px 0px' },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [conversationId, hasMore, messages.length])
 
   useEffect(() => () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current) }, [])
 
@@ -318,6 +355,11 @@ export default function ChatView({
                   <MessageSkeleton />
                 ) : (
                   <>
+                    {hasMore && (
+                      <div ref={topSentinelRef} className='flex justify-center py-4'>
+                        <Loader2 size={16} className='animate-spin text-text-muted' />
+                      </div>
+                    )}
                     {groupMessagesByDay(messages).map((item) =>
                       item.type === 'separator' ? (
                         <DateSeparator key={item.key} label={item.label} />

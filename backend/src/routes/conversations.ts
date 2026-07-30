@@ -76,6 +76,63 @@ function detectUploadedFiles(text: string): Attachment[] {
   return attachments
 }
 
+// ── Message pagination ───────────────────────────────────────────────────────
+// Long conversations (mail triage, crons) grow to thousands of messages, which
+// is too much DOM for the client to render at once. Reads are paginated
+// newest-first; the client walks backwards as the user scrolls up.
+
+const MESSAGE_PAGE_SIZE = 100
+// Ceiling on `limit`. A client that has paged back further than this and then
+// re-syncs gets trimmed to the newest 1000 and has to scroll again — the only
+// cost of not tracking gaps client-side.
+const MAX_MESSAGE_PAGE_SIZE = 1000
+
+/** Read a message back with its cursor, for SSE payloads. */
+function getMessageRow(id: string): MessageRow {
+  return getDb()
+    .prepare('SELECT m.*, m.rowid AS seq FROM messages m WHERE m.id = ?')
+    .get(id) as MessageRow
+}
+
+/**
+ * The `limit` newest messages, returned oldest-first so the client can render
+ * (and prepend) them without re-sorting. `before` is the `seq` of the oldest
+ * message the client already holds.
+ *
+ * Ordering keys on created_at then rowid: created_at only has second
+ * resolution, so it can't order a burst of messages on its own, while rowid is
+ * strict insertion order — which is why it, not created_at, is the cursor.
+ */
+function fetchMessagePage(
+  conversationId: string,
+  limit: number,
+  before?: number,
+): { messages: MessageRow[]; has_more: boolean } {
+  // One row past the limit tells us whether an older page exists, no COUNT(*).
+  const rows = getDb()
+    .prepare(
+      `SELECT m.*, m.rowid AS seq FROM messages m
+        WHERE m.conversation_id = ?${before ? ' AND m.rowid < ?' : ''}
+        ORDER BY m.created_at DESC, m.rowid DESC
+        LIMIT ?`,
+    )
+    .all(
+      ...(before
+        ? [conversationId, before, limit + 1]
+        : [conversationId, limit + 1]),
+    ) as MessageRow[]
+
+  const has_more = rows.length > limit
+  if (has_more) rows.pop()
+  return { messages: rows.reverse(), has_more }
+}
+
+function parsePageLimit(raw: string | undefined): number {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return MESSAGE_PAGE_SIZE
+  return Math.min(Math.floor(n), MAX_MESSAGE_PAGE_SIZE)
+}
+
 // Track SSE clients per conversation for push notification decisions
 const sseClients = new Map<string, number>()
 
@@ -106,10 +163,10 @@ function emitConversationError(conversationId: string, content: string) {
       'INSERT INTO messages (id, conversation_id, role, type, content) VALUES (?, ?, ?, ?, ?)',
     )
     .run(errorMsgId, conversationId, 'assistant', 'error', content)
-  const row = getDb()
-    .prepare('SELECT * FROM messages WHERE id = ?')
-    .get(errorMsgId) as MessageRow
-  emitConversationEvent(conversationId, { type: 'message', message: row })
+  emitConversationEvent(conversationId, {
+    type: 'message',
+    message: getMessageRow(errorMsgId),
+  })
 }
 
 export function processMessage(
@@ -177,9 +234,7 @@ export function processMessage(
       )
       .run(userMsgId, conversationId, 'user', savedContent, metadata)
 
-    const userRow = getDb()
-      .prepare('SELECT * FROM messages WHERE id = ?')
-      .get(userMsgId) as MessageRow
+    const userRow = getMessageRow(userMsgId)
     console.log(
       `[msg] emit message (user) ${userMsgId}: ${userContent.slice(0, 80)}`,
     )
@@ -261,9 +316,7 @@ export function attachInvocationStream(
         .run(content, msgId)
     }
 
-    const row = getDb()
-      .prepare('SELECT * FROM messages WHERE id = ?')
-      .get(msgId) as MessageRow
+    const row = getMessageRow(msgId)
     console.log(`[msg] emit message ${msgId}: ${lines.length} lines`)
     emitConversationEvent(conversationId, { type: 'message', message: row })
   }
@@ -298,9 +351,7 @@ export function attachInvocationStream(
             .run(resultText, msgId)
         }
 
-        const row = getDb()
-          .prepare('SELECT * FROM messages WHERE id = ?')
-          .get(msgId) as MessageRow
+        const row = getMessageRow(msgId)
         console.log(`[msg] emit message (done) ${msgId}`)
         emitConversationEvent(conversationId, { type: 'message', message: row })
 
@@ -396,9 +447,7 @@ export function attachInvocationStream(
           )
           .run(errorMsgId, conversationId, 'assistant', 'error', ev.message)
 
-        const errorRow = getDb()
-          .prepare('SELECT * FROM messages WHERE id = ?')
-          .get(errorMsgId) as MessageRow
+        const errorRow = getMessageRow(errorMsgId)
         console.log(`[msg] emit message (error) ${errorMsgId}`)
         emitConversationEvent(conversationId, {
           type: 'message',
@@ -493,30 +542,50 @@ export async function conversationRoutes(app: FastifyInstance) {
     return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id)
   })
 
-  app.get<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
-    const conv = getDb()
-      .prepare(
-        `SELECT c.*,
+  // Returns the conversation with its most recent page of messages. `limit`
+  // lets a reconnecting client ask for everything it had already loaded, so
+  // catching up doesn't throw away the pages it scrolled back through.
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
+    '/:id',
+    auth,
+    async (req, reply) => {
+      const conv = getDb()
+        .prepare(
+          `SELECT c.*,
           (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
           (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook
          FROM conversations c WHERE c.id = ?`,
-      )
+        )
+        .get(req.params.id)
+      if (!conv) return reply.code(404).send({ error: 'Not found' })
+
+      getDb()
+        .prepare(
+          'UPDATE conversations SET last_read_at = unixepoch() WHERE id = ?',
+        )
+        .run(req.params.id)
+
+      const page = fetchMessagePage(req.params.id, parsePageLimit(req.query.limit))
+      return { ...(conv as object), ...page }
+    },
+  )
+
+  // Older messages, walking backwards from the `before` cursor (a message `seq`).
+  app.get<{
+    Params: { id: string }
+    Querystring: { before?: string; limit?: string }
+  }>('/:id/messages', auth, async (req, reply) => {
+    const exists = getDb()
+      .prepare('SELECT 1 FROM conversations WHERE id = ?')
       .get(req.params.id)
-    if (!conv) return reply.code(404).send({ error: 'Not found' })
+    if (!exists) return reply.code(404).send({ error: 'Not found' })
 
-    getDb()
-      .prepare(
-        'UPDATE conversations SET last_read_at = unixepoch() WHERE id = ?',
-      )
-      .run(req.params.id)
-
-    const messages = getDb()
-      .prepare(
-        'SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
-      )
-      .all(req.params.id)
-
-    return { ...(conv as object), messages }
+    const before = Number(req.query.before)
+    return fetchMessagePage(
+      req.params.id,
+      parsePageLimit(req.query.limit),
+      Number.isFinite(before) && before > 0 ? before : undefined,
+    )
   })
 
   app.patch<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {

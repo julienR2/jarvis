@@ -30,6 +30,8 @@ export interface MessageRow {
   result: string | null
   metadata: string | null
   created_at: number
+  /** SQLite rowid — strict insertion order, used as the pagination cursor. */
+  seq: number
 }
 
 export interface CronRow {
