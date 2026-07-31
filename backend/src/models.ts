@@ -10,6 +10,12 @@
 // model generation ships. Nothing else in the backend should hardcode a model id.
 export const DEFAULT_MODEL = 'claude-opus-5'
 
+// Model used by subagents (Task tool fan-outs: searches, email triage, …).
+// They do scoped, disposable work, so a cheaper tier than the main loop is
+// fine. Applied via the CLAUDE_CODE_SUBAGENT_MODEL env var at spawn time;
+// agents whose definition pins an explicit model still win over this default.
+export const SUBAGENT_MODEL = 'claude-sonnet-5'
+
 /** Resolve a stored/optional model id, falling back to the global default. */
 export function resolveModel(model?: string | null): string {
   return model ?? DEFAULT_MODEL

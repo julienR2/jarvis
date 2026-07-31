@@ -169,9 +169,11 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
   const allUploaded = files.every(f => f.uploaded || f.error)
   const hasContent = !!input.trim() || files.some(f => f.uploaded)
 
-  // Mic shows when no text typed, OR when files are attached (even with text)
-  const showMic = !isProcessing && !audioActive && (!input.trim() || hasFiles)
-  const showSend = !isProcessing && !audioActive && hasContent && (!hasFiles || allUploaded)
+  // Mic shows when no text typed, OR when files are attached (even with text).
+  // Send stays available while Claude works: the message is steered into the
+  // running turn (Stop shows alongside it in that case).
+  const showMic = !audioActive && (!input.trim() || hasFiles)
+  const showSend = !audioActive && hasContent && (!hasFiles || allUploaded)
   const showCancel = isProcessing && !audioActive
 
   return (
@@ -256,7 +258,6 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
             {/* Attach button */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={isProcessing}
               className="p-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-bg transition-colors disabled:opacity-30"
               title="Attach file"
             >
@@ -270,7 +271,6 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
                   onAudioReady={handleTranscript}
                   onTranscribeReady={handleTranscribeOnly}
                   onActiveChange={setAudioActive}
-                  disabled={isProcessing}
                 />
               </div>
               {showSend && (

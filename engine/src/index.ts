@@ -1,41 +1,31 @@
 import Fastify from 'fastify'
 import { spawn, type ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
-import { readFileSync, existsSync } from 'fs'
-
-// The shared INTERNAL_SECRET is the auth token for this service AND is needed by
-// Claude subprocesses to call the backend's /internal/* API. Read it fresh (not
-// cached at module load) so that on a cold boot — where the backend generates and
-// persists the secret only after the engine has started — the engine picks it up
-// as soon as secrets.json appears, without a restart.
-function internalSecret(): string | undefined {
-  const env = process.env.INTERNAL_SECRET
-  if (env && env !== 'internal') return env
-  try {
-    const secretsPath = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
-    return JSON.parse(readFileSync(secretsPath, 'utf8')).internal || undefined
-  } catch { return undefined }
-}
-
-// Back-fill the Claude OAuth token from the persisted secrets file when it is
-// not already in the environment. Read fresh (not cached) so a token saved via
-// the onboarding flow is usable immediately, without a container restart.
-function claudeOauthToken(): string | undefined {
-  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return process.env.CLAUDE_CODE_OAUTH_TOKEN
-  try {
-    const secretsPath = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
-    return JSON.parse(readFileSync(secretsPath, 'utf8')).claudeOauthToken || undefined
-  } catch { return undefined }
-}
+import { existsSync } from 'fs'
+import {
+  type ClaudeEvent,
+  WORKSPACE_DIR,
+  MAX_EVENTS,
+  internalSecret,
+  claudeOauthToken,
+} from './shared.js'
+import {
+  ensureSession,
+  getSession,
+  isBusy as isSessionBusy,
+  listSessions,
+  sendUserMessage,
+  interruptSession,
+  type SessionEvent,
+} from './sessions.js'
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-export type ClaudeEvent =
-  | { type: 'thinking' }
-  | { type: 'tool'; name: string }
-  | { type: 'chunk'; text: string }
-  | { type: 'done'; result: string; sessionId: string | null }
-  | { type: 'error'; message: string }
+//
+// This file still hosts the LEGACY one-shot stack (one `claude -p` process per
+// message) so an un-migrated backend keeps working against this engine. New
+// code lives in sessions.ts (persistent process per conversation, stream-json
+// stdin). Once the backend only speaks the session API, the legacy stack —
+// Invocation, spawnClaudeProcess, /invoke — can be deleted wholesale.
 
 interface Invocation {
   id: string
@@ -60,8 +50,6 @@ interface Invocation {
 // ── Config ───────────────────────────────────────────────────────────────────
 
 const PORT = parseInt(process.env.PORT || '3010')
-const WORKSPACE_DIR = process.env.WORKSPACE_DIR || '/jarvis/agent/workspace'
-const MAX_EVENTS = 1000
 const CLEANUP_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -457,12 +445,107 @@ app.post<{
   return { invocationId: id }
 })
 
-// GET /stream/:invocationId — SSE stream of events (replay + live)
+// POST /message — feed a user message into the conversation's persistent
+// session (spawning it on first use). Unlike /invoke, this never refuses a
+// busy conversation: the CLI receives mid-turn messages immediately and
+// steers/queues them itself.
+app.post<{
+  Body: {
+    prompt: string
+    sessionId?: string | null
+    conversationId: string
+    model?: string
+    effort?: string
+    envVars?: Record<string, string>
+    oneShot?: boolean
+  }
+}>('/message', async (req, reply) => {
+  const { prompt, sessionId, conversationId, model, effort, envVars, oneShot } =
+    req.body || ({} as any)
+
+  if (!prompt || !conversationId) {
+    return reply.code(400).send({ error: 'prompt and conversationId are required' })
+  }
+
+  // A leftover legacy invocation still owns this conversation — two processes
+  // resuming the same claude session would fork it. Only happens in the short
+  // migration window; the caller retries after the legacy turn ends.
+  const legacyId = activeByConversation.get(conversationId)
+  if (legacyId && invocations.get(legacyId)?.status === 'running') {
+    return reply.code(409).send({
+      error: 'a legacy invocation is still running for this conversation',
+    })
+  }
+
+  const sess = ensureSession({
+    conversationId,
+    resumeSessionId: sessionId ?? null,
+    model,
+    effort,
+    envVars,
+    oneShot,
+  })
+  const queued = sendUserMessage(sess, prompt)
+  return { ok: true, queued }
+})
+
+// POST /interrupt/:conversationId — soft-cancel the current turn (control
+// protocol). The session survives; only the in-flight turn stops.
+app.post<{ Params: { conversationId: string } }>(
+  '/interrupt/:conversationId',
+  async (req) => {
+    const interrupted = interruptSession(req.params.conversationId)
+    return { ok: true, interrupted }
+  },
+)
+
+// SSE for a persistent session. Unlike a legacy invocation stream — which ends
+// at the turn's done/error — a session stream spans turns and only ends when
+// the session itself closes (idle reap, eviction, process exit).
+function streamSession(req: any, reply: any) {
+  const sess = getSession(req.params.invocationId)
+  if (!sess) return reply.code(404).send({ error: 'not found' })
+
+  reply.raw.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  })
+  reply.raw.write('\n')
+  reply.hijack()
+
+  // Replay the current turn's buffered events
+  for (const ev of sess.events) {
+    reply.raw.write(`data: ${JSON.stringify(ev)}\n\n`)
+  }
+
+  const handler = (ev: SessionEvent) => {
+    reply.raw.write(`data: ${JSON.stringify(ev)}\n\n`)
+    if (ev.type === 'end') reply.raw.end()
+  }
+  sess.subscribers.add(handler)
+
+  const heartbeat = setInterval(() => {
+    reply.raw.write(': heartbeat\n\n')
+  }, 30000)
+
+  req.raw.on('close', () => {
+    sess.subscribers.delete(handler)
+    clearInterval(heartbeat)
+  })
+}
+
+// GET /stream/:id — SSE stream of events (replay + live).
+// `id` may be a legacy invocation id, or a conversation id (which resolves to
+// the conversation's live legacy invocation if any, else its session).
 app.get<{ Params: { invocationId: string } }>(
   '/stream/:invocationId',
   async (req, reply) => {
-    const inv = invocations.get(req.params.invocationId)
-    if (!inv) return reply.code(404).send({ error: 'invocation not found' })
+    const inv =
+      invocations.get(req.params.invocationId) ??
+      invocations.get(activeByConversation.get(req.params.invocationId) ?? '')
+    if (!inv) return streamSession(req, reply)
 
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -507,12 +590,22 @@ app.get<{ Params: { invocationId: string } }>(
   },
 )
 
-// POST /cancel/:invocationId — SIGTERM the process
+// POST /cancel/:id — stop the current work. For a legacy invocation (by id or
+// by conversation id) that's a SIGTERM; for a session it's a soft interrupt
+// that keeps the process alive.
 app.post<{ Params: { invocationId: string } }>(
   '/cancel/:invocationId',
   async (req, reply) => {
-    const inv = invocations.get(req.params.invocationId)
-    if (!inv) return reply.code(404).send({ error: 'invocation not found' })
+    const inv =
+      invocations.get(req.params.invocationId) ??
+      invocations.get(activeByConversation.get(req.params.invocationId) ?? '')
+    if (!inv) {
+      if (getSession(req.params.invocationId)) {
+        interruptSession(req.params.invocationId)
+        return { ok: true }
+      }
+      return reply.code(404).send({ error: 'invocation not found' })
+    }
 
     if (inv.status === 'running' && inv.process) {
       inv.process.kill('SIGTERM')
@@ -529,7 +622,8 @@ app.post<{ Params: { invocationId: string } }>(
   },
 )
 
-// GET /status — all invocations
+// GET /status — all invocations (legacy shape) + sessions + a unified
+// conversation-level view used by the backend's restart-reconnect logic.
 app.get('/status', async () => {
   const list = []
   for (const inv of invocations.values()) {
@@ -542,7 +636,17 @@ app.get('/status', async () => {
       eventCount: inv.events.length,
     })
   }
-  return { invocations: list }
+  const sessions = listSessions()
+  const conversations = [
+    ...list
+      .filter((inv) => inv.status === 'running')
+      .map((inv) => ({ conversationId: inv.conversationId, busy: true })),
+    ...sessions.map((s) => ({
+      conversationId: s.conversationId,
+      busy: s.status === 'busy',
+    })),
+  ]
+  return { invocations: list, sessions, conversations }
 })
 
 // GET /running/:conversationId — is a claude process active for this conversation?
@@ -550,10 +654,16 @@ app.get<{ Params: { conversationId: string } }>(
   '/running/:conversationId',
   async (req) => {
     const id = activeByConversation.get(req.params.conversationId)
-    if (!id) return { running: false }
-    const inv = invocations.get(id)
-    if (!inv || inv.status !== 'running') return { running: false }
-    return { running: true, invocationId: id }
+    if (id) {
+      const inv = invocations.get(id)
+      if (inv && inv.status === 'running') return { running: true, invocationId: id }
+    }
+    // Session stack: a busy session counts as running; expose the conversation
+    // id as the handle since cancel/stream both accept it.
+    if (isSessionBusy(req.params.conversationId)) {
+      return { running: true, invocationId: req.params.conversationId }
+    }
+    return { running: false }
   },
 )
 

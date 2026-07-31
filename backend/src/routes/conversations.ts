@@ -4,11 +4,10 @@ import { basename, extname } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { archiveAppDir } from '../app-archive.js'
 import {
-  invoke,
-  streamEvents,
-  cancelInvocation,
+  sendMessage,
+  streamConversation,
+  interruptConversation,
   isRunning,
-  getRunningInvocation,
 } from '../engine.js'
 import { generateTitle } from '../titles.js'
 import { resolveModel } from '../models.js'
@@ -141,10 +140,9 @@ const cancelledConversations = new Set<string>()
 
 export async function cancelConversation(conversationId: string): Promise<void> {
   cancelledConversations.add(conversationId)
-  const status = await getRunningInvocation(conversationId)
-  if (status.running) {
-    await cancelInvocation(status.invocationId)
-  }
+  // Soft interrupt: the engine stops the in-flight turn via the CLI control
+  // protocol but keeps the session (and its warm context) alive.
+  await interruptConversation(conversationId)
   emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
 }
 
@@ -249,23 +247,27 @@ export function processMessage(
   console.log(`[msg] emit thinking: true`)
   emitConversationEvent(conversationId, { type: 'thinking', thinking: true })
 
-  // Kick off the claude invocation asynchronously. The engine owns
-  // the process lifecycle now; we just stream its events back into an
-  // event handler that persists everything to the DB.
-  invoke({
+  // Feed the message into the conversation's persistent session. If a turn is
+  // already running the CLI steers/queues it — never refused. The engine owns
+  // the process lifecycle; we just stream its events back into an event
+  // handler that persists everything to the DB.
+  sendMessage({
     prompt: claudePrompt,
     sessionId: conv.claude_session_id,
     conversationId,
     model: resolveModel(options?.model),
     effort: options?.effort,
   })
-    .then((invocationId) => {
-      attachInvocationStream(invocationId, conversationId, conv, {
+    .then(({ queued }) => {
+      if (queued) {
+        console.log(`[msg] steered into the running turn of ${conversationId}`)
+      }
+      attachConversationStream(conversationId, conv, {
         onDone: options?.onDone,
       })
     })
     .catch((err) => {
-      console.error('[msg] invoke failed:', err)
+      console.error('[msg] sendMessage failed:', err)
       emitConversationError(
         conversationId,
         `Failed to start Claude: ${err?.message ?? err}`,
@@ -277,21 +279,38 @@ export function processMessage(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// attachInvocationStream — subscribe to a engine invocation and
-// stream its events into the DB + SSE. Used by both fresh invocations (from
-// processMessage) and by the reconnection path after a backend restart
-// (resumeProcessMessage).
+// attachConversationStream — subscribe to a conversation's engine stream and
+// persist its events into the DB + SSE. The stream spans turns (steered
+// messages, queued messages, subagent wake-ups all flow through the same
+// subscription), so exactly ONE attachment may exist per conversation — later
+// callers only enqueue their onDone callback. The attachment drops when the
+// engine ends the stream (session closed), and the next message re-creates it.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function attachInvocationStream(
-  invocationId: string,
+const attachedConversations = new Map<
+  string,
+  { onDoneQueue: Array<(text: string) => void> }
+>()
+
+export function attachConversationStream(
   conversationId: string,
   conv: ConvRow,
   options?: { onDone?: (text: string) => void },
 ): void {
-  // State for Claude processing — single message, progressively updated
+  const existing = attachedConversations.get(conversationId)
+  if (existing) {
+    if (options?.onDone) existing.onDoneQueue.push(options.onDone)
+    return
+  }
+  const attached = {
+    onDoneQueue: options?.onDone ? [options.onDone] : [],
+  }
+  attachedConversations.set(conversationId, attached)
+
+  // Per-turn assembly state — one assistant message, progressively updated,
+  // reset at every done/error so the next turn starts a fresh message.
   let msgId: string | null = null
-  const lines: string[] = []
+  let lines: string[] = []
 
   function appendLine(prefix: string, text: string) {
     lines.push(`[${prefix}] ${text}`)
@@ -307,6 +326,10 @@ export function attachInvocationStream(
           'INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, ?, ?)',
         )
         .run(msgId, conversationId, 'assistant', content)
+      // A new turn began. For turns the CLI starts on its own (background
+      // subagent wake-ups) no processMessage ran, so signal thinking here —
+      // it's idempotent for turns that did go through processMessage.
+      emitConversationEvent(conversationId, { type: 'thinking', thinking: true })
     } else {
       console.log(
         `[msg] db UPDATE assistant ${msgId}: +[${prefix}] ${text.slice(0, 80)}`,
@@ -371,12 +394,27 @@ export function attachInvocationStream(
           })
         }
 
-        console.log(`[msg] emit thinking: false`)
-        emitConversationEvent(conversationId, {
-          type: 'thinking',
-          thinking: false,
-        })
-        options?.onDone?.(resultText)
+        // Only drop the thinking indicator when the conversation is actually
+        // finished. A turn that ends with background subagents still running
+        // (ev.pending) will be followed by a wake-up turn — flickering the
+        // spinner off in between reads as "done" while work continues.
+        if (ev.pending) {
+          console.log(`[msg] turn done but background tasks pending — keeping thinking on`)
+        } else {
+          console.log(`[msg] emit thinking: false`)
+          emitConversationEvent(conversationId, {
+            type: 'thinking',
+            thinking: false,
+          })
+        }
+        // A soft interrupt resolves as a normal done — clear the suppression
+        // flag so it doesn't swallow a genuine error later in the session.
+        cancelledConversations.delete(conversationId)
+        for (const cb of attached.onDoneQueue.splice(0)) cb(resultText)
+        // Reset the per-turn state: the stream stays attached and the next
+        // turn (steered, queued or wake-up) starts a fresh assistant message.
+        msgId = null
+        lines = []
 
         // Send push based on notify setting:
         // - subscribe: always send (service worker suppresses if app visible)
@@ -428,6 +466,9 @@ export function attachInvocationStream(
 
       if (ev.type === 'error') {
         console.log(`[msg] error: ${ev.message.slice(0, 120)}`)
+        // Close out the turn either way — a new one may follow on this stream.
+        msgId = null
+        lines = []
 
         // Skip error message if this was a user-initiated cancellation
         if (cancelledConversations.has(conversationId)) {
@@ -469,18 +510,25 @@ export function attachInvocationStream(
       }
   }
 
-  streamEvents(invocationId, onEvent)
+  streamConversation(conversationId, onEvent, () => {
+    // Stream ended server-side (session closed / legacy turn finished) —
+    // drop the guard so the next message re-attaches. If a pending done kept
+    // the spinner on and the session died before its wake-up turn, this is
+    // the safety net that turns it off.
+    attachedConversations.delete(conversationId)
+    emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// resumeProcessMessage — re-attach to a running invocation after a backend
-// restart. The engine kept the process alive and buffered its events;
-// we drop any partial assistant message that was being written before the
-// restart (so the replay doesn't duplicate content) and then stream normally.
+// resumeProcessMessage — re-attach to a busy conversation after a backend
+// restart. The engine kept the process alive and buffered the current turn's
+// events; we drop any partial assistant message that was being written before
+// the restart (so the replay doesn't duplicate content) and then stream
+// normally.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function resumeProcessMessage(
-  invocationId: string,
   conversationId: string,
   conv: ConvRow,
 ): void {
@@ -506,7 +554,7 @@ export function resumeProcessMessage(
   // the spinner until the done event arrives.
   emitConversationEvent(conversationId, { type: 'thinking', thinking: true })
 
-  attachInvocationStream(invocationId, conversationId, conv)
+  attachConversationStream(conversationId, conv)
 }
 
 export async function conversationRoutes(app: FastifyInstance) {
@@ -714,7 +762,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       })
 
       // If Claude is already running for this conversation, notify the new client
-      if ((await getRunningInvocation(id)).running) {
+      if (await isRunning(id)) {
         reply.raw.write(
           `data: ${JSON.stringify({ type: 'thinking', thinking: true })}\n\n`,
         )
@@ -765,12 +813,8 @@ export async function conversationRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'Empty message' })
       }
 
-      if (await isRunning(id)) {
-        return reply.code(409).send({
-          error: 'Claude is already processing a message in this conversation',
-        })
-      }
-
+      // No busy check: a message sent while Claude works is steered into the
+      // running turn (or queued) by the CLI — that's a feature now.
       const userMsgId = processMessage(
         id,
         conv,
@@ -863,12 +907,6 @@ export async function conversationRoutes(app: FastifyInstance) {
         .prepare('SELECT * FROM conversations WHERE id = ?')
         .get(id) as ConvRow | undefined
       if (!conv) return reply.code(404).send({ error: 'Not found' })
-
-      if (await isRunning(id)) {
-        return reply.code(409).send({
-          error: 'Claude is already processing a message in this conversation',
-        })
-      }
 
       const file = await req.file()
       if (!file) return reply.code(400).send({ error: 'No audio file' })

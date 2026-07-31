@@ -26,7 +26,7 @@ import { manifestRoutes } from './routes/manifest.js'
 import { startCronScheduler } from './crons.js'
 import { initPush } from './push.js'
 import { subscribeGlobal, addGlobalClient, removeGlobalClient } from './sse.js'
-import { listActiveInvocations } from './engine.js'
+import { listBusyConversations } from './engine.js'
 import type { ConvRow } from './types.js'
 
 // ── Fastify type augmentation ────────────────────────────────────────────────
@@ -173,27 +173,25 @@ startCronScheduler()
 
 async function reconnectActiveSessions(): Promise<void> {
   try {
-    const invocations = await listActiveInvocations()
-    const running = invocations.filter((inv) => inv.status === 'running')
-    if (running.length === 0) return
+    const busy = await listBusyConversations()
+    if (busy.length === 0) return
 
     console.log(
-      `[reconnect] found ${running.length} running invocation(s) to resume`,
+      `[reconnect] found ${busy.length} busy conversation(s) to resume`,
     )
-    for (const inv of running) {
+    for (const conversationId of busy) {
       const conv = getDb()
         .prepare('SELECT * FROM conversations WHERE id = ?')
-        .get(inv.conversationId) as ConvRow | undefined
+        .get(conversationId) as ConvRow | undefined
       if (!conv) {
+        // Synthetic ids (title generation, probes) have no conversation row.
         console.warn(
-          `[reconnect] conversation ${inv.conversationId} not found, skipping invocation ${inv.id}`,
+          `[reconnect] conversation ${conversationId} not found, skipping`,
         )
         continue
       }
-      console.log(
-        `[reconnect] resuming invocation ${inv.id} for conversation ${inv.conversationId}`,
-      )
-      resumeProcessMessage(inv.id, inv.conversationId, conv)
+      console.log(`[reconnect] resuming conversation ${conversationId}`)
+      resumeProcessMessage(conversationId, conv)
     }
   } catch (err) {
     console.error('[reconnect] failed:', err)
