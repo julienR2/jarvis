@@ -259,12 +259,19 @@ export function processMessage(
     effort: options?.effort,
   })
     .then(({ queued }) => {
-      if (queued) {
-        console.log(`[msg] steered into the running turn of ${conversationId}`)
-      }
       attachConversationStream(conversationId, conv, {
         onDone: options?.onDone,
       })
+      if (queued) {
+        console.log(`[msg] steered into the running turn of ${conversationId}`)
+        // The user row is already in the DB, sitting between the assistant
+        // message in progress and whatever comes next. Ask the stream to stop
+        // growing that message so the rest of the turn lands in a new one
+        // *after* the user bubble — otherwise the reply keeps appending above
+        // it and the message reads as if it were never taken into account.
+        // Attach first: it creates the entry this flag lives on.
+        markSteerPending(conversationId)
+      }
     })
     .catch((err) => {
       console.error('[msg] sendMessage failed:', err)
@@ -289,8 +296,31 @@ export function processMessage(
 
 const attachedConversations = new Map<
   string,
-  { onDoneQueue: Array<(text: string) => void> }
+  {
+    onDoneQueue: Array<(text: string) => void>
+    // A message was steered into the running turn: close the assistant message
+    // in progress at the next event so the reply resumes in a new one below the
+    // user bubble. Set by markSteerPending(), consumed in appendLine().
+    steerPending: boolean
+  }
 >()
+
+/**
+ * Mark that a mid-turn message was steered into `conversationId`, so the
+ * assistant message in progress gets closed before the next event is appended.
+ *
+ * The CLI gives no signal for the moment it actually reads a steered message
+ * (it splices the text into its next API request without emitting it on
+ * stdout), so arrival is the only handle we have. The next event is a close
+ * proxy: the CLI can only pick the message up at a request boundary, which is
+ * where the following event comes from. It can land a beat early when more
+ * pre-steering work was already queued — good enough, and far better than the
+ * reply growing above the user bubble for the rest of the turn.
+ */
+function markSteerPending(conversationId: string): void {
+  const attached = attachedConversations.get(conversationId)
+  if (attached) attached.steerPending = true
+}
 
 export function attachConversationStream(
   conversationId: string,
@@ -304,6 +334,7 @@ export function attachConversationStream(
   }
   const attached = {
     onDoneQueue: options?.onDone ? [options.onDone] : [],
+    steerPending: false,
   }
   attachedConversations.set(conversationId, attached)
 
@@ -313,6 +344,20 @@ export function attachConversationStream(
   let lines: string[] = []
 
   function appendLine(prefix: string, text: string) {
+    // A steered message was inserted since the last event. Close the message in
+    // progress so this line starts a new one, which — being inserted later —
+    // sorts after the user bubble (ordering is rowid, see fetchMessagePage).
+    // Nothing to split when no message is open yet: the steer arrived before
+    // any output, so appending here already lands below the user bubble.
+    if (attached.steerPending) {
+      attached.steerPending = false
+      if (msgId) {
+        console.log(`[msg] steer split: closing assistant ${msgId}`)
+        msgId = null
+        lines = []
+      }
+    }
+
     lines.push(`[${prefix}] ${text}`)
     const content = lines.join('\n\n')
 
@@ -413,8 +458,11 @@ export function attachConversationStream(
         for (const cb of attached.onDoneQueue.splice(0)) cb(resultText)
         // Reset the per-turn state: the stream stays attached and the next
         // turn (steered, queued or wake-up) starts a fresh assistant message.
+        // That new message covers a steer this turn never got to — clearing the
+        // flag keeps it from splitting the next turn's first line instead.
         msgId = null
         lines = []
+        attached.steerPending = false
 
         // Send push based on notify setting:
         // - subscribe: always send (service worker suppresses if app visible)
