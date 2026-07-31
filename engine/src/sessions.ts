@@ -120,6 +120,9 @@ export interface EnsureOptions {
   effort?: string
   envVars?: Record<string, string>
   oneShot?: boolean
+  // Respawn only: the replaced session's subscriber set, adopted by reference
+  // so open SSE streams survive the swap (see ensureSession).
+  inheritSubscribers?: Set<(ev: SessionEvent) => void>
 }
 
 export function ensureSession(opts: EnsureOptions): Session {
@@ -136,7 +139,19 @@ export function ensureSession(opts: EnsureOptions): Session {
         `[session] ${opts.conversationId}: model/effort change, respawning`,
       )
       closeSession(existing, { graceful: false })
-      return createSession({ ...opts, resumeSessionId: resumeId })
+      // Hand the subscriber SET ITSELF (not a copy) to the replacement. The
+      // backend attaches once per conversation and only re-attaches when the
+      // stream emits `end` — which a respawn deliberately doesn't, since the
+      // conversation lives on. Giving the new session a fresh empty set would
+      // strand that subscriber on the dead object and silently drop every
+      // event of the turn that triggered the respawn, and of every turn after
+      // it. Sharing the reference also keeps the SSE handler's own
+      // `subscribers.delete(handler)` cleanup pointing at the live set.
+      return createSession({
+        ...opts,
+        resumeSessionId: resumeId,
+        inheritSubscribers: existing.subscribers,
+      })
     }
     return existing
   }
@@ -162,7 +177,7 @@ function createSession(opts: EnsureOptions): Session {
     status: 'idle',
     claudeSessionId: opts.resumeSessionId ?? null,
     events: [],
-    subscribers: new Set(),
+    subscribers: opts.inheritSubscribers ?? new Set(),
     model: opts.model,
     effort: opts.effort,
     envVars: opts.envVars,
@@ -308,9 +323,20 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
 function attachStdoutParser(sess: Session, proc: ChildProcess): void {
   let buf = ''
   let accumulated = ''
+  // Every live background task — subagents AND backgrounded Bash. Keeps the
+  // session alive: a wake-up turn is coming, the idle reaper must not kill it,
+  // and the backend must re-attach to it after a restart.
   const runningTasks = new Set<string>()
+  // Subagent tasks only. While one runs, the main loop's text is narration
+  // between agent results ("spawning the verifier now") and reads better as an
+  // activity step than as a chat bubble. A backgrounded Bash is different: the
+  // main loop is talking straight to the user, so its text stays chat text.
+  const narratingTasks = new Set<string>()
   const QUIET_TOOLS = new Set(['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'])
   const quietToolIds = new Set<string>()
+  // tool_use ids already surfaced as an activity line, so the task_started that
+  // follows a backgrounded Bash doesn't announce the same description twice.
+  const announcedToolIds = new Set<string>()
 
   proc.stdout!.on('data', (chunk: Buffer) => {
     buf += chunk.toString()
@@ -342,7 +368,10 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
         if (ev.type === 'system') {
           if (ev.subtype === 'task_started' && ev.task_id) {
             runningTasks.add(ev.task_id)
-            if (ev.description) {
+            if (ev.task_type !== 'local_bash') narratingTasks.add(ev.task_id)
+            const alreadyAnnounced =
+              ev.tool_use_id && announcedToolIds.has(ev.tool_use_id)
+            if (ev.description && !alreadyAnnounced) {
               console.log('[session] -> agent started:', ev.description)
               pushEvent(sess, { type: 'tool', name: ev.description })
             }
@@ -352,6 +381,7 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
           // session busy forever, so err on the side of removing.
           if (ev.subtype === 'task_notification' && ev.task_id) {
             runningTasks.delete(ev.task_id)
+            narratingTasks.delete(ev.task_id)
           }
         }
 
@@ -367,11 +397,12 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
               } else {
                 const label = block.input?.description ?? `Using ${block.name}...`
                 console.log('[session] -> tool:', label)
+                if (block.id) announcedToolIds.add(block.id)
                 pushEvent(sess, { type: 'tool', name: label })
               }
             }
             if (block.type === 'text' && block.text) {
-              if (runningTasks.size > 0) {
+              if (narratingTasks.size > 0) {
                 // Progress text while sub-agents running — treat as activity step
                 console.log('[session] -> progress:', block.text.trim().slice(0, 80))
                 pushEvent(sess, { type: 'tool', name: block.text.trim() })
