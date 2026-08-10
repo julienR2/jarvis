@@ -9,6 +9,8 @@ export interface ConvRow {
   model: string | null
   effort: EffortLevel
   section_id: string | null
+  context_tokens: number | null
+  context_window: number | null
   last_read_at: number
   created_at: number
   updated_at: number

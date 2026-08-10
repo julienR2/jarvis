@@ -16,6 +16,12 @@ export type ClaudeEvent =
   // The backend keeps the thinking indicator on for these.
   | { type: 'done'; result: string; sessionId: string | null; pending?: boolean }
   | { type: 'error'; message: string }
+  // How full the model's context is right now. Emitted after every main-loop
+  // assistant message, since that's where the CLI reports token counts.
+  // contextWindow is null when the window is unknown (unrecognised model, not
+  // yet confirmed by a result event) — consumers should show no gauge rather
+  // than fall back to a window learned for some earlier model.
+  | { type: 'usage'; contextTokens: number; contextWindow: number | null }
 
 export const WORKSPACE_DIR =
   process.env.WORKSPACE_DIR || '/jarvis/agent/workspace'

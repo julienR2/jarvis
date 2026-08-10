@@ -151,6 +151,16 @@ export function initDb(): void {
     db.exec(`ALTER TABLE conversations ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0`)
   } catch { /* already exists */ }
 
+  // Migration: context gauge. Persisted (rather than kept in the engine
+  // session) because sessions are reaped after 15 min idle — without this, a
+  // conversation would show no gauge until its next turn.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN context_tokens INTEGER`)
+  } catch { /* already exists */ }
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN context_window INTEGER`)
+  } catch { /* already exists */ }
+
   // Migration: add pinned to conversations
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`)

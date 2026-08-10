@@ -26,6 +26,10 @@ export type ClaudeEvent =
   // wake-up turn will follow, so the conversation isn't actually finished.
   | { type: 'done'; result: string; sessionId: string | null; pending?: boolean }
   | { type: 'error'; message: string }
+  // Context fill after a main-loop assistant message, for the top-bar gauge.
+  // contextWindow is null when the engine doesn't know it — stored and shown
+  // as-is, never backfilled from a previous model's value.
+  | { type: 'usage'; contextTokens: number; contextWindow: number | null }
 
 const ENGINE_URL = process.env.ENGINE_URL || 'http://engine:3010'
 

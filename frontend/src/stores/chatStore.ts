@@ -52,6 +52,7 @@ interface ChatState {
   upsertMessage: (convId: string, msg: Message) => void
   setProcessing: (convId: string, value: boolean) => void
   setTitleFromEvent: (convId: string, title: string) => void
+  setContextUsage: (convId: string, tokens: number, windowTokens: number | null) => void
   incrementUnread: (convId: string) => void
   markRead: (convId: string) => void
   reconcileConversation: (full: ConversationWithMessages) => void
@@ -346,6 +347,18 @@ export const useChatStore = create<ChatState>()(
       set((s) => {
         const c = s.conversations[convId]
         if (c) c.title = title
+      })
+    },
+
+    setContextUsage(convId, tokens, windowTokens) {
+      set((s) => {
+        const c = s.conversations[convId]
+        if (!c) return
+        c.context_tokens = tokens
+        // null means the engine doesn't recognise the model in use. Hide the
+        // gauge rather than keep the previous model's window — mirrors what the
+        // backend persists, so a reload shows the same thing.
+        c.context_window = windowTokens
       })
     },
 

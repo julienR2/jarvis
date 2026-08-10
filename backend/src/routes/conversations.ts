@@ -398,6 +398,30 @@ export function attachConversationStream(
         appendLine('chunk', ev.text.trim())
       }
 
+      if (ev.type === 'usage') {
+        // The window is stored as sent, nulls included. Carrying the previous
+        // value over would be wrong, not merely stale: the engine only reports
+        // null for a model it doesn't recognise, and what we hold was learned
+        // for whatever model ran BEFORE — so keeping it measures the new model
+        // against the old one's denominator. A recognised model always reports
+        // a number, so nothing is lost by dropping it.
+        // Deliberately not touching updated_at — a token count isn't activity
+        // and would reshuffle the sidebar on every assistant message.
+        getDb()
+          .prepare(
+            `UPDATE conversations
+                SET context_tokens = ?,
+                    context_window = ?
+              WHERE id = ?`,
+          )
+          .run(ev.contextTokens, ev.contextWindow, conversationId)
+        emitConversationEvent(conversationId, {
+          type: 'usage',
+          contextTokens: ev.contextTokens,
+          contextWindow: ev.contextWindow,
+        })
+      }
+
       if (ev.type === 'done') {
         const resultText = ev.result || ''
         console.log(`[msg] done — result: ${resultText.length} chars`)

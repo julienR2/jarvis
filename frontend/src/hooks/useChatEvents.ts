@@ -37,6 +37,9 @@ export function useChatEvents(conversationId: string | undefined): {
         case 'thinking':
           s.setProcessing(cid, ev.thinking)
           break
+        case 'usage':
+          s.setContextUsage(cid, ev.contextTokens, ev.contextWindow)
+          break
         case 'app_updated':
           s.loadConversation(cid)
           setAppRefreshKey((k) => k + 1)

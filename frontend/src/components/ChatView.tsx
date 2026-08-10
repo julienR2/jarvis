@@ -73,6 +73,8 @@ export default function ChatView({
   const hasCron = !!conv?.has_cron
   const hasWebhook = !!conv?.has_webhook
   const sectionId = conv?.section_id ?? null
+  const contextTokens = conv?.context_tokens ?? null
+  const contextWindow = conv?.context_window ?? null
   const showSkeleton = !loaded && messages.length === 0
 
   const { appRefreshKey, bumpApp } = useChatEvents(conversationId)
@@ -289,6 +291,7 @@ export default function ChatView({
             action={conversationId ? (
               <span className='flex items-center gap-2'>
                 <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
+                <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
                 <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? `/api/apps/${conv!.app_path!.replace(/^apps\//, '')}/index.html?token=${localStorage.getItem('token') || ''}&v=${appRefreshKey}` : undefined} />
               </span>
             ) : undefined}
@@ -329,6 +332,7 @@ export default function ChatView({
                 action={conversationId ? (
                   <span className='flex items-center gap-2'>
                     <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
+                    <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
                     <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} />
                   </span>
                 ) : undefined}
@@ -475,6 +479,46 @@ function DateSeparator({ label }: { label: string }) {
       <span className='text-[11px] text-text-muted/60 font-medium shrink-0'>{label}</span>
       <div className='flex-1 h-px bg-border' />
     </div>
+  )
+}
+
+// Donut showing how full the conversation's context is. Hidden below 50% —
+// under that there is nothing to decide, and a permanent gauge would just be
+// noise in the title bar.
+const CONTEXT_GAUGE_THRESHOLD = 50
+
+// `windowTokens`, not `window` — a prop by that name would shadow the global
+// inside this component.
+function ContextGauge({ tokens, windowTokens }: { tokens?: number | null; windowTokens?: number | null }) {
+  if (!tokens || !windowTokens) return null
+  const pct = Math.min(100, Math.round((tokens / windowTokens) * 100))
+  if (pct < CONTEXT_GAUGE_THRESHOLD) return null
+
+  const radius = 6
+  const circumference = 2 * Math.PI * radius
+  const color =
+    pct >= 90 ? 'text-red-500' : pct >= 75 ? 'text-amber-500' : 'text-text-muted'
+
+  return (
+    <span
+      className={`shrink-0 flex items-center ${color}`}
+      title={`Context ${pct}% used — ${Math.round(tokens / 1000)}k / ${Math.round(windowTokens / 1000)}k tokens`}
+    >
+      <svg width='16' height='16' viewBox='0 0 16 16' className='-rotate-90'>
+        <circle cx='8' cy='8' r={radius} fill='none' stroke='currentColor' strokeWidth='2' opacity='0.25' />
+        <circle
+          cx='8'
+          cy='8'
+          r={radius}
+          fill='none'
+          stroke='currentColor'
+          strokeWidth='2'
+          strokeLinecap='round'
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - pct / 100)}
+        />
+      </svg>
+    </span>
   )
 }
 

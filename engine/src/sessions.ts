@@ -57,6 +57,35 @@ export interface Session {
   // Escalation timer armed by interrupt() and graceful closes.
   killTimer: NodeJS.Timeout | null
   stderrTail: string
+  // Context window of the model in use, or null while still unknown. Seeded
+  // from the model id and confirmed from the result event's modelUsage.
+  contextWindow: number | null
+}
+
+// Known context windows, matched on the full model id. Anything not listed
+// reports null — the CLI fills it in from the result event, which beats
+// guessing. Matching by family name alone would be wrong: `opus` and `sonnet`
+// span both 1M ids and the 200k 4.5-and-older ids that the picker no longer
+// offers but old conversations still carry in their `model` column.
+const MODEL_WINDOWS: [RegExp, number][] = [
+  [/^claude-(fable|mythos|opus|sonnet)-5$/i, 1_000_000],
+  [/^claude-(opus|sonnet)-4-[678]$/i, 1_000_000],
+  [/^claude-haiku-4-5/i, 200_000],
+]
+
+/**
+ * Context window for a model id, or null when we don't recognise it.
+ *
+ * Seeding this at spawn matters: the CLI only reports the real window on the
+ * result event, i.e. AFTER the turn's usage events. Without a seed, every
+ * turn-1 reading would carry a placeholder — and since sessions are reaped on
+ * idle, conversations that only ever run one turn per session (crons, mail
+ * triage) would never get past it. Returning null rather than a default keeps
+ * an unknown model from silently reporting against the wrong denominator.
+ */
+function windowForModel(model?: string): number | null {
+  if (!model) return null
+  return MODEL_WINDOWS.find(([pattern]) => pattern.test(model))?.[1] ?? null
 }
 
 const IDLE_TTL_MS = parseInt(process.env.ENGINE_IDLE_TTL_MS || '') || 15 * 60 * 1000
@@ -189,6 +218,7 @@ function createSession(opts: EnsureOptions): Session {
     closing: false,
     killTimer: null,
     stderrTail: '',
+    contextWindow: windowForModel(opts.model),
   }
   sessions.set(sess.conversationId, sess)
   spawnProcess(sess, opts.resumeSessionId ?? null)
@@ -320,6 +350,31 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
   })
 }
 
+/**
+ * Report how full the context is, from an assistant message's usage block.
+ *
+ * The three input counters are the whole prompt the model just received, split
+ * by how it was billed (fresh / cache write / cache read) — so their sum IS the
+ * context size at that moment. Deliberately NOT the result event's usage, which
+ * aggregates every API call of the turn and would read several times the window
+ * on a long tool-heavy turn.
+ */
+function recordUsage(sess: Session, usage: any): void {
+  if (!usage) return
+  const contextTokens =
+    (usage.input_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0) +
+    (usage.cache_creation_input_tokens ?? 0)
+  // Zeros come from messages the CLI produced without a real API call (error
+  // paths, local replies) — reporting them would blank the gauge mid-turn.
+  if (contextTokens <= 0) return
+  pushEvent(sess, {
+    type: 'usage',
+    contextTokens,
+    contextWindow: sess.contextWindow,
+  })
+}
+
 function attachStdoutParser(sess: Session, proc: ChildProcess): void {
   let buf = ''
   let accumulated = ''
@@ -389,6 +444,10 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
           // Any assistant activity means a turn is in flight — covers turns the
           // CLI starts on its own (queued messages, subagent wake-ups).
           markBusy(sess)
+          // Subagents carry their own (much smaller) context and stream through
+          // here with parent_tool_use_id set — only the main loop's usage says
+          // anything about how full THIS conversation is.
+          if (!ev.parent_tool_use_id) recordUsage(sess, ev.message.usage)
           for (const block of ev.message.content) {
             if (block.type === 'tool_use') {
               if (QUIET_TOOLS.has(block.name) && !block.input?.description) {
@@ -437,6 +496,17 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
         }
 
         if (ev.type === 'result') {
+          // modelUsage is keyed by model id and can hold more than one entry
+          // (the main loop plus whatever ran side queries). Only the entry for
+          // our own model describes THIS conversation's window — when it's
+          // missing we keep the spawn-time seed rather than falling back to the
+          // other entries, since that would happily overwrite a correct 200k
+          // seed with a subagent's 1M window.
+          const own = sess.model
+            ? (ev.modelUsage ?? {})[sess.model]?.contextWindow
+            : undefined
+          if (typeof own === 'number' && own > 0) sess.contextWindow = own
+
           const result =
             (typeof ev.result === 'string' && ev.result.trim()) ||
             accumulated.trim()

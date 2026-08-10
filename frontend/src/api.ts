@@ -306,6 +306,9 @@ export interface Conversation {
   model: string | null
   effort: Effort
   section_id: string | null
+  /** Context fill as of the last assistant message — null until the first turn. */
+  context_tokens: number | null
+  context_window: number | null
   unread_count: number
   has_cron?: number
   has_webhook?: number
@@ -466,6 +469,7 @@ export type ChatEvent =
   | { type: 'conversation'; id: string; title?: string }
   | { type: 'thinking'; thinking: boolean }
   | { type: 'app_updated' }
+  | { type: 'usage'; contextTokens: number; contextWindow: number | null }
 
 export type GlobalEvent =
   | { type: 'new_message'; conversation_id: string }
