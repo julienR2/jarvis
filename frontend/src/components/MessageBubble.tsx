@@ -7,6 +7,8 @@ import type { Message, Attachment } from '../api'
 
 interface Props {
   msg: Message
+  /** This message is the turn currently being written — see ActivityBubble. */
+  live?: boolean
 }
 
 function formatTime(ts: number): string {
@@ -33,18 +35,11 @@ function CopyButton({ getText }: { getText: () => string }) {
 
 function getAssistantCopyText(msg: Message): string {
   if (!hasActivityLines(msg.content)) return msg.content
-  const { activityLines } = parseActivityContent(msg.content)
-  const hasResult = !!msg.result
-  const allChunks = activityLines.filter((l) => l.prefix === 'chunk')
-  const visibleChunks = hasResult && allChunks.length > 0 ? allChunks.slice(0, -1) : allChunks
-  // Copy what's on screen: notes render above the answer text, so they belong in
-  // the copy too. Only the collapsed tool steps are left out.
-  const parts = [
-    ...activityLines.filter((l) => l.prefix === 'note').map((l) => l.text),
-    ...visibleChunks.map((l) => l.text),
-  ]
-  if (hasResult) parts.push(msg.result!)
-  return parts.join('\n\n')
+  // Copy what's on screen, in the order it's on screen: prose and notes, never
+  // the collapsed tool steps.
+  return buildGroups(parseActivityContent(msg.content).activityLines, msg.result)
+    .flatMap((g) => (g.kind === 'prose' ? [g.text] : g.notes))
+    .join('\n\n')
 }
 
 function parseAttachments(metadata?: string | null): Attachment[] {
@@ -59,8 +54,66 @@ function parseAttachments(metadata?: string | null): Attachment[] {
 
 type ActivityPrefix = 'tool' | 'chunk' | 'note'
 
+interface ActivityLine {
+  prefix: ActivityPrefix
+  text: string
+}
+
 interface ParsedLines {
-  activityLines: { prefix: ActivityPrefix; text: string }[]
+  activityLines: ActivityLine[]
+}
+
+/**
+ * A turn as it is displayed: prose blocks, and the runs of activity between
+ * them.
+ */
+type ActivityGroup =
+  | { kind: 'prose'; text: string }
+  | { kind: 'steps'; notes: string[]; tools: string[] }
+
+type StepsGroup = Extract<ActivityGroup, { kind: 'steps' }>
+
+/**
+ * Fold the activity lines into display groups, in the order they happened.
+ *
+ * The lines are already a faithful timeline — appendLine appends them as the
+ * events arrive — and the shape this replaces threw that away by filtering into
+ * three buckets (every tool, then every note, then the prose), so a turn read as
+ * if all the tool calls had happened before Jarvis wrote a single word.
+ *
+ * Prose stands alone, at full weight. Notes and tool calls fold together into
+ * the run they belong to, which is not an arbitrary pairing: a note comes from
+ * the thinking block of the same assistant message as the tool calls that
+ * follow it, so it reads as the label of the steps underneath.
+ */
+function buildGroups(
+  lines: ActivityLine[],
+  result?: string | null,
+): ActivityGroup[] {
+  const remaining = [...lines]
+  // The last chunk repeats the result verbatim — drop it rather than show the
+  // answer twice.
+  if (result) {
+    const lastChunk = remaining.map((l) => l.prefix).lastIndexOf('chunk')
+    if (lastChunk >= 0) remaining.splice(lastChunk, 1)
+  }
+
+  const groups: ActivityGroup[] = []
+  for (const line of remaining) {
+    if (line.prefix === 'chunk') {
+      groups.push({ kind: 'prose', text: line.text })
+      continue
+    }
+    const last = groups[groups.length - 1]
+    const steps: StepsGroup =
+      last?.kind === 'steps' ? last : { kind: 'steps', notes: [], tools: [] }
+    if (steps !== last) groups.push(steps)
+    if (line.prefix === 'note') steps.notes.push(line.text)
+    else steps.tools.push(line.text)
+  }
+
+  if (result) groups.push({ kind: 'prose', text: result })
+  return groups
 }
 
 // Longest-first is not needed here (no prefix is a prefix of another), but the
@@ -90,97 +143,52 @@ function hasActivityLines(content: string): boolean {
   return ACTIVITY_PREFIXES.some((p) => content.startsWith(`[${p}] `))
 }
 
-function ActivityBubble({ msg }: { msg: Message }) {
-  const [open, setOpen] = useState(false)
-  const { activityLines } = useMemo(
-    () => parseActivityContent(msg.content),
-    [msg.content],
+function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
+  const groups = useMemo(
+    () => buildGroups(parseActivityContent(msg.content).activityLines, msg.result),
+    [msg.content, msg.result],
   )
+  // Per-group override of the default open state, by position. Safe to key on
+  // the index: groups are only ever appended as a turn goes on.
+  const [toggled, setToggled] = useState<Record<number, boolean>>({})
 
-  const hasResult = !!msg.result
-  // Collapsible = mechanical steps (tool calls, agent starts) — the "what it
-  // did" detail, useful on demand and noise by default.
-  // Visible = notes + chunks + result. Notes are the model narrating its own
-  // progress while subagents run; they're prose written for a reader, which is
-  // exactly the "tell me the important part along the way" layer, so they stay
-  // out of the toggle.
-  // The last chunk typically duplicates the result, so strip it when result exists
-  const collapsibleLines = activityLines.filter((l) => l.prefix === 'tool')
-  const notes = activityLines.filter((l) => l.prefix === 'note')
-  const allChunks = activityLines.filter((l) => l.prefix === 'chunk')
-  const visibleChunks = hasResult && allChunks.length > 0
-    ? allChunks.slice(0, -1)
-    : allChunks
+  // A turn that only ever called tools gets no timestamp row, as before — there
+  // is nothing to date but the steps themselves.
+  const hasText = groups.some(
+    (g) => g.kind === 'prose' || g.notes.length > 0,
+  )
 
   return (
     <div className='flex items-start mb-5 animate-fade-in group'>
-      <div className='max-w-full'>
-        {/* Collapsible section */}
-        {collapsibleLines.length > 0 && (
-          <div className='mb-3'>
-            <button
-              onClick={() => setOpen(!open)}
-              className='flex items-center gap-1 text-[11px] text-text-muted/60 hover:text-text-muted transition-colors'
-            >
-              <ChevronRight
-                size={10}
-                className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
-              />
-              <span>
-                {collapsibleLines.length} step
-                {collapsibleLines.length !== 1 ? 's' : ''}
-              </span>
-            </button>
-            {open && (
-              <ul className='mt-1 ml-3 flex flex-col gap-0.5 text-xs list-disc list-inside'>
-                {collapsibleLines.map((line, i) => (
-                  <li key={i} className='text-text-muted'>
-                    {line.text}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {/* Progress narration — dimmer than the answer, but readable, and
-            never hidden behind the step toggle. */}
-        {notes.length > 0 && (
-          <div className='mb-3 flex flex-col gap-1.5 border-l-2 border-border pl-3'>
-            {notes.map((line, i) => (
-              <p key={i} className='text-[13px] text-text-muted leading-snug'>
-                {line.text}
-              </p>
-            ))}
-          </div>
-        )}
-
-        {/* Visible section: all text chunks + final result */}
-        {(visibleChunks.length > 0 || hasResult) && (
-          <div className='markdown text-base leading-relaxed'>
-            {visibleChunks.map((line, i) => (
-              <ReactMarkdown
-                key={i}
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw]}
-                components={markdownComponents}
-              >
-                {line.text}
-              </ReactMarkdown>
-            ))}
-            {hasResult && (
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw]}
-                components={markdownComponents}
-              >
-                {msg.result!}
-              </ReactMarkdown>
-            )}
-          </div>
-        )}
-        {msg.created_at &&
-          (hasResult || visibleChunks.length > 0 || notes.length > 0) && (
+      <div className='max-w-full min-w-0'>
+        {groups.map((g, i) => {
+          if (g.kind === 'prose') {
+            return (
+              <div key={i} className='markdown text-base leading-relaxed mb-3'>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeRaw]}
+                  components={markdownComponents}
+                >
+                  {g.text}
+                </ReactMarkdown>
+              </div>
+            )
+          }
+          // The run in progress stays open, so what Jarvis is doing right now is
+          // readable without a click; it folds itself away when the turn ends.
+          const open = toggled[i] ?? (!!live && i === groups.length - 1)
+          return (
+            <StepsBlock
+              key={i}
+              notes={g.notes}
+              tools={g.tools}
+              open={open}
+              onToggle={() => setToggled((t) => ({ ...t, [i]: !open }))}
+            />
+          )
+        })}
+        {msg.created_at && hasText && (
           <div className='text-[10px] text-text-muted/50 mt-1 flex items-center gap-1.5'>
             {formatTime(msg.created_at)}
             <CopyButton getText={() => getAssistantCopyText(msg)} />
@@ -191,7 +199,73 @@ function ActivityBubble({ msg }: { msg: Message }) {
   )
 }
 
-export default function MessageBubble({ msg }: Props) {
+/**
+ * One run of activity: what Jarvis said it was doing, and the mechanical steps
+ * that did it.
+ *
+ * The notes carry the rail on their own so the pair reads as one block — the
+ * note being, in practice, the label of the steps folded under it. Rendered as
+ * markdown like any other prose of his: reasoning summaries come with emphasis
+ * and lists, which read as literal asterisks otherwise.
+ */
+function StepsBlock({
+  notes,
+  tools,
+  open,
+  onToggle,
+}: {
+  notes: string[]
+  tools: string[]
+  open: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div className='mb-3 flex flex-col gap-1.5 border-l-2 border-border pl-3'>
+      {notes.map((text, i) => (
+        <div
+          key={i}
+          className='markdown text-[13px] text-text-muted leading-snug'
+        >
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw]}
+            components={markdownComponents}
+          >
+            {text}
+          </ReactMarkdown>
+        </div>
+      ))}
+
+      {tools.length > 0 && (
+        <div>
+          <button
+            onClick={onToggle}
+            className='flex items-center gap-1 text-[11px] text-text-muted/60 hover:text-text-muted transition-colors'
+          >
+            <ChevronRight
+              size={10}
+              className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
+            />
+            <span>
+              {tools.length} step{tools.length !== 1 ? 's' : ''}
+            </span>
+          </button>
+          {open && (
+            <ul className='mt-1 ml-3 flex flex-col gap-0.5 text-xs list-disc list-inside'>
+              {tools.map((text, i) => (
+                <li key={i} className='text-text-muted'>
+                  {text}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function MessageBubble({ msg, live }: Props) {
   const isUser = msg.role === 'user'
   // Above the early return — a hook must not sit on one side of a conditional
   // return, or the first message whose content grows into activity lines takes
@@ -203,7 +277,7 @@ export default function MessageBubble({ msg }: Props) {
 
   // Assistant message with [tool]/[chunk]/[note] lines → activity bubble
   if (!isUser && hasActivityLines(msg.content)) {
-    return <ActivityBubble msg={msg} />
+    return <ActivityBubble msg={msg} live={live} />
   }
 
   return (

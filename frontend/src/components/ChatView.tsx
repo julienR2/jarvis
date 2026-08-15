@@ -83,6 +83,7 @@ export default function ChatView({
   const contextTokens = conv?.context_tokens ?? null
   const contextWindow = conv?.context_window ?? null
   const showSkeleton = !loaded && messages.length === 0
+  const lastMessageId = messages[messages.length - 1]?.id
 
   const { appRefreshKey, bumpApp } = useChatEvents(conversationId)
   const [showPreview, setShowPreview] = useState(true)
@@ -381,7 +382,14 @@ export default function ChatView({
                       item.type === 'separator' ? (
                         <DateSeparator key={item.key} label={item.label} />
                       ) : (
-                        <MessageBubble key={item.msg.id} msg={item.msg} />
+                        <MessageBubble
+                          key={item.msg.id}
+                          msg={item.msg}
+                          // The newest message while a turn runs is the one
+                          // being written, and it keeps its current run of
+                          // steps unfolded.
+                          live={isProcessing && item.msg.id === lastMessageId}
+                        />
                       ),
                     )}
                     <LiveTurn conversationId={conversationId} />
