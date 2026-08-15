@@ -20,11 +20,11 @@ const authHeader = (): Record<string, string> => ({
 
 export type ClaudeEvent =
   | { type: 'thinking' }
-  | { type: 'tool'; name: string }
+  | { type: 'tool'; name: string; group?: number }
   // Main-loop narration and summarized reasoning — persisted, but shown rather
   // than collapsed with the tool steps. See the engine's shared.ts.
-  | { type: 'note'; text: string }
-  | { type: 'chunk'; text: string }
+  | { type: 'note'; text: string; group?: number }
+  | { type: 'chunk'; text: string; group?: number }
   // Live-only, never persisted: partial answer text for a turn in progress.
   // Forwarded to SSE and dropped at the turn boundary — the `chunk`/`done` pair
   // is the durable record. See shared.ts in the engine for the full contract.

@@ -7,9 +7,23 @@
 
 import { readFileSync } from 'fs'
 
+/**
+ * Which assistant message an activity event came from.
+ *
+ * Monotonic per engine process, one value per assistant message. It exists so a
+ * reader can tell `note, tool, tool` (one message: the note labels both tools)
+ * from `note, tool | tool` (two messages: the note labels only the first) — a
+ * distinction the flat event stream cannot otherwise express, and which decides
+ * whether a note is really the label of the steps under it.
+ *
+ * Absent on events from the legacy one-shot stack, which never learned it;
+ * consumers must treat a missing group as "unknown", not as group 0.
+ */
+export type ActivityGroup = number
+
 export type ClaudeEvent =
   | { type: 'thinking' }
-  | { type: 'tool'; name: string }
+  | { type: 'tool'; name: string; group?: ActivityGroup }
   // Prose written for a human reader, as opposed to the mechanical steps `tool`
   // records. Two sources: the main loop narrating what its subagents are up to,
   // and its own summarized reasoning. Persisted like `tool`, but kept a separate
@@ -18,8 +32,8 @@ export type ClaudeEvent =
   // Notes are deliberately durable. Reasoning was first tried as a live,
   // self-replacing status line and rejected — it flickered past faster than it
   // could be read. If it's worth showing, it's worth keeping.
-  | { type: 'note'; text: string }
-  | { type: 'chunk'; text: string }
+  | { type: 'note'; text: string; group?: ActivityGroup }
+  | { type: 'chunk'; text: string; group?: ActivityGroup }
   // ── Live-only event ────────────────────────────────────────────────────────
   // Emitted straight to subscribers, never pushed to the replay ring buffer and
   // never persisted: it describes a turn *in progress*, and the authoritative

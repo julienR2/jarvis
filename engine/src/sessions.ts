@@ -489,6 +489,14 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
   // tool_use ids already surfaced as an activity line, so the task_started that
   // follows a backgrounded Bash doesn't announce the same description twice.
   const announcedToolIds = new Set<string>()
+  // Which assistant message the activity events being emitted belong to — see
+  // ActivityGroup. Keyed off message.id rather than counting events: the CLI
+  // emits one `assistant` event PER CONTENT BLOCK, so a message that thinks and
+  // then calls two tools arrives as three events sharing one id. Counting
+  // events instead would put the reasoning in a different group from the tools
+  // it introduces — precisely the pairing this exists to record.
+  let activityGroup = 0
+  let activityMessageId: string | null = null
   /**
    * Partial-message events (`--include-partial-messages`): one per token.
    *
@@ -563,7 +571,13 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
               ev.tool_use_id && announcedToolIds.has(ev.tool_use_id)
             if (ev.description && !alreadyAnnounced) {
               console.log('[session] -> agent started:', ev.description)
-              pushEvent(sess, { type: 'tool', name: ev.description })
+              // Attributed to the message still being processed: this is the
+              // Task tool_use that message just made, arriving by another route.
+              pushEvent(sess, {
+                type: 'tool',
+                name: ev.description,
+                group: activityGroup,
+              })
             }
           }
           // Any notification means the task reached a terminal state
@@ -576,6 +590,14 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
         }
 
         if (ev.type === 'assistant' && ev.message?.content) {
+          // No id to group by (shouldn't happen, but the shape isn't ours to
+          // guarantee) — treat the event as its own message rather than
+          // silently merging it into the previous one.
+          const messageId: string | null = ev.message.id ?? null
+          if (messageId === null || messageId !== activityMessageId) {
+            activityGroup++
+            activityMessageId = messageId
+          }
           // Any assistant activity means a turn is in flight — covers turns the
           // CLI starts on its own (queued messages, subagent wake-ups).
           markBusy(sess)
@@ -597,7 +619,11 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
                 '[session] -> thinking:',
                 block.thinking.trim().slice(0, 80),
               )
-              pushEvent(sess, { type: 'note', text: block.thinking.trim() })
+              pushEvent(sess, {
+                type: 'note',
+                text: block.thinking.trim(),
+                group: activityGroup,
+              })
             }
             if (block.type === 'tool_use') {
               if (QUIET_TOOLS.has(block.name) && !block.input?.description) {
@@ -606,7 +632,11 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
                 const label = toolLabel(block.name, block.input)
                 console.log('[session] -> tool:', label)
                 if (block.id) announcedToolIds.add(block.id)
-                pushEvent(sess, { type: 'tool', name: label })
+                pushEvent(sess, {
+                  type: 'tool',
+                  name: label,
+                  group: activityGroup,
+                })
               }
             }
             if (block.type === 'text' && block.text) {
@@ -615,14 +645,22 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
                 // a mechanical step either, so it goes out as `note` and stays
                 // visible in the trail rather than collapsing with the tools.
                 console.log('[session] -> progress:', block.text.trim().slice(0, 80))
-                pushEvent(sess, { type: 'note', text: block.text.trim() })
+                pushEvent(sess, {
+                  type: 'note',
+                  text: block.text.trim(),
+                  group: activityGroup,
+                })
               } else {
                 accumulated += block.text
                 console.log(
                   '[session] -> chunk:',
                   block.text.slice(0, 80) + (block.text.length > 80 ? '...' : ''),
                 )
-                pushEvent(sess, { type: 'chunk', text: block.text + '\n' })
+                pushEvent(sess, {
+                  type: 'chunk',
+                  text: block.text + '\n',
+                  group: activityGroup,
+                })
               }
             }
           }

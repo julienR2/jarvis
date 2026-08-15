@@ -402,7 +402,17 @@ export function attachConversationStream(
     liveTurnText.delete(conversationId)
   }
 
-  function appendLine(prefix: string, text: string) {
+  /**
+   * Append one activity line to the assistant message in progress.
+   *
+   * `group` identifies the assistant message the event came from and is written
+   * into the marker as `[prefix:group]`. It is what lets the UI tell a note that
+   * labels the tools under it from one that merely precedes them — see
+   * ActivityGroup in the engine's shared.ts. Omitted when the engine didn't send
+   * one (legacy one-shot stack), which reads back as an unknown group rather
+   * than as group 0.
+   */
+  function appendLine(prefix: string, text: string, group?: number) {
     // A steered message was inserted since the last event. Close the message in
     // progress so this line starts a new one, which — being inserted later —
     // sorts after the user bubble (ordering is rowid, see fetchMessagePage).
@@ -417,13 +427,14 @@ export function attachConversationStream(
       }
     }
 
-    lines.push(`[${prefix}] ${text}`)
+    const marker = group === undefined ? prefix : `${prefix}:${group}`
+    lines.push(`[${marker}] ${text}`)
     const content = lines.join('\n\n')
 
     if (!msgId) {
       msgId = uuid()
       console.log(
-        `[msg] db INSERT assistant ${msgId}: [${prefix}] ${text.slice(0, 80)}`,
+        `[msg] db INSERT assistant ${msgId}: [${marker}] ${text.slice(0, 80)}`,
       )
       getDb()
         .prepare(
@@ -436,7 +447,7 @@ export function attachConversationStream(
       emitConversationEvent(conversationId, { type: 'thinking', thinking: true })
     } else {
       console.log(
-        `[msg] db UPDATE assistant ${msgId}: +[${prefix}] ${text.slice(0, 80)}`,
+        `[msg] db UPDATE assistant ${msgId}: +[${marker}] ${text.slice(0, 80)}`,
       )
       getDb()
         .prepare('UPDATE messages SET content = ? WHERE id = ?')
@@ -459,18 +470,18 @@ export function attachConversationStream(
       }
 
       if (ev.type === 'tool') {
-        appendLine('tool', ev.name)
+        appendLine('tool', ev.name, ev.group)
       }
 
       if (ev.type === 'note') {
-        appendLine('note', ev.text)
+        appendLine('note', ev.text, ev.group)
       }
 
       if (ev.type === 'chunk') {
         // The block just closed and its full text is about to be persisted and
         // pushed — whatever deltas are still buffered for it are now redundant.
         dropLive()
-        appendLine('chunk', ev.text.trim())
+        appendLine('chunk', ev.text.trim(), ev.group)
       }
 
       if (ev.type === 'usage') {

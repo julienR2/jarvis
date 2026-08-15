@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef } from 'react'
+import { useLayoutEffect, useMemo, useState, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
@@ -38,7 +38,9 @@ function getAssistantCopyText(msg: Message): string {
   // Copy what's on screen, in the order it's on screen: prose and notes, never
   // the collapsed tool steps.
   return buildGroups(parseActivityContent(msg.content).activityLines, msg.result)
-    .flatMap((g) => (g.kind === 'prose' ? [g.text] : g.notes))
+    .flatMap((g) =>
+      g.kind === 'prose' ? [g.text] : g.cycles.flatMap((c) => c.notes),
+    )
     .join('\n\n')
 }
 
@@ -56,6 +58,12 @@ type ActivityPrefix = 'tool' | 'chunk' | 'note'
 
 interface ActivityLine {
   prefix: ActivityPrefix
+  /**
+   * Which assistant message this line came from, when the backend recorded it.
+   * Undefined for messages written before the marker carried it — those still
+   * render, they just can't say where one message ended and the next began.
+   */
+  group?: number
   text: string
 }
 
@@ -69,22 +77,48 @@ interface ParsedLines {
  */
 type ActivityGroup =
   | { kind: 'prose'; text: string }
-  | { kind: 'steps'; notes: string[]; tools: string[] }
+  | { kind: 'steps'; cycles: Cycle[] }
 
 type StepsGroup = Extract<ActivityGroup, { kind: 'steps' }>
+
+/**
+ * One think-then-act pass: what Jarvis said, and the steps it took after saying
+ * it. `group` is the assistant message it came from, or undefined for a legacy
+ * line — kept so a following line can tell whether it belongs to the same pass.
+ */
+interface Cycle {
+  group?: number
+  notes: string[]
+  tools: string[]
+}
+
+/**
+ * Whether `line` continues the pass `cycle` describes, or starts a new one.
+ *
+ * Two signals, and either one is enough. The group id is the reliable one: a
+ * different assistant message is a different pass, whatever it contains. The
+ * note-after-tool check covers lines stored before groups existed, and is
+ * sound on its own — within a single message the reasoning block is emitted
+ * before the tool calls it introduces, so a note arriving *after* a tool can
+ * only be a new pass.
+ */
+function continuesCycle(cycle: Cycle, line: ActivityLine): boolean {
+  if (cycle.group !== line.group) return false
+  return !(line.prefix === 'note' && cycle.tools.length > 0)
+}
 
 /**
  * Fold the activity lines into display groups, in the order they happened.
  *
  * The lines are already a faithful timeline — appendLine appends them as the
- * events arrive — and the shape this replaces threw that away by filtering into
- * three buckets (every tool, then every note, then the prose), so a turn read as
- * if all the tool calls had happened before Jarvis wrote a single word.
+ * events arrive — and what this replaced threw that away by filtering into
+ * buckets, so a turn read as if every tool call had happened before Jarvis
+ * wrote a single word.
  *
- * Prose stands alone, at full weight. Notes and tool calls fold together into
- * the run they belong to, which is not an arbitrary pairing: a note comes from
- * the thinking block of the same assistant message as the tool calls that
- * follow it, so it reads as the label of the steps underneath.
+ * Prose stands alone, at full weight. Notes and tool calls fold into the run
+ * between two prose blocks, and that run is cut into cycles so each note keeps
+ * the steps it actually introduced — the pairing a bare timeline can't express
+ * and a single bucket gets wrong the moment a turn thinks twice.
  */
 function buildGroups(
   lines: ActivityLine[],
@@ -106,10 +140,18 @@ function buildGroups(
     }
     const last = groups[groups.length - 1]
     const steps: StepsGroup =
-      last?.kind === 'steps' ? last : { kind: 'steps', notes: [], tools: [] }
+      last?.kind === 'steps' ? last : { kind: 'steps', cycles: [] }
     if (steps !== last) groups.push(steps)
-    if (line.prefix === 'note') steps.notes.push(line.text)
-    else steps.tools.push(line.text)
+
+    const open = steps.cycles[steps.cycles.length - 1]
+    const cycle =
+      open && continuesCycle(open, line)
+        ? open
+        : { group: line.group, notes: [], tools: [] }
+    if (cycle !== open) steps.cycles.push(cycle)
+
+    if (line.prefix === 'note') cycle.notes.push(line.text)
+    else cycle.tools.push(line.text)
   }
 
   if (result) groups.push({ kind: 'prose', text: result })
@@ -120,16 +162,26 @@ function buildGroups(
 // lengths are derived rather than hardcoded so a rename can't desync the slice.
 const ACTIVITY_PREFIXES: ActivityPrefix[] = ['tool', 'chunk', 'note']
 
+// `[note] ` or `[note:7] ` — the group is optional so lines written before it
+// existed keep parsing.
+const ACTIVITY_MARKER = new RegExp(
+  `^\\[(${ACTIVITY_PREFIXES.join('|')})(?::(\\d+))?\\] `,
+)
+
 function parseActivityContent(content: string): ParsedLines {
-  // Split into entries — each starts with [tool], [chunk] or [note], and may
-  // span multiple paragraphs.
+  // Split into entries — each starts with a [tool], [chunk] or [note] marker,
+  // and may span multiple paragraphs.
   const paragraphs = content.split('\n\n')
   const activityLines: ParsedLines['activityLines'] = []
 
   for (const para of paragraphs) {
-    const prefix = ACTIVITY_PREFIXES.find((p) => para.startsWith(`[${p}] `))
-    if (prefix) {
-      activityLines.push({ prefix, text: para.slice(prefix.length + 3) })
+    const match = para.match(ACTIVITY_MARKER)
+    if (match) {
+      activityLines.push({
+        prefix: match[1] as ActivityPrefix,
+        group: match[2] === undefined ? undefined : Number(match[2]),
+        text: para.slice(match[0].length),
+      })
     } else if (activityLines.length > 0) {
       // Continuation of previous entry (multiline tool/chunk/note)
       activityLines[activityLines.length - 1].text += '\n\n' + para
@@ -140,7 +192,7 @@ function parseActivityContent(content: string): ParsedLines {
 }
 
 function hasActivityLines(content: string): boolean {
-  return ACTIVITY_PREFIXES.some((p) => content.startsWith(`[${p}] `))
+  return ACTIVITY_MARKER.test(content)
 }
 
 function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
@@ -148,14 +200,15 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
     () => buildGroups(parseActivityContent(msg.content).activityLines, msg.result),
     [msg.content, msg.result],
   )
-  // Per-group override of the default open state, by position. Safe to key on
-  // the index: groups are only ever appended as a turn goes on.
-  const [toggled, setToggled] = useState<Record<number, boolean>>({})
+  // Per-cycle override of the default open state, keyed by position. Safe to
+  // key on the indices: groups and cycles are only ever appended as a turn goes
+  // on, so a position never comes to mean a different cycle.
+  const [toggled, setToggled] = useState<Record<string, boolean>>({})
 
   // A turn that only ever called tools gets no timestamp row, as before — there
   // is nothing to date but the steps themselves.
-  const hasText = groups.some(
-    (g) => g.kind === 'prose' || g.notes.length > 0,
+  const hasText = groups.some((g) =>
+    g.kind === 'prose' ? true : g.cycles.some((c) => c.notes.length > 0),
   )
 
   return (
@@ -175,16 +228,19 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
               </div>
             )
           }
-          // The run in progress stays open, so what Jarvis is doing right now is
-          // readable without a click; it folds itself away when the turn ends.
-          const open = toggled[i] ?? (!!live && i === groups.length - 1)
+          // The cycle in progress stays open, so what Jarvis is doing right now
+          // is readable without a click; it folds itself away when the turn
+          // moves on to the next cycle, or ends.
+          const liveCycle =
+            !!live && i === groups.length - 1 ? g.cycles.length - 1 : -1
           return (
             <StepsBlock
               key={i}
-              notes={g.notes}
-              tools={g.tools}
-              open={open}
-              onToggle={() => setToggled((t) => ({ ...t, [i]: !open }))}
+              cycles={g.cycles}
+              isOpen={(j) => toggled[`${i}:${j}`] ?? j === liveCycle}
+              onToggle={(j, open) =>
+                setToggled((t) => ({ ...t, [`${i}:${j}`]: !open }))
+              }
             />
           )
         })}
@@ -200,31 +256,63 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
 }
 
 /**
- * One run of activity: what Jarvis said it was doing, and the mechanical steps
- * that did it.
+ * Whether a click on a block of text was meant for the block itself.
  *
- * The notes carry the rail on their own so the pair reads as one block — the
- * note being, in practice, the label of the steps folded under it. Rendered as
- * markdown like any other prose of his: reasoning summaries come with emphasis
- * and lists, which read as literal asterisks otherwise.
+ * Notes and steps fold on a press anywhere in them, which is only pleasant if
+ * it stays out of the way of the two things a press can also mean: following a
+ * link (or working the toggle, which handles itself and would otherwise fire
+ * twice), and selecting text — releasing the mouse after a selection is not a
+ * request to fold away what was just selected.
  */
-function StepsBlock({
-  notes,
-  tools,
-  open,
-  onToggle,
-}: {
-  notes: string[]
-  tools: string[]
-  open: boolean
-  onToggle: () => void
-}) {
+function isPlainClick(e: React.MouseEvent): boolean {
+  if ((e.target as HTMLElement).closest('a, button')) return false
+  return !window.getSelection()?.toString()
+}
+
+// Three lines at text-[13px]/leading-snug, which is where a reasoning summary
+// stops being a glanceable label and starts being a wall.
+const NOTE_CLAMP_PX = 54
+
+/**
+ * A note, capped to a few lines until asked to open.
+ *
+ * Capped by max-height rather than -webkit-line-clamp: notes are markdown, and
+ * line-clamp needs `display: -webkit-box`, which flattens the paragraphs and
+ * lists a reasoning summary arrives with into one run of text.
+ *
+ * The overflow is measured rather than guessed, so the toggle appears only on
+ * notes that actually lost something — most notes are a line or two, and an
+ * unconditional "show more" under every one of them would be the noise this is
+ * meant to remove. Measurement is skipped while expanded, where the element is
+ * its own full height and would report itself unclamped, taking the toggle away
+ * with no way back.
+ */
+function ClampedNote({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const [clamped, setClamped] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || expanded) return
+    setClamped(el.scrollHeight > el.clientHeight + 1)
+  }, [text, expanded])
+
+  const toggle = () => setExpanded((e) => !e)
+
   return (
-    <div className='mb-3 flex flex-col gap-1.5 border-l-2 border-border pl-3'>
-      {notes.map((text, i) => (
+    <div
+      className={clamped ? 'cursor-pointer' : undefined}
+      onClick={clamped ? (e) => isPlainClick(e) && toggle() : undefined}
+    >
+      {/* The gradient is positioned against the text alone. Anchored to the
+          whole component it would also lie over the toggle beneath, fading the
+          one thing that has to stay legible. */}
+      <div className='relative'>
         <div
-          key={i}
-          className='markdown text-[13px] text-text-muted leading-snug'
+          ref={ref}
+          className='markdown text-[13px] text-text-muted leading-snug overflow-hidden'
+          style={expanded ? undefined : { maxHeight: NOTE_CLAMP_PX }}
         >
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
@@ -234,33 +322,93 @@ function StepsBlock({
             {text}
           </ReactMarkdown>
         </div>
-      ))}
 
-      {tools.length > 0 && (
-        <div>
-          <button
-            onClick={onToggle}
-            className='flex items-center gap-1 text-[11px] text-text-muted/60 hover:text-text-muted transition-colors'
-          >
-            <ChevronRight
-              size={10}
-              className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
-            />
-            <span>
-              {tools.length} step{tools.length !== 1 ? 's' : ''}
-            </span>
-          </button>
-          {open && (
-            <ul className='mt-1 ml-3 flex flex-col gap-0.5 text-xs list-disc list-inside'>
-              {tools.map((text, i) => (
-                <li key={i} className='text-text-muted'>
-                  {text}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        {clamped && !expanded && (
+          // Fades into the page rather than cutting mid-letter. Purely
+          // decorative, and never in the way of the text it sits over.
+          <div className='pointer-events-none absolute inset-x-0 bottom-0 h-5 bg-gradient-to-t from-bg to-transparent' />
+        )}
+      </div>
+
+      {clamped && (
+        <button
+          onClick={toggle}
+          className='mt-0.5 text-[11px] text-text-muted/60 hover:text-text-muted transition-colors'
+        >
+          {expanded ? 'show less' : 'show more'}
+        </button>
       )}
+    </div>
+  )
+}
+
+/**
+ * One run of activity between two prose blocks: what Jarvis said it was doing,
+ * and the mechanical steps that did it, alternating as they happened.
+ *
+ * The whole run carries a single rail, so it reads as one block rather than as
+ * a stack of unrelated fragments — but each cycle keeps its own toggle, so the
+ * steps stay attached to the note that introduced them instead of pooling at
+ * the bottom under a note that may have had nothing to do with them.
+ *
+ * Notes are rendered as markdown like any other prose of his: reasoning
+ * summaries come with emphasis and lists, which read as literal asterisks
+ * otherwise.
+ */
+function StepsBlock({
+  cycles,
+  isOpen,
+  onToggle,
+}: {
+  cycles: Cycle[]
+  isOpen: (cycle: number) => boolean
+  onToggle: (cycle: number, open: boolean) => void
+}) {
+  return (
+    <div className='mb-3 flex flex-col gap-1.5 border-l-2 border-border pl-3'>
+      {cycles.map((cycle, j) => {
+        const open = isOpen(j)
+        return (
+          <div key={j} className='flex flex-col gap-1.5'>
+            {cycle.notes.map((text, i) => (
+              <ClampedNote key={i} text={text} />
+            ))}
+
+            {cycle.tools.length > 0 && (
+              // The expanded list folds on a press anywhere in it, so closing a
+              // run doesn't mean hunting back up for the one-line header that
+              // opened it.
+              <div
+                className='cursor-pointer'
+                onClick={(e) => isPlainClick(e) && onToggle(j, open)}
+              >
+                <button
+                  onClick={() => onToggle(j, open)}
+                  className='flex items-center gap-1 text-[11px] text-text-muted/60 hover:text-text-muted transition-colors'
+                >
+                  <ChevronRight
+                    size={10}
+                    className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
+                  />
+                  <span>
+                    {cycle.tools.length} step
+                    {cycle.tools.length !== 1 ? 's' : ''}
+                  </span>
+                </button>
+                {open && (
+                  <ul className='mt-1 ml-3 flex flex-col gap-0.5 text-xs list-disc list-inside'>
+                    {cycle.tools.map((text, i) => (
+                      <li key={i} className='text-text-muted'>
+                        {text}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
