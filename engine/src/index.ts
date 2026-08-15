@@ -18,6 +18,7 @@ import {
   interruptSession,
   type SessionEvent,
 } from './sessions.js'
+import { registerPluginRoutes } from './plugins.js'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 //
@@ -666,6 +667,12 @@ app.get<{ Params: { conversationId: string } }>(
     return { running: false }
   },
 )
+
+// ── Plugins ──────────────────────────────────────────────────────────────────
+// Marketplace + plugin management (`claude plugin …`). Behind the same Bearer
+// check as everything else here — these commands clone repos and change what
+// every future session loads.
+registerPluginRoutes(app)
 
 // Health check
 app.get('/health', async () => ({ ok: true }))

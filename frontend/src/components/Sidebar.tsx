@@ -5,6 +5,7 @@ import {
   Clock,
   Code2,
   Plug,
+  Blocks,
   LogOut,
   Moon,
   Sun,
@@ -102,6 +103,7 @@ export default function Sidebar({
     location.pathname === '/crons' ||
     location.pathname === '/webhooks' ||
     location.pathname === '/connectors' ||
+    location.pathname === '/plugins' ||
     location.pathname.startsWith('/code')
 
   function logout() {
@@ -254,7 +256,7 @@ export default function Sidebar({
 }
 
 /**
- * Everything below the chat list, behind one row. Crons/webhooks/connectors/code
+ * Everything below the chat list, behind one row. Crons/webhooks/connectors/plugins/code
  * and logout are rare enough that a permanent five-row block wasn't earning its
  * space. Opens upward, since it sits at the bottom of the sidebar.
  */
@@ -330,6 +332,12 @@ function SettingsMenu({
             icon={<Plug size={15} />}
             active={activePath === '/connectors'}
             onClick={() => go('/connectors')}
+          />
+          <NavItem
+            label='Plugins'
+            icon={<Blocks size={15} />}
+            active={activePath === '/plugins'}
+            onClick={() => go('/plugins')}
           />
           <NavItem
             label='Code'

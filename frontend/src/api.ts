@@ -197,6 +197,31 @@ export const api = {
   updateConnector: (id: string, def: ConnectorInput) =>
     request<ConnectorDetail>('PATCH', `/connectors/${id}`, def),
   deleteConnector: (id: string) => request<{ ok: boolean }>('DELETE', `/connectors/${id}`),
+
+  // Plugins & marketplaces
+  getPlugins: () => request<PluginState>('GET', '/plugins'),
+  addMarketplace: (source: string) =>
+    request<PluginMutation>('POST', '/plugins/marketplaces', { source }),
+  updateMarketplace: (name: string) =>
+    request<PluginMutation>('POST', `/plugins/marketplaces/${encodeURIComponent(name)}/update`),
+  removeMarketplace: (name: string) =>
+    request<PluginMutation>('DELETE', `/plugins/marketplaces/${encodeURIComponent(name)}`),
+  installPlugin: (pluginId: string) =>
+    request<PluginMutation>('POST', '/plugins/install', { pluginId }),
+  setPluginEnabled: (pluginId: string, enabled: boolean) =>
+    request<PluginMutation>('POST', `/plugins/${encodeURIComponent(pluginId)}/enabled`, {
+      enabled,
+    }),
+  setPluginAlwaysOn: (pluginId: string, alwaysOn: boolean) =>
+    request<PluginMutation>('POST', `/plugins/${encodeURIComponent(pluginId)}/always-on`, {
+      alwaysOn,
+    }),
+  updatePlugin: (pluginId: string) =>
+    request<PluginMutation>('POST', `/plugins/${encodeURIComponent(pluginId)}/update`),
+  uninstallPlugin: (pluginId: string) =>
+    request<PluginMutation>('DELETE', `/plugins/${encodeURIComponent(pluginId)}`),
+  getPluginDetails: (pluginId: string) =>
+    request<{ details: string }>('GET', `/plugins/${encodeURIComponent(pluginId)}/details`),
 }
 
 // ── SSE connection ───────────────────────────────────────────────────────────
@@ -462,6 +487,55 @@ export interface ConnectorInput {
   icon?: string
   fields?: Array<{ key?: string; label: string; value: string; type?: ConnectorField['type'] }>
   proxy?: ConnectorProxy | null
+}
+
+// ── Plugins ──────────────────────────────────────────────────────────────────
+
+export interface Marketplace {
+  name: string
+  source: string
+  repo?: string
+  url?: string
+  path?: string
+  installLocation?: string
+}
+
+export interface InstalledPlugin {
+  id: string
+  name: string
+  marketplace: string
+  description?: string
+  version?: string
+  scope?: string
+  enabled: boolean
+  installedAt?: string
+  lastUpdated?: string
+  // Always-on = the plugin's opt-in flag file exists, so its SessionStart hook
+  // forces it into every session. Only some plugins read one.
+  alwaysOnSupported: boolean
+  alwaysOn: boolean
+}
+
+export interface AvailablePlugin {
+  pluginId: string
+  name: string
+  description?: string
+  marketplaceName: string
+  version?: string
+}
+
+export interface PluginState {
+  marketplaces: Marketplace[]
+  installed: InstalledPlugin[]
+  available: AvailablePlugin[]
+}
+
+// Every mutation answers with the refreshed state, so the page never needs a
+// follow-up GET — plus which conversations were recycled to pick the change up.
+export interface PluginMutation extends PluginState {
+  message: string
+  recycled: string[]
+  busy: string[]
 }
 
 export type ChatEvent =

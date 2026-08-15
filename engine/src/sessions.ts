@@ -810,6 +810,35 @@ export function killSession(conversationId: string): boolean {
   return true
 }
 
+/**
+ * Close every idle session so the next message respawns it.
+ *
+ * Used after a config change the CLI only reads at spawn time — installing or
+ * enabling a plugin, say. Nothing is lost: the backend keeps the claude session
+ * id and the replacement starts with --resume, so the conversation picks up
+ * where it left off, now with the new plugin set. Busy sessions are left alone
+ * (killing a live turn would strand it) and reported back to the caller.
+ */
+export function recycleIdleSessions(): { recycled: string[]; busy: string[] } {
+  const recycled: string[] = []
+  const busy: string[] = []
+  for (const sess of sessions.values()) {
+    if (sess.closing) continue
+    if (sess.status === 'busy') {
+      busy.push(sess.conversationId)
+      continue
+    }
+    closeSession(sess, { graceful: true })
+    recycled.push(sess.conversationId)
+  }
+  if (recycled.length || busy.length) {
+    console.log(
+      `[session] recycled ${recycled.length} idle session(s), skipped ${busy.length} busy`,
+    )
+  }
+  return { recycled, busy }
+}
+
 function closeSession(sess: Session, opts: { graceful: boolean }): void {
   sess.closing = true
   if (opts.graceful) {

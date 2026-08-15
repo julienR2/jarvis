@@ -27,6 +27,7 @@ The idea is less "deploy and use" and more "deploy and shape." You start with a 
 - **Webhooks** -- HTTP endpoints that trigger the agent with arbitrary payloads. Works well with n8n, Home Assistant, iOS Shortcuts, etc.
 - **Voice input** -- Audio transcribed via Whisper and injected into the conversation.
 - **Skills** -- Modular instruction sets (Markdown files) that auto-activate based on context. The agent can create new skills for itself.
+- **Plugins** -- Add Claude Code plugin marketplaces from Settings, install plugins, toggle them on or off. Enabled plugins load in every conversation, cron and webhook.
 - **Mobile PWA** -- Installable, responsive, with push notifications and share target support.
 
 ### Apps
@@ -126,6 +127,8 @@ The point of Jarvis is that it adapts to you. A few ways in:
 **Add connectors from the UI.** Go to Settings, then Connectors. Built-in options include Gmail, GitHub, Slack, Linear, and others. Credentials are stored in SQLite and injected into the Claude process at runtime -- no `.env` changes, no restarts.
 
 **Create custom connectors.** Give it a name and a set of environment variable fields. That is it -- no code required. The values are available to Claude immediately.
+
+**Install plugins.** Go to Settings, then Plugins. Add a marketplace by `owner/repo`, a git URL, or a local path (`anthropics/claude-code` is the official one), then install what you want from its catalogue. Plugins go in at user scope, so an enabled one is available to every conversation, cron and webhook -- warm chats pick it up on their next message. Plugins that gate themselves behind an opt-in flag file get a third state, **Always on**, which sets that flag so the plugin injects itself into every session instead of waiting to be called. Under the hood this drives `claude plugin` in the engine container, so `agent/settings.json` stays exactly as the CLI expects it.
 
 **Write skills.** Skills are Markdown files in `agent/skills/<name>/SKILL.md`. Each one describes a capability -- when to use it, what tools to call, what APIs to hit. Claude reads the relevant skill automatically based on conversation context. You can also ask Claude to write skills for itself: "create a skill that queries my Notion database."
 

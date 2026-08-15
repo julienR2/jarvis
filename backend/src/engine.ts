@@ -247,6 +247,35 @@ export async function isRunning(conversationId: string): Promise<boolean> {
  * Conversation-level busy view for the restart-reconnect path. Covers both
  * stacks: persistent sessions and any legacy invocation still in flight.
  */
+// ── Plugins ──────────────────────────────────────────────────────────────────
+
+/**
+ * Pass a plugin/marketplace call through to the engine, which owns the `claude`
+ * binary and the config dir the CLI writes to. Errors come back as the CLI's
+ * own message so the settings page can show it verbatim.
+ */
+export async function pluginRequest<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const res = await fetch(`${ENGINE_URL}/plugins${path}`, {
+    method,
+    headers: {
+      ...authHeader(),
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  const data = (await res.json().catch(() => ({}))) as any
+  if (!res.ok) {
+    const err = new Error(data?.error ?? `Engine returned ${res.status}`)
+    ;(err as any).statusCode = res.status
+    throw err
+  }
+  return data as T
+}
+
 export async function listBusyConversations(): Promise<string[]> {
   try {
     const res = await fetch(`${ENGINE_URL}/status`, { headers: authHeader() })
