@@ -27,6 +27,14 @@ interface ChatState {
   hasMore: Record<string, boolean>
   loadingOlder: Record<string, boolean>
   processing: Record<string, boolean>
+  /**
+   * Answer text streaming in for a turn in progress, per conversation.
+   *
+   * A scratch buffer, not a message: the real message row replaces it wholesale
+   * when the turn's text block closes, and a reload starts it empty. Never
+   * persisted — see the engine's `delta` contract in shared.ts.
+   */
+  streaming: Record<string, string>
   listLoaded: boolean
   convsLoaded: Record<string, boolean>
 
@@ -50,7 +58,18 @@ interface ChatState {
 
   // ── SSE-driven mutations (no API call) ───────────────────────────────────
   upsertMessage: (convId: string, msg: Message) => void
+  appendDelta: (convId: string, text: string) => void
+  /** Drop the live scratch state — the persisted message supersedes it. */
+  clearLive: (convId: string) => void
   setProcessing: (convId: string, value: boolean) => void
+  /**
+   * Mark activity: move the conversation to the top of the list, as the server
+   * ordering (updated_at DESC) will once it is refetched.
+   *
+   * Without it the sidebar only reordered on a full reload, so a chat that just
+   * got a reply stayed wherever it was — badge on, position stale.
+   */
+  touchConversation: (convId: string) => void
   setTitleFromEvent: (convId: string, title: string) => void
   setContextUsage: (convId: string, tokens: number, windowTokens: number | null) => void
   incrementUnread: (convId: string) => void
@@ -67,6 +86,40 @@ function toast(kind: 'error' | 'info', msg: string) {
 // throw away the older pages the user scrolled back through.
 function loadedWindow(state: ChatState, id: string): number {
   return Math.max(MESSAGE_PAGE_SIZE, state.messages[id]?.length ?? 0)
+}
+
+// ── Fetch / live-event ordering ──────────────────────────────────────────────
+// A fetched page is a snapshot of the moment the server answered it, but SSE
+// keeps pushing rows while the request is in flight — so applying the page as-is
+// silently rolls those back. Two symptoms, both reported: a finished answer
+// losing the `result` that had already arrived (leaving only its intermediate
+// chunks on screen while the DB holds the full reply), and a message sent during
+// the fetch disappearing from the list until the next reload.
+//
+// So every in-flight fetch registers a buffer, live rows are recorded into all
+// open buffers, and each fetch re-applies its own once its page has landed. A
+// buffer per fetch rather than per conversation: mount, `app_updated` and a
+// reconnect resync can easily overlap.
+const liveDuringFetch = new Map<string, Set<Message[]>>()
+
+function beginFetch(convId: string): Message[] {
+  const buffer: Message[] = []
+  const open = liveDuringFetch.get(convId) ?? new Set<Message[]>()
+  open.add(buffer)
+  liveDuringFetch.set(convId, open)
+  return buffer
+}
+
+/** Stop recording into `buffer` and hand back what it caught. */
+function endFetch(convId: string, buffer: Message[]): Message[] {
+  const open = liveDuringFetch.get(convId)
+  open?.delete(buffer)
+  if (open?.size === 0) liveDuringFetch.delete(convId)
+  return buffer
+}
+
+function recordLiveMessage(convId: string, msg: Message): void {
+  for (const buffer of liveDuringFetch.get(convId) ?? []) buffer.push(msg)
 }
 
 function mergeMessages(prev: Message[], next: Message[]): Message[] {
@@ -91,6 +144,7 @@ export const useChatStore = create<ChatState>()(
     hasMore: {},
     loadingOlder: {},
     processing: {},
+    streaming: {},
     listLoaded: false,
     convsLoaded: {},
 
@@ -245,6 +299,7 @@ export const useChatStore = create<ChatState>()(
     },
 
     async loadConversation(id) {
+      const live = beginFetch(id)
       try {
         const conv = await api.getConversation(id, loadedWindow(get(), id))
         set((s) => {
@@ -258,6 +313,8 @@ export const useChatStore = create<ChatState>()(
       } catch (err) {
         console.error('Failed to load conversation:', err)
       }
+      // After endFetch, so re-applying can't feed the buffer being drained.
+      for (const msg of endFetch(id, live)) get().upsertMessage(id, msg)
     },
 
     async loadOlderMessages(id) {
@@ -291,12 +348,14 @@ export const useChatStore = create<ChatState>()(
     },
 
     async resyncConversation(id) {
+      const live = beginFetch(id)
       try {
         const full = await api.getConversation(id, loadedWindow(get(), id))
         get().reconcileConversation(full)
       } catch (err) {
         console.error('Failed to resync conversation:', err)
       }
+      for (const msg of endFetch(id, live)) get().upsertMessage(id, msg)
     },
 
     async patchConversation(id, patch) {
@@ -328,18 +387,37 @@ export const useChatStore = create<ChatState>()(
     },
 
     upsertMessage(convId, msg) {
+      recordLiveMessage(convId, msg)
+      const idx = get().messages[convId]?.findIndex((m) => m.id === msg.id) ?? -1
       set((s) => {
         const list = s.messages[convId] ?? []
-        const idx = list.findIndex((m) => m.id === msg.id)
         if (idx >= 0) list[idx] = msg
         else list.push(msg)
         s.messages[convId] = list
+      })
+      // A new row is activity; the dozens of updates that grow one while a turn
+      // runs are not, and reordering on each would churn the sidebar for nothing.
+      if (idx < 0) get().touchConversation(convId)
+    },
+
+    appendDelta(convId, text) {
+      set((s) => {
+        s.streaming[convId] = (s.streaming[convId] ?? '') + text
+      })
+    },
+
+    clearLive(convId) {
+      set((s) => {
+        delete s.streaming[convId]
       })
     },
 
     setProcessing(convId, value) {
       set((s) => {
         s.processing[convId] = value
+        // A turn that just ended leaves no live state behind — covers the
+        // interrupt and stream-died paths, which emit no final message.
+        if (!value) delete s.streaming[convId]
       })
     },
 
@@ -359,6 +437,21 @@ export const useChatStore = create<ChatState>()(
         // gauge rather than keep the previous model's window — mirrors what the
         // backend persists, so a reload shows the same thing.
         c.context_window = windowTokens
+      })
+    },
+
+    touchConversation(convId) {
+      set((s) => {
+        const c = s.conversations[convId]
+        const idx = s.order.indexOf(convId)
+        // Unknown conversation: the caller reloads the list instead, which is
+        // the only way to learn about it at all.
+        if (!c || idx < 0) return
+        c.updated_at = Math.floor(Date.now() / 1000)
+        if (idx > 0) {
+          s.order.splice(idx, 1)
+          s.order.unshift(convId)
+        }
       })
     },
 
@@ -384,7 +477,11 @@ export const useChatStore = create<ChatState>()(
         s.messages[full.id] = mergeMessages(s.messages[full.id] ?? [], messages)
         s.hasMore[full.id] = has_more
         s.convsLoaded[full.id] = true
-        s.processing[full.id] = false
+        // Deliberately NOT clearing `processing` here. A resync runs on SSE
+        // reconnect — which is exactly when a turn is most likely still going —
+        // and this raced the stream's own `thinking` seed, so reconnecting
+        // mid-answer would drop the spinner and read as finished. The stream is
+        // the sole authority on that state now; it sends it on every connect.
       })
     },
   })),

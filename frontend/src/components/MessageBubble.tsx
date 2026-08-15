@@ -37,7 +37,12 @@ function getAssistantCopyText(msg: Message): string {
   const hasResult = !!msg.result
   const allChunks = activityLines.filter((l) => l.prefix === 'chunk')
   const visibleChunks = hasResult && allChunks.length > 0 ? allChunks.slice(0, -1) : allChunks
-  const parts = visibleChunks.map((l) => l.text)
+  // Copy what's on screen: notes render above the answer text, so they belong in
+  // the copy too. Only the collapsed tool steps are left out.
+  const parts = [
+    ...activityLines.filter((l) => l.prefix === 'note').map((l) => l.text),
+    ...visibleChunks.map((l) => l.text),
+  ]
   if (hasResult) parts.push(msg.result!)
   return parts.join('\n\n')
 }
@@ -52,22 +57,28 @@ function parseAttachments(metadata?: string | null): Attachment[] {
   }
 }
 
+type ActivityPrefix = 'tool' | 'chunk' | 'note'
+
 interface ParsedLines {
-  activityLines: { prefix: 'tool' | 'chunk'; text: string }[]
+  activityLines: { prefix: ActivityPrefix; text: string }[]
 }
 
+// Longest-first is not needed here (no prefix is a prefix of another), but the
+// lengths are derived rather than hardcoded so a rename can't desync the slice.
+const ACTIVITY_PREFIXES: ActivityPrefix[] = ['tool', 'chunk', 'note']
+
 function parseActivityContent(content: string): ParsedLines {
-  // Split into entries — each starts with [tool] or [chunk], may span multiple paragraphs
+  // Split into entries — each starts with [tool], [chunk] or [note], and may
+  // span multiple paragraphs.
   const paragraphs = content.split('\n\n')
   const activityLines: ParsedLines['activityLines'] = []
 
   for (const para of paragraphs) {
-    if (para.startsWith('[tool] ')) {
-      activityLines.push({ prefix: 'tool', text: para.slice(7) })
-    } else if (para.startsWith('[chunk] ')) {
-      activityLines.push({ prefix: 'chunk', text: para.slice(8) })
+    const prefix = ACTIVITY_PREFIXES.find((p) => para.startsWith(`[${p}] `))
+    if (prefix) {
+      activityLines.push({ prefix, text: para.slice(prefix.length + 3) })
     } else if (activityLines.length > 0) {
-      // Continuation of previous entry (multiline tool/chunk)
+      // Continuation of previous entry (multiline tool/chunk/note)
       activityLines[activityLines.length - 1].text += '\n\n' + para
     }
   }
@@ -76,7 +87,7 @@ function parseActivityContent(content: string): ParsedLines {
 }
 
 function hasActivityLines(content: string): boolean {
-  return content.startsWith('[tool] ') || content.startsWith('[chunk] ')
+  return ACTIVITY_PREFIXES.some((p) => content.startsWith(`[${p}] `))
 }
 
 function ActivityBubble({ msg }: { msg: Message }) {
@@ -87,10 +98,15 @@ function ActivityBubble({ msg }: { msg: Message }) {
   )
 
   const hasResult = !!msg.result
-  // Collapsible = tools only (always)
-  // Visible = all chunks + result when done
+  // Collapsible = mechanical steps (tool calls, agent starts) — the "what it
+  // did" detail, useful on demand and noise by default.
+  // Visible = notes + chunks + result. Notes are the model narrating its own
+  // progress while subagents run; they're prose written for a reader, which is
+  // exactly the "tell me the important part along the way" layer, so they stay
+  // out of the toggle.
   // The last chunk typically duplicates the result, so strip it when result exists
   const collapsibleLines = activityLines.filter((l) => l.prefix === 'tool')
+  const notes = activityLines.filter((l) => l.prefix === 'note')
   const allChunks = activityLines.filter((l) => l.prefix === 'chunk')
   const visibleChunks = hasResult && allChunks.length > 0
     ? allChunks.slice(0, -1)
@@ -118,19 +134,24 @@ function ActivityBubble({ msg }: { msg: Message }) {
             {open && (
               <ul className='mt-1 ml-3 flex flex-col gap-0.5 text-xs list-disc list-inside'>
                 {collapsibleLines.map((line, i) => (
-                  <li
-                    key={i}
-                    className={
-                      line.prefix === 'tool'
-                        ? 'text-text-muted'
-                        : 'text-text-primary'
-                    }
-                  >
+                  <li key={i} className='text-text-muted'>
                     {line.text}
                   </li>
                 ))}
               </ul>
             )}
+          </div>
+        )}
+
+        {/* Progress narration — dimmer than the answer, but readable, and
+            never hidden behind the step toggle. */}
+        {notes.length > 0 && (
+          <div className='mb-3 flex flex-col gap-1.5 border-l-2 border-border pl-3'>
+            {notes.map((line, i) => (
+              <p key={i} className='text-[13px] text-text-muted leading-snug'>
+                {line.text}
+              </p>
+            ))}
           </div>
         )}
 
@@ -158,7 +179,8 @@ function ActivityBubble({ msg }: { msg: Message }) {
             )}
           </div>
         )}
-        {msg.created_at && (hasResult || visibleChunks.length > 0) && (
+        {msg.created_at &&
+          (hasResult || visibleChunks.length > 0 || notes.length > 0) && (
           <div className='text-[10px] text-text-muted/50 mt-1 flex items-center gap-1.5'>
             {formatTime(msg.created_at)}
             <CopyButton getText={() => getAssistantCopyText(msg)} />
@@ -171,16 +193,18 @@ function ActivityBubble({ msg }: { msg: Message }) {
 
 export default function MessageBubble({ msg }: Props) {
   const isUser = msg.role === 'user'
-
-  // Assistant message with [tool]/[chunk] lines → activity bubble
-  if (!isUser && hasActivityLines(msg.content)) {
-    return <ActivityBubble msg={msg} />
-  }
-
+  // Above the early return — a hook must not sit on one side of a conditional
+  // return, or the first message whose content grows into activity lines takes
+  // the whole list down with a hook-order error.
   const attachments = useMemo(
     () => parseAttachments(msg.metadata),
     [msg.metadata],
   )
+
+  // Assistant message with [tool]/[chunk]/[note] lines → activity bubble
+  if (!isUser && hasActivityLines(msg.content)) {
+    return <ActivityBubble msg={msg} />
+  }
 
   return (
     <div
@@ -309,7 +333,11 @@ function translateSrc(src?: string): string {
   return src.replace(/^\/(?:jarvis\/(?:agent\/)?)?workspace\/uploads\//, '/api/uploads/files/')
 }
 
-const markdownComponents = {
+// Exported so the live-streaming view can render partial text through the exact
+// same renderer. Matching them matters: if streamed text rendered differently
+// from the persisted message, the handoff at the end of a block would visibly
+// re-layout instead of just... continuing.
+export const markdownComponents = {
   article: ({ children, ...props }: React.HTMLAttributes<HTMLElement> & Record<string, unknown>) => {
     if ('data-details' in props || 'dataDetails' in props) {
       return <CollapsibleArticle label='Details'>{children}</CollapsibleArticle>

@@ -21,6 +21,7 @@ export function useChatEvents(conversationId: string | undefined): {
     if (!conversationId) return
     const store = useChatStore.getState()
     store.setProcessing(conversationId, false)
+    store.clearLive(conversationId)
     store.loadConversation(conversationId)
 
     const handleEvent = (ev: ChatEvent) => {
@@ -29,7 +30,13 @@ export function useChatEvents(conversationId: string | undefined): {
       const s = useChatStore.getState()
       switch (ev.type) {
         case 'message':
+          // The authoritative row supersedes whatever was streaming into the
+          // live buffer, so drop it here rather than letting both render.
+          if (ev.message.role === 'assistant') s.clearLive(cid)
           s.upsertMessage(cid, ev.message)
+          break
+        case 'delta':
+          s.appendDelta(cid, ev.text)
           break
         case 'conversation':
           if (ev.title) s.setTitleFromEvent(cid, ev.title)

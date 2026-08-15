@@ -305,6 +305,13 @@ const attachedConversations = new Map<
   }
 >()
 
+// Answer text streamed for the turn in progress, per conversation — the same
+// text the `delta` events carry, kept only so a client that connects mid-answer
+// can be handed what it missed. Deltas are live-only and never replayed, so
+// without this a browser opening a conversation mid-reply sees an empty gap
+// until the block closes. Dropped the moment the text is persisted.
+const liveTurnText = new Map<string, string>()
+
 /**
  * Mark that a mid-turn message was steered into `conversationId`, so the
  * assistant message in progress gets closed before the next event is appended.
@@ -342,6 +349,58 @@ export function attachConversationStream(
   // reset at every done/error so the next turn starts a fresh message.
   let msgId: string | null = null
   let lines: string[] = []
+
+  // ── Live-stream coalescing ─────────────────────────────────────────────────
+  // Measured: the CLI already batches its own partial messages — a 241-char
+  // answer arrived as 8 deltas, front-loaded token-sized then jumping to 85- and
+  // 124-char blocks. So there is no token firehose to defend against here, and
+  // the original 60ms window was actively harmful: it re-batched already-batched
+  // text into a handful of visible jumps.
+  //
+  // This is now just a flood guard for a model that streams genuinely per-token,
+  // set to roughly one animation frame so it adds no perceptible latency.
+  // Smoothness is the client's job — see the typewriter in LiveTurn.
+  const LIVE_FLUSH_MS = 16
+  let deltaBuf = ''
+  let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+  function flushLive(): void {
+    flushTimer = null
+    if (deltaBuf) {
+      emitConversationEvent(conversationId, { type: 'delta', text: deltaBuf })
+      liveTurnText.set(
+        conversationId,
+        (liveTurnText.get(conversationId) ?? '') + deltaBuf,
+      )
+      deltaBuf = ''
+    }
+  }
+
+  function scheduleLive(): void {
+    if (!flushTimer) flushTimer = setTimeout(flushLive, LIVE_FLUSH_MS)
+  }
+
+  /**
+   * Discard anything buffered, without sending it.
+   *
+   * Called wherever a persisted message is about to supersede the live buffer.
+   * Dropping rather than flushing is deliberate: the authoritative message is
+   * being emitted right now and the client replaces its streaming buffer with
+   * it, so a delta landing *after* that would re-show text the real message
+   * already contains.
+   *
+   * Belt-and-braces, not the only guard: the client clears its live buffer on
+   * *any* assistant message event, which is what covers the paths that don't
+   * call this — notably a `note` closing a block whose deltas already went out.
+   */
+  function dropLive(): void {
+    if (flushTimer) {
+      clearTimeout(flushTimer)
+      flushTimer = null
+    }
+    deltaBuf = ''
+    liveTurnText.delete(conversationId)
+  }
 
   function appendLine(prefix: string, text: string) {
     // A steered message was inserted since the last event. Close the message in
@@ -390,11 +449,27 @@ export function attachConversationStream(
   }
 
   const onEvent = (ev: import('../engine.js').ClaudeEvent) => {
+      // Live-only event: straight to SSE, never near the DB. Returning early
+      // keeps it out of appendLine, whose whole-row rewrite per event is fine
+      // for the handful of tool/chunk events in a turn and quadratic for tokens.
+      if (ev.type === 'delta') {
+        deltaBuf += ev.text
+        scheduleLive()
+        return
+      }
+
       if (ev.type === 'tool') {
         appendLine('tool', ev.name)
       }
 
+      if (ev.type === 'note') {
+        appendLine('note', ev.text)
+      }
+
       if (ev.type === 'chunk') {
+        // The block just closed and its full text is about to be persisted and
+        // pushed — whatever deltas are still buffered for it are now redundant.
+        dropLive()
         appendLine('chunk', ev.text.trim())
       }
 
@@ -423,6 +498,7 @@ export function attachConversationStream(
       }
 
       if (ev.type === 'done') {
+        dropLive()
         const resultText = ev.result || ''
         console.log(`[msg] done — result: ${resultText.length} chars`)
 
@@ -537,6 +613,7 @@ export function attachConversationStream(
       }
 
       if (ev.type === 'error') {
+        dropLive()
         console.log(`[msg] error: ${ev.message.slice(0, 120)}`)
         // Close out the turn either way — a new one may follow on this stream.
         msgId = null
@@ -587,6 +664,7 @@ export function attachConversationStream(
     // drop the guard so the next message re-attaches. If a pending done kept
     // the spinner on and the session died before its wake-up turn, this is
     // the safety net that turns it off.
+    dropLive()
     attachedConversations.delete(conversationId)
     emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
   })
@@ -829,14 +907,37 @@ export async function conversationRoutes(app: FastifyInstance) {
       // Track client count for push notification decisions
       sseClients.set(id, (sseClients.get(id) ?? 0) + 1)
 
+      // ── Seed the state of the turn in progress ───────────────────────────
+      // A turn that started before this connection existed left two things the
+      // event stream itself won't repeat: the answer text streamed so far, and
+      // the fact that it is still running.
+
+      // Read AND written before subscribing: a delta landing in between is then
+      // merely lost (the `chunk` that closes the block restores it), whereas
+      // seeding after subscribing would re-show text the client just appended.
+      const liveSeed = liveTurnText.get(id)
+      if (liveSeed) {
+        reply.raw.write(
+          `data: ${JSON.stringify({ type: 'delta', text: liveSeed })}\n\n`,
+        )
+      }
+
+      // Any thinking event forwarded during the isRunning round-trip is more
+      // current than its answer, so it wins — the seed is skipped rather than
+      // allowed to overwrite it with a stale value.
+      let sawThinking = false
       const unsubscribe = subscribeConversation(id, (data) => {
+        if (data.includes('"type":"thinking"')) sawThinking = true
         reply.raw.write(`data: ${data}\n\n`)
       })
 
-      // If Claude is already running for this conversation, notify the new client
-      if (await isRunning(id)) {
+      // Sent whether or not a turn is running: `false` matters just as much, as
+      // nothing else tells a reconnecting client that the turn it last saw
+      // running has since finished — which used to leave its spinner on for good.
+      const running = await isRunning(id)
+      if (!sawThinking) {
         reply.raw.write(
-          `data: ${JSON.stringify({ type: 'thinking', thinking: true })}\n\n`,
+          `data: ${JSON.stringify({ type: 'thinking', thinking: running })}\n\n`,
         )
       }
 
@@ -852,12 +953,43 @@ export async function conversationRoutes(app: FastifyInstance) {
         if (count <= 0) sseClients.delete(id)
         else sseClients.set(id, count)
 
-        // Mark conversation as read up to this point
-        getDb()
-          .prepare(
-            'UPDATE conversations SET last_read_at = unixepoch() WHERE id = ?',
-          )
-          .run(id)
+        // Mark the conversation read up to this point.
+        //
+        // Not simply `unixepoch()`, because an assistant row is INSERTed on the
+        // turn's *first* line and UPDATEd until the turn ends: its created_at is
+        // when the answer started, not when it landed. Stamping now while a turn
+        // is in flight sorts *after* a message that isn't written yet, so the
+        // unread query (created_at > last_read_at) silently drops it — walking
+        // away while Jarvis is still answering cost you the badge for that whole
+        // reply.
+        //
+        // So when a turn is running, park the mark just below the row being
+        // written: earlier turns the user did watch stay read, and the in-flight
+        // one surfaces as unread once it lands.
+        isRunning(id).then((running) => {
+          if (!running) {
+            getDb()
+              .prepare(
+                'UPDATE conversations SET last_read_at = unixepoch() WHERE id = ?',
+              )
+              .run(id)
+            return
+          }
+          // COALESCE: the turn may not have written its first line yet, in which
+          // case there is no row to park below and the mark stays put.
+          getDb()
+            .prepare(
+              `UPDATE conversations SET last_read_at = COALESCE(
+                 (SELECT m.created_at - 1 FROM messages m
+                   WHERE m.conversation_id = ?
+                     AND m.role = 'assistant'
+                     AND m.type IS NULL
+                   ORDER BY m.rowid DESC LIMIT 1),
+                 last_read_at
+               ) WHERE id = ?`,
+            )
+            .run(id, id)
+        })
       })
     },
   )

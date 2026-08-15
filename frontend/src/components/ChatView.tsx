@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
+import rehypeRaw from 'rehype-raw'
+import remarkGfm from 'remark-gfm'
 import { Clock, Link2, BellOff, BellRing, Loader2 } from 'lucide-react'
 import {
   api,
@@ -10,7 +13,7 @@ import {
 } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { useChatEvents } from '../hooks/useChatEvents'
-import MessageBubble from './MessageBubble'
+import MessageBubble, { markdownComponents } from './MessageBubble'
 import ChatInput from './ChatInput'
 import { DEFAULT_MODEL, DEFAULT_EFFORT } from './ModelSelector'
 import AppPreview from './AppPreview'
@@ -58,6 +61,10 @@ export default function ChatView({
   const isProcessing = useChatStore((s) =>
     conversationId ? !!s.processing[conversationId] : false,
   )
+  // NB: the live streaming buffer is deliberately *not* subscribed here. It
+  // changes many times a second, and ChatView renders the whole message list —
+  // every delta would re-run ReactMarkdown for every bubble in the conversation.
+  // LiveTurn subscribes for itself.
   const loaded = useChatStore((s) =>
     conversationId ? !!s.convsLoaded[conversationId] : false,
   )
@@ -117,9 +124,15 @@ export default function ChatView({
   // prepended older pages should yank the viewport away. (The list lives in a
   // flex-col-reverse container, so a prepend keeps visible messages in place
   // and scrollTop is 0 at the bottom, going negative upward.)
+  // A message of the user's own is the exception: they just sent it (typed, or
+  // dictated a few seconds earlier), so it is always brought into view. Left to
+  // the rule above it could land below the fold whenever the viewport had
+  // drifted, which is how a voice message or an image attachment came across as
+  // never having been sent at all.
   useEffect(() => {
     const container = scrollContainerRef.current
-    if (container && Math.abs(container.scrollTop) > 100) return
+    const ownMessageLast = messages[messages.length - 1]?.role === 'user'
+    if (!ownMessageLast && container && Math.abs(container.scrollTop) > 100) return
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isProcessing])
 
@@ -371,6 +384,7 @@ export default function ChatView({
                         <MessageBubble key={item.msg.id} msg={item.msg} />
                       ),
                     )}
+                    <LiveTurn conversationId={conversationId} />
                     <JarvisIndicator isThinking={isProcessing} />
                   </>
                 )}
@@ -409,6 +423,85 @@ export default function ChatView({
       </div>
     </div>
     </>
+  )
+}
+
+/**
+ * Reveal `target` progressively, so text appears word-by-word regardless of how
+ * chunkily it arrived.
+ *
+ * This has to be client-side. The CLI batches its own partial messages before we
+ * ever see them (a 241-char answer measured as 8 deltas, some 100+ chars), so
+ * network events alone render as a few big jumps no matter how fast we forward
+ * them. Decoupling the reveal from arrival is what makes it read as typing.
+ *
+ * Catches up proportionally — a fixed chars-per-tick rate would fall further and
+ * further behind on a long answer and still be typing after the turn ended.
+ */
+function useTypewriter(target: string): string {
+  const [shown, setShown] = useState(0)
+
+  // Read through a ref inside the tick so the interval doesn't have to be torn
+  // down and rebuilt on every delta (or, worse, on every tick).
+  const targetRef = useRef(target)
+  targetRef.current = target
+
+  // The buffer only ever shrinks when it is cleared for a new turn (or a partial
+  // is retracted), so the reveal restarts with it — adjusted during render, not
+  // in an effect, which would leave a frame showing the new turn's opening text
+  // in one jump. Merely clamping was worse still: `shown` stayed at the previous
+  // turn's length, so every turn after the first appeared instantly.
+  if (shown > target.length) setShown(target.length)
+
+  const revealed = Math.min(shown, target.length)
+  const caughtUp = revealed >= target.length
+
+  useEffect(() => {
+    if (caughtUp) return
+    const id = setInterval(() => {
+      setShown((n) => {
+        const len = targetRef.current.length
+        const at = Math.min(n, len)
+        if (at >= len) return at
+        // ~25% of the backlog per tick, min 2 chars: converges fast on a burst,
+        // still visibly incremental on a trickle.
+        return at + Math.max(2, Math.ceil((len - at) * 0.25))
+      })
+    }, 33)
+    return () => clearInterval(id)
+  }, [caughtUp])
+
+  return target.slice(0, revealed)
+}
+
+/**
+ * The answer text of the turn in progress.
+ *
+ * Not persisted: when the block closes, the real message row arrives and the
+ * store clears this. It renders through `markdownComponents` — the same renderer
+ * MessageBubble uses — so that swap doesn't re-layout.
+ */
+function LiveTurn({ conversationId }: { conversationId?: string }) {
+  const streaming = useChatStore((s) =>
+    conversationId ? s.streaming[conversationId] ?? '' : '',
+  )
+  const shown = useTypewriter(streaming)
+  if (!shown) return null
+
+  return (
+    <div className='flex items-start mb-5'>
+      <div className='max-w-full min-w-0'>
+        <div className='markdown text-base leading-relaxed'>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw]}
+            components={markdownComponents}
+          >
+            {shown}
+          </ReactMarkdown>
+        </div>
+      </div>
+    </div>
   )
 }
 

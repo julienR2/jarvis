@@ -10,7 +10,27 @@ import { readFileSync } from 'fs'
 export type ClaudeEvent =
   | { type: 'thinking' }
   | { type: 'tool'; name: string }
+  // Prose written for a human reader, as opposed to the mechanical steps `tool`
+  // records. Two sources: the main loop narrating what its subagents are up to,
+  // and its own summarized reasoning. Persisted like `tool`, but kept a separate
+  // type so the UI can show it instead of hiding it behind the step toggle.
+  //
+  // Notes are deliberately durable. Reasoning was first tried as a live,
+  // self-replacing status line and rejected — it flickered past faster than it
+  // could be read. If it's worth showing, it's worth keeping.
+  | { type: 'note'; text: string }
   | { type: 'chunk'; text: string }
+  // ── Live-only event ────────────────────────────────────────────────────────
+  // Emitted straight to subscribers, never pushed to the replay ring buffer and
+  // never persisted: it describes a turn *in progress*, and the authoritative
+  // record is the `chunk`/`done` pair that follows. A client that misses these
+  // (reconnect, cron with nobody watching) loses nothing durable.
+  //
+  // Partial answer text, as the model writes it. The complete text arrives
+  // again in a `chunk` once the block closes — consumers must replace their
+  // accumulated deltas with it rather than append, since a partial can be
+  // retracted (refusal, stale message_start) and re-issued.
+  | { type: 'delta'; text: string }
   // pending: the turn ended but the conversation isn't actually finished —
   // background subagents are still running and a wake-up turn will follow.
   // The backend keeps the thinking indicator on for these.

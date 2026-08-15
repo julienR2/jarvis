@@ -470,6 +470,10 @@ export type ChatEvent =
   | { type: 'thinking'; thinking: boolean }
   | { type: 'app_updated' }
   | { type: 'usage'; contextTokens: number; contextWindow: number | null }
+  // Live-only, never persisted: answer text as it is written (append). Dropped
+  // once the authoritative `message` for the turn arrives — see the chat store's
+  // clearLive.
+  | { type: 'delta'; text: string }
 
 export type GlobalEvent =
   | { type: 'new_message'; conversation_id: string }

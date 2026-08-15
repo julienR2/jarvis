@@ -21,7 +21,14 @@ const authHeader = (): Record<string, string> => ({
 export type ClaudeEvent =
   | { type: 'thinking' }
   | { type: 'tool'; name: string }
+  // Main-loop narration and summarized reasoning — persisted, but shown rather
+  // than collapsed with the tool steps. See the engine's shared.ts.
+  | { type: 'note'; text: string }
   | { type: 'chunk'; text: string }
+  // Live-only, never persisted: partial answer text for a turn in progress.
+  // Forwarded to SSE and dropped at the turn boundary — the `chunk`/`done` pair
+  // is the durable record. See shared.ts in the engine for the full contract.
+  | { type: 'delta'; text: string }
   // pending: the turn ended but background subagents are still running — a
   // wake-up turn will follow, so the conversation isn't actually finished.
   | { type: 'done'; result: string; sessionId: string | null; pending?: boolean }

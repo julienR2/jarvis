@@ -49,6 +49,9 @@ export interface Session {
   // if --resume points at a session the CLI no longer knows about.
   unanswered: string[]
   allowResumeRetry: boolean
+  // Pass the live-streaming CLI flags on spawn. Cleared and retried once if the
+  // CLI rejects them — see the unknown-option branch in the close handler.
+  streamingFlags: boolean
   // One-shot sessions (title generation) close stdin after the first result.
   oneShot: boolean
   // A graceful close was initiated (reap, eviction, model change) — the close
@@ -60,6 +63,9 @@ export interface Session {
   // Context window of the model in use, or null while still unknown. Seeded
   // from the model id and confirmed from the result event's modelUsage.
   contextWindow: number | null
+  // Last usage figure actually reported, so unchanged ones can be skipped —
+  // see recordUsage.
+  lastUsage: { tokens: number; window: number | null } | null
 }
 
 // Known context windows, matched on the full model id. Anything not listed
@@ -214,11 +220,13 @@ function createSession(opts: EnsureOptions): Session {
     lastActivityAt: Date.now(),
     unanswered: [],
     allowResumeRetry: true,
+    streamingFlags: true,
     oneShot: opts.oneShot ?? false,
     closing: false,
     killTimer: null,
     stderrTail: '',
     contextWindow: windowForModel(opts.model),
+    lastUsage: null,
   }
   sessions.set(sess.conversationId, sess)
   spawnProcess(sess, opts.resumeSessionId ?? null)
@@ -241,6 +249,11 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
     [...BASE_TOOLS, ...MCP_TOOLS].join(','),
   ]
 
+  // Token-level `stream_event`s on top of the complete-message events. Without
+  // it the first text of a turn only lands once the model has finished the whole
+  // assistant message — i.e. the entire answer for a one-message reply.
+  if (sess.streamingFlags) args.push('--include-partial-messages')
+
   const mcpConfig = `${process.env.CLAUDE_CONFIG_DIR || '/jarvis/agent'}/mcp.json`
   if (existsSync(mcpConfig)) args.push('--mcp-config', mcpConfig)
 
@@ -251,6 +264,17 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
   // so skip the flag for it.
   if (sess.effort && !/haiku/i.test(sess.model ?? '')) {
     args.push('--effort', sess.effort)
+  }
+  // Reasoning summaries. Opt-in: the API default is `omitted`, which streams
+  // thinking blocks with empty text.
+  //
+  // These are surfaced as persisted `note` lines from the complete-message
+  // handler, NOT streamed to a live status line. That was tried first and
+  // dropped: the model moves through its reasoning far faster than anyone can
+  // read it, so a self-replacing line just flickered. A note stays put and can
+  // actually be read — before or after the fact.
+  if (sess.streamingFlags && !/haiku/i.test(sess.model ?? '')) {
+    args.push('--thinking-display', 'summarized')
   }
 
   console.log(`[session] ${sess.conversationId}: spawning claude ${args.join(' ')}`)
@@ -316,6 +340,28 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
     // A newer process already replaced this one (model change respawn).
     if (sessions.get(sess.conversationId) !== sess) return
 
+    // The CLI rejected one of the streaming flags: retry once without them.
+    //
+    // `--thinking-display` in particular is accepted by the pinned 2.1.220 but
+    // absent from `--help`, i.e. unsupported surface — and the update cron bumps
+    // that pin unattended. Without this branch, a rename upstream wouldn't
+    // degrade streaming, it would make every session fail to spawn.
+    if (
+      code !== 0 &&
+      sess.streamingFlags &&
+      /unknown option .--(include-partial-messages|thinking-display)/.test(
+        sess.stderrTail,
+      )
+    ) {
+      console.warn(
+        `[session] ${sess.conversationId}: CLI rejected a streaming flag — retrying without live streaming`,
+      )
+      sess.streamingFlags = false
+      spawnProcess(sess, resumeSessionId)
+      for (const text of sess.unanswered) writeUserLine(sess, text)
+      return
+    }
+
     // --resume pointed at a session the CLI no longer has: retry once from
     // scratch and replay the messages that never got an answer.
     if (
@@ -368,11 +414,63 @@ function recordUsage(sess: Session, usage: any): void {
   // Zeros come from messages the CLI produced without a real API call (error
   // paths, local replies) — reporting them would blank the gauge mid-turn.
   if (contextTokens <= 0) return
+  // The prompt is unchanged for most messages of a tool loop, so the same figure
+  // arrives over and over — measured at 62 usage events, nearly all identical,
+  // in a single turn. Each one costs the backend a conversations UPDATE and an
+  // SSE frame for a gauge that didn't move, so only report movement.
+  const last = sess.lastUsage
+  if (last && last.tokens === contextTokens && last.window === sess.contextWindow) {
+    return
+  }
+  sess.lastUsage = { tokens: contextTokens, window: sess.contextWindow }
   pushEvent(sess, {
     type: 'usage',
     contextTokens,
     contextWindow: sess.contextWindow,
   })
+}
+
+/**
+ * Human-readable label for a tool call, for the activity trail.
+ *
+ * The generic `Using <ToolName>...` fallback this replaces was near-useless in
+ * the UI: "Using Skill..." says nothing about *which* skill, and the tools that
+ * hit the fallback (Skill, Task, WebSearch, WebFetch, MCP) are exactly the ones
+ * whose input carries the interesting part. Tools that pass an explicit
+ * `description` keep it — the model wrote it for a reader.
+ */
+function toolLabel(name: string, input: any): string {
+  if (input?.description) return input.description
+
+  switch (name) {
+    case 'Skill':
+      return input?.skill ? `Skill: ${input.skill}` : 'Running a skill'
+    case 'Task':
+      return input?.subagent_type
+        ? `Agent: ${input.subagent_type}`
+        : 'Delegating to an agent'
+    case 'WebSearch':
+      return input?.query ? `Searching: ${input.query}` : 'Searching the web'
+    case 'WebFetch':
+      return input?.url ? `Fetching ${hostOf(input.url)}` : 'Fetching a page'
+    case 'TodoWrite':
+      return 'Updating the todo list'
+  }
+
+  // MCP tools arrive as mcp__<server>__<action> — the raw id is noise, the
+  // server and action are not.
+  const mcp = /^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/.exec(name)
+  if (mcp) return `${mcp[1]}: ${mcp[2].replace(/_/g, ' ')}`
+
+  return `Using ${name}`
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url.slice(0, 60)
+  }
 }
 
 function attachStdoutParser(sess: Session, proc: ChildProcess): void {
@@ -388,10 +486,38 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
   // main loop is talking straight to the user, so its text stays chat text.
   const narratingTasks = new Set<string>()
   const QUIET_TOOLS = new Set(['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'])
-  const quietToolIds = new Set<string>()
   // tool_use ids already surfaced as an activity line, so the task_started that
   // follows a backgrounded Bash doesn't announce the same description twice.
   const announcedToolIds = new Set<string>()
+  /**
+   * Partial-message events (`--include-partial-messages`): one per token.
+   *
+   * Answer text only. Thinking deltas are ignored — see the --thinking-display
+   * note in spawnProcess for why reasoning isn't surfaced.
+   *
+   * Everything here goes out via emit(), never pushEvent() — these must stay out
+   * of the replay ring buffer, which holds MAX_EVENTS and would otherwise be
+   * flushed of every real event by a single paragraph of streamed text.
+   */
+  function handleStreamEvent(ev: any): void {
+    // Subagent internals are dropped. The main loop already narrates what its
+    // agents are doing (the narratingTasks path below), and that reads far
+    // better than raw subagent text. Belt and braces: --forward-subagent-text
+    // is off by default, so these normally never arrive at all.
+    if (ev.parent_tool_use_id) return
+    const inner = ev.event
+    if (!inner || inner.type !== 'content_block_delta') return
+    const delta = inner.delta
+
+    if (delta?.type === 'text_delta' && delta.text) {
+      // Same gate as `chunk`: while subagents run, main-loop text is narration
+      // between agent results and belongs in the activity trail, not streamed
+      // as answer text.
+      if (narratingTasks.size === 0) {
+        emit(sess, { type: 'delta', text: delta.text })
+      }
+    }
+  }
 
   proc.stdout!.on('data', (chunk: Buffer) => {
     buf += chunk.toString()
@@ -402,6 +528,15 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
       if (!line.trim()) continue
       try {
         const ev = JSON.parse(line)
+
+        // Handled before the raw-event log on purpose: at one event per token,
+        // logging these would churn the container's 10MB/3-file log rotation in
+        // minutes and bury the events worth debugging.
+        if (ev.type === 'stream_event') {
+          sess.lastActivityAt = Date.now()
+          handleStreamEvent(ev)
+          continue
+        }
 
         // Log raw event for debugging (omit large content)
         const logEv = { ...ev }
@@ -449,12 +584,26 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
           // anything about how full THIS conversation is.
           if (!ev.parent_tool_use_id) recordUsage(sess, ev.message.usage)
           for (const block of ev.message.content) {
+            // Summarized reasoning (--thinking-display). Persisted as a note so
+            // it stays readable in the trail instead of flashing past in a live
+            // status line. Main loop only: a subagent's reasoning is internal
+            // detail, and the main loop's own narration covers what it's doing.
+            if (
+              block.type === 'thinking' &&
+              block.thinking?.trim() &&
+              !ev.parent_tool_use_id
+            ) {
+              console.log(
+                '[session] -> thinking:',
+                block.thinking.trim().slice(0, 80),
+              )
+              pushEvent(sess, { type: 'note', text: block.thinking.trim() })
+            }
             if (block.type === 'tool_use') {
               if (QUIET_TOOLS.has(block.name) && !block.input?.description) {
-                if (block.id) quietToolIds.add(block.id)
                 console.log('[session] -> tool (quiet):', block.name)
               } else {
-                const label = block.input?.description ?? `Using ${block.name}...`
+                const label = toolLabel(block.name, block.input)
                 console.log('[session] -> tool:', label)
                 if (block.id) announcedToolIds.add(block.id)
                 pushEvent(sess, { type: 'tool', name: label })
@@ -462,9 +611,11 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
             }
             if (block.type === 'text' && block.text) {
               if (narratingTasks.size > 0) {
-                // Progress text while sub-agents running — treat as activity step
+                // Progress text while sub-agents run. Not answer text — but not
+                // a mechanical step either, so it goes out as `note` and stays
+                // visible in the trail rather than collapsing with the tools.
                 console.log('[session] -> progress:', block.text.trim().slice(0, 80))
-                pushEvent(sess, { type: 'tool', name: block.text.trim() })
+                pushEvent(sess, { type: 'note', text: block.text.trim() })
               } else {
                 accumulated += block.text
                 console.log(
@@ -477,21 +628,14 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
           }
         }
 
-        // Tool result comes as a "user" event with tool_use_result
+        // Tool result comes as a "user" event with tool_use_result.
+        //
+        // Deliberately NOT surfaced in the activity trail any more. It used to
+        // push `→ <first line of stdout, cut at 120 chars>`, which for anything
+        // structured was the opening brace of a JSON blob — pure noise in a list
+        // meant to say what Jarvis is doing. The full result is still in the
+        // engine's raw `[session event]` log for debugging.
         if (ev.type === 'user' && ev.tool_use_result) {
-          const r = ev.tool_use_result
-          const toolUseId = r.tool_use_id || ev.tool_use_id
-          if (toolUseId && quietToolIds.has(toolUseId)) {
-            quietToolIds.delete(toolUseId)
-            console.log('[session] -> tool_result (quiet)')
-          } else {
-            const output = (r.stdout || r.stderr || '').trim()
-            if (output) {
-              const firstLine = output.split('\n')[0].slice(0, 120)
-              console.log('[session] -> tool_result:', firstLine)
-              pushEvent(sess, { type: 'tool', name: `→ ${firstLine}` })
-            }
-          }
           pushEvent(sess, { type: 'thinking' })
         }
 
