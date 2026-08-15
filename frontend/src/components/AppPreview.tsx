@@ -33,9 +33,8 @@ export default function AppPreview({
   onShareIntentConsumed,
 }: Props) {
   const token = localStorage.getItem('token') || ''
-  const appPathRef = useRef(window.location.hash.replace(/^#\/?/, ''))
-  const hash = appPathRef.current ? `#${appPathRef.current}` : ''
-  const src = `/api/apps/${appSlug}/index.html?token=${token}&v=${refreshKey}${hash}`
+  const appHashRef = useRef(window.location.hash)
+  const src = `/api/apps/${appSlug}/index.html?token=${token}&v=${refreshKey}${appHashRef.current}`
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingIntentRef = useRef<ShareIntent | null>(null)
 
@@ -43,8 +42,9 @@ export default function AppPreview({
     function onMessage(e: MessageEvent) {
       if (e.data?.type === 'app:navigate') {
         const path = e.data.path || ''
-        appPathRef.current = path
-        window.location.hash = path ? `#${path}` : ''
+        const hash = path ? `#${path}` : '#/'
+        appHashRef.current = hash
+        window.location.hash = hash
       }
     }
     window.addEventListener('message', onMessage)
