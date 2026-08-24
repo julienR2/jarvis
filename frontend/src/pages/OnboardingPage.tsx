@@ -411,11 +411,11 @@ function TokenStep({
             <li className="flex gap-2">
               <span className="shrink-0 w-5 h-5 rounded-full bg-accent/10 text-accent text-xs font-medium flex items-center justify-center">2</span>
               <div>
-                <span>Run the login command:</span>
+                <span>Run the token command:</span>
                 <div className="flex items-center gap-2 mt-1.5 bg-surface rounded-lg border border-border px-3 py-2 font-mono text-xs">
-                  <code className="flex-1 text-text-primary">claude login</code>
+                  <code className="flex-1 text-text-primary">claude setup-token</code>
                   <button
-                    onClick={() => onCopy('claude login')}
+                    onClick={() => onCopy('claude setup-token')}
                     className="text-text-muted hover:text-text-primary transition-colors"
                   >
                     {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
@@ -426,18 +426,10 @@ function TokenStep({
             <li className="flex gap-2">
               <span className="shrink-0 w-5 h-5 rounded-full bg-accent/10 text-accent text-xs font-medium flex items-center justify-center">3</span>
               <div>
-                <span>Copy the token from the credentials file:</span>
-                <div className="flex items-center gap-2 mt-1.5 bg-surface rounded-lg border border-border px-3 py-2 font-mono text-xs">
-                  <code className="flex-1 text-text-primary truncate">~/.claude/.credentials.json</code>
-                  <button
-                    onClick={() => onCopy('cat ~/.claude/.credentials.json')}
-                    className="text-text-muted hover:text-text-primary transition-colors"
-                  >
-                    {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-                  </button>
-                </div>
+                <span>Sign in in the browser, then paste back the token it prints below.</span>
                 <p className="text-xs text-text-muted mt-1.5">
-                  Copy the value of the <code className="bg-surface px-1 rounded text-text-primary">claudeAiOauth</code> field.
+                  It starts with <code className="bg-surface px-1 rounded text-text-primary">sk-ant-oat01-</code> and is long-lived. Don't copy the token from{' '}
+                  <code className="bg-surface px-1 rounded text-text-primary">~/.claude/.credentials.json</code> — that one expires within hours.
                 </p>
               </div>
             </li>

@@ -86,7 +86,7 @@ Edit `.env` and set the three required variables:
 | Variable | How to get it |
 |----------|---------------|
 | `JWT_SECRET` | `openssl rand -hex 32` |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Run `claude login`, then copy the token from `~/.claude/.credentials.json` |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Run `claude setup-token`, paste the `sk-ant-oat01-...` token it prints (not the one in `~/.claude/.credentials.json` -- that one expires within hours) |
 | `INTERNAL_SECRET` | Leave blank -- auto-generated on first boot |
 
 ```bash
