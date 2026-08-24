@@ -71,6 +71,9 @@ export default function ChatView({
   const hasMore = useChatStore((s) =>
     conversationId ? !!s.hasMore[conversationId] : false,
   )
+  const unreadAnchor = useChatStore((s) =>
+    conversationId ? s.unreadAnchor[conversationId] ?? null : null,
+  )
 
   const title = conv?.title ?? ''
   const hasApp = !!conv?.app_path
@@ -118,6 +121,15 @@ export default function ChatView({
   useEffect(() => {
     const container = scrollContainerRef.current
     if (container) container.scrollTop = 0
+  }, [conversationId])
+
+  // The unread divider lasts exactly one visit: it stays put while the
+  // conversation is open — scrolling past it doesn't erase where you had got
+  // to — and is dropped on the way out. Coming back re-computes it from
+  // whatever arrived since.
+  useEffect(() => {
+    if (!conversationId) return
+    return () => useChatStore.getState().clearUnreadAnchor(conversationId)
   }, [conversationId])
 
   // Follow the conversation as it grows — but only when already at the bottom.
@@ -378,9 +390,11 @@ export default function ChatView({
                         <Loader2 size={16} className='animate-spin text-text-muted' />
                       </div>
                     )}
-                    {groupMessagesByDay(messages).map((item) =>
+                    {groupMessagesByDay(messages, unreadAnchor).map((item) =>
                       item.type === 'separator' ? (
                         <DateSeparator key={item.key} label={item.label} />
+                      ) : item.type === 'unread' ? (
+                        <UnreadSeparator key={item.key} />
                       ) : (
                         <MessageBubble
                           key={item.msg.id}
@@ -540,9 +554,12 @@ function JarvisIndicator({ isThinking }: { isThinking: boolean }) {
   )
 }
 
-type MessageItem = { type: 'message'; msg: Message } | { type: 'separator'; key: string; label: string }
+type MessageItem =
+  | { type: 'message'; msg: Message }
+  | { type: 'separator'; key: string; label: string }
+  | { type: 'unread'; key: string }
 
-function groupMessagesByDay(messages: Message[]): MessageItem[] {
+function groupMessagesByDay(messages: Message[], unreadAnchor: string | null): MessageItem[] {
   const result: MessageItem[] = []
   let lastDay = ''
 
@@ -554,6 +571,9 @@ function groupMessagesByDay(messages: Message[]): MessageItem[] {
       lastDay = dayKey
       result.push({ type: 'separator', key: `sep-${dayKey}`, label: formatDayLabel(date) })
     }
+    // Below the day separator, not above it: the divider marks where reading
+    // resumes, and that is inside the day, not before it.
+    if (msg.id === unreadAnchor) result.push({ type: 'unread', key: `unread-${msg.id}` })
     result.push({ type: 'message', msg })
   }
 
@@ -579,6 +599,19 @@ function DateSeparator({ label }: { label: string }) {
       <div className='flex-1 h-px bg-border' />
       <span className='text-[11px] text-text-muted/60 font-medium shrink-0'>{label}</span>
       <div className='flex-1 h-px bg-border' />
+    </div>
+  )
+}
+
+// Where reading left off. Same shape as the date separator so the two stack
+// without fighting, in the accent colour so it reads as a state and not as
+// another date.
+function UnreadSeparator() {
+  return (
+    <div className='flex items-center gap-3 my-4'>
+      <div className='flex-1 h-px bg-accent/40' />
+      <span className='text-[11px] text-accent font-medium shrink-0'>Unread messages</span>
+      <div className='flex-1 h-px bg-accent/40' />
     </div>
   )
 }

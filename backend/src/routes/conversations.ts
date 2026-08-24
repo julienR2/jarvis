@@ -758,9 +758,20 @@ export async function conversationRoutes(app: FastifyInstance) {
     '/:id',
     auth,
     async (req, reply) => {
+      // unread_count is read *before* the last_read_at reset below — it is what
+      // the client needs to place the "unread messages" divider, and after the
+      // reset it is always 0. Opening a conversation cold (a notification tap
+      // lands straight on /c/:id) races the list request, so the list's own
+      // count can't be relied on either.
       const conv = getDb()
         .prepare(
           `SELECT c.*,
+          (SELECT COUNT(*) FROM messages m
+           WHERE m.conversation_id = c.id
+             AND m.role = 'assistant'
+             AND m.type IS NULL
+             AND m.created_at > c.last_read_at
+          ) AS unread_count,
           (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
           (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook
          FROM conversations c WHERE c.id = ?`,

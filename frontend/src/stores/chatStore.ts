@@ -37,6 +37,17 @@ interface ChatState {
   streaming: Record<string, string>
   listLoaded: boolean
   convsLoaded: Record<string, boolean>
+  /**
+   * Id of the first message the user hasn't read, per conversation — where the
+   * "unread messages" divider goes.
+   *
+   * An id rather than a count, so it survives what moves the list around: an
+   * older page prepended by infinite scroll, and replies streaming in below
+   * while the divider is on screen. Three states: absent — not computed yet, so
+   * opening the conversation will; a string — draw it there; `null` — decided,
+   * nothing to draw.
+   */
+  unreadAnchor: Record<string, string | null>
 
   // ── List actions ─────────────────────────────────────────────────────────
   loadConversations: () => Promise<void>
@@ -74,6 +85,8 @@ interface ChatState {
   setContextUsage: (convId: string, tokens: number, windowTokens: number | null) => void
   incrementUnread: (convId: string) => void
   markRead: (convId: string) => void
+  /** Drop the unread divider — the user is leaving the conversation. */
+  clearUnreadAnchor: (convId: string) => void
   reconcileConversation: (full: ConversationWithMessages) => void
 }
 
@@ -135,6 +148,27 @@ function mergeMessages(prev: Message[], next: Message[]): Message[] {
   return next
 }
 
+/**
+ * The message the "unread messages" divider belongs above: the `count`-th
+ * answer from the end.
+ *
+ * Counts what the server counts — an assistant row with no `type`, i.e. a real
+ * answer, not an activity or error line — so the divider lands on the same
+ * message the badge was counting. Returns the oldest loaded message when the
+ * unread run reaches past the loaded page: the divider then reads "everything
+ * from here", which is true, instead of not showing at all.
+ */
+function findUnreadAnchor(messages: Message[], count: number): string | null {
+  if (count <= 0 || messages.length === 0) return null
+  let seen = 0
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (msg.role !== 'assistant' || msg.type) continue
+    if (++seen === count) return msg.id
+  }
+  return messages[0].id
+}
+
 export const useChatStore = create<ChatState>()(
   immer((set, get) => ({
     conversations: {},
@@ -147,6 +181,7 @@ export const useChatStore = create<ChatState>()(
     streaming: {},
     listLoaded: false,
     convsLoaded: {},
+    unreadAnchor: {},
 
     async loadConversations() {
       try {
@@ -309,6 +344,14 @@ export const useChatStore = create<ChatState>()(
           s.messages[id] = mergeMessages(s.messages[id] ?? [], messages)
           s.hasMore[id] = has_more
           s.convsLoaded[id] = true
+          // Place the divider from the count this response carried — the server
+          // reads it just before marking the conversation read, so it is the
+          // last moment it exists. Only when it hasn't been decided yet: this
+          // same path runs on an SSE reconnect resync, which must not re-draw a
+          // divider the user already dismissed by reading.
+          if (s.unreadAnchor[id] === undefined) {
+            s.unreadAnchor[id] = findUnreadAnchor(messages, meta.unread_count ?? 0)
+          }
         })
       } catch (err) {
         console.error('Failed to load conversation:', err)
@@ -466,6 +509,14 @@ export const useChatStore = create<ChatState>()(
       set((s) => {
         const c = s.conversations[convId]
         if (c && c.unread_count !== 0) c.unread_count = 0
+      })
+    },
+
+    clearUnreadAnchor(convId) {
+      set((s) => {
+        // Back to "not computed", not to `null`: the next visit has to be free
+        // to draw a fresh divider for whatever arrived in the meantime.
+        delete s.unreadAnchor[convId]
       })
     },
 
