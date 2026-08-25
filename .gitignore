@@ -9,41 +9,25 @@ whisper-cache/
 # Personal docker-compose overrides (host-specific mounts, networks, etc.)
 docker-compose.override.yml
 
-# --- Backend runtime data (SQLite DB, secrets, browser sessions) ---
-agent/data/
+# Personal Claude Code overrides for this repo (permission grants, enabled
+# plugins, skill toggles). The committed defaults live in agent/settings.json.
+.claude/settings.local.json
+
 # Stray empty DB sometimes created at repo root (real DB lives in agent/data/)
 /jarvis.db
 
-# --- Agent's user workspace (memory, uploads, mini-apps, notes) ---
-agent/workspace/
-
 # --- Agent config dir (mounted as /jarvis/agent in the container) ---
-# We commit the default skills, rules, CLAUDE.md and settings.json,
-# and gitignore everything Claude CLI writes at runtime
-# plus any user-added skills.
-
-# Runtime files written by Claude Code CLI
-agent/.claude.json
-agent/.last-cleanup
-agent/policy-limits.json
-agent/remote-settings.json
-agent/session-env/
-agent/tasks/
-agent/sessions/
-agent/shell-snapshots/
-agent/projects/
-agent/plugins/
-agent/plans/
-agent/backups/
-agent/cache/
-agent/telemetry/
-agent/todos/
-agent/debug/
-agent/ide/
-agent/file-history/
-
-# Personal CLAUDE.md override (Claude Code merges this on top of CLAUDE.md)
-agent/CLAUDE.local.md
+# Opt-in, not opt-out: everything under agent/ is ignored, and we re-allow only
+# what the forkable repo should ship. Runtime state (sessions/, projects/, data/),
+# the user's workspace, and personal prefs (CLAUDE.local.md, .example-plugin-always)
+# are therefore ignored by default — no need to list them one by one.
+# Adding a new default config file? Add a `!agent/<name>` line here.
+agent/*
+!agent/CLAUDE.md
+!agent/mcp.json
+!agent/settings.json
+!agent/rules/
+!agent/skills/
 
 # Whitelist default skills — anything else under agent/skills/ is gitignored
 agent/skills/*

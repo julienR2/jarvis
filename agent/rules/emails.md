@@ -1,6 +1,6 @@
 # Email Rules — Validation Before Sending
 
-These rules are mandatory. They apply to every email sent on Julien's behalf
+These rules are mandatory. They apply to every email sent on the user's behalf
 (new messages, replies, forwards), whatever the mailbox or skill used.
 
 ## 1. Always show the final email before sending

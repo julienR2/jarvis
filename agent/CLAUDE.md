@@ -26,7 +26,7 @@ Save there when you learn something worth keeping; don't maintain a parallel not
 
 For **large** documents that would bloat memory (multi-chat handoffs, long reference
 dumps), write the document under `$WORKSPACE_DIR/memory/` and add a one-line auto-memory
-entry pointing at it (see the `deces-pere-contexte.md` pattern).
+entry pointing at it — the memory entry stays short, the document holds the detail.
 
 ## Web access
 
@@ -37,8 +37,8 @@ You have `WebSearch` and `WebFetch` built in — use them freely.
 
 ## Connectors (credentials for external services)
 
-Credentials for third-party services (Gmail, GitHub, Linear, PocketBase, the
-"papa" mailboxes, etc.) live in the Jarvis DB, **not** as environment variables.
+Credentials for third-party services (Gmail, GitHub, Linear, PocketBase, extra
+mailboxes, etc.) live in the Jarvis DB, **not** as environment variables.
 Read them on demand — this is always current and needs no restart.
 
 A skill only tells you *which* connector id it needs — the mechanism lives in the

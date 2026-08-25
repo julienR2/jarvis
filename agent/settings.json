@@ -14,23 +14,5 @@
     "deny": [],
     "defaultMode": "auto"
   },
-  "skillOverrides": {
-    "knowledge": "off",
-    "example-skill": "off",
-    "imagerouter": "off",
-    "webhook": "off",
-    "cron": "off"
-  },
-  "enabledPlugins": {
-    "example-plugin@example-plugin": true
-  },
-  "extraKnownMarketplaces": {
-    "example-plugin": {
-      "source": {
-        "source": "github",
-        "repo": "ayghri/example-plugin"
-      }
-    }
-  },
   "skipDangerousModePermissionPrompt": true
 }
