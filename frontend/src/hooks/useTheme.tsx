@@ -16,6 +16,14 @@ function resolveTheme(pref: Preference): Theme {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
+// Installed Android PWAs paint the status bar with the manifest's install-time
+// theme_color and can't recolor it afterwards, but the icon tint still follows
+// the runtime meta — so a light value there means dark icons on the dark bar.
+// Kept in sync with the pre-paint script in index.html.
+function statusBarIsPinned() {
+  return /Android/.test(navigator.userAgent) && window.matchMedia('(display-mode: standalone)').matches
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preference, setPreference] = useState<Preference>(() => {
     const stored = localStorage.getItem('jarvis-theme') as Preference | null
@@ -30,7 +38,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.classList.remove('light', 'dark')
     root.classList.add(theme)
 
-    const themeColor = theme === 'dark' ? '#211f1c' : '#f3f1ed'
+    const themeColor = statusBarIsPinned() || theme === 'dark' ? '#211f1c' : '#f3f1ed'
     const meta = document.querySelector('meta[name="theme-color"]')
     if (meta) meta.setAttribute('content', themeColor)
   }, [theme])

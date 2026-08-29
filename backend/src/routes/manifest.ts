@@ -15,7 +15,15 @@ export async function manifestRoutes(app: FastifyInstance) {
       // and overrides the device rotation lock. Omitting it lets Android decide —
       // rotation lock is respected, with the usual manual rotate button.
       background_color: '#faf9f7',
-      theme_color: '#f3f1ed',
+      // Dark on purpose, even though the app defaults to the light palette.
+      // Android bakes this colour into the WebAPK at install time and paints the
+      // status bar with it; since Android 15 made `setStatusBarColor` a no-op,
+      // Chrome can no longer recolor that bar when the in-app theme changes.
+      // Only the icon tint still follows the runtime `<meta name="theme-color">`,
+      // so a light bar under a dark theme rendered white icons on beige. Pinning
+      // both to the dark value keeps the bar legible in either theme (see the
+      // matching pin in frontend/index.html and useTheme.tsx).
+      theme_color: '#211f1c',
       icons: [
         { src: '/icons/icon-48.png', sizes: '48x48', type: 'image/png' },
         { src: '/icons/icon-72.png', sizes: '72x72', type: 'image/png' },

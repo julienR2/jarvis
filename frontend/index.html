@@ -42,7 +42,14 @@
           : pref;
         document.documentElement.classList.remove('light', 'dark');
         document.documentElement.classList.add(theme);
-        var color = theme === 'dark' ? '#211f1c' : '#f3f1ed';
+        // Installed Android PWAs paint the status bar with the manifest's
+        // install-time theme_color and can't recolor it afterwards, but the icon
+        // tint still follows this meta — so a light value there means dark icons
+        // on the dark bar. Pin it to the manifest colour; everywhere else the
+        // meta drives the real chrome and stays dynamic.
+        var pinned = /Android/.test(navigator.userAgent)
+          && window.matchMedia('(display-mode: standalone)').matches;
+        var color = pinned || theme === 'dark' ? '#211f1c' : '#f3f1ed';
         document.querySelector('meta[name="theme-color"]').setAttribute('content', color);
       })();
     </script>
