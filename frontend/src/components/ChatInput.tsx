@@ -171,7 +171,7 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
 
   // Mic shows when no text typed, OR when files are attached (even with text).
   // Send stays available while Claude works: the message is steered into the
-  // running turn (Stop shows alongside it in that case).
+  // running turn (Stop shows to its left in that case).
   const showMic = !audioActive && (!input.trim() || hasFiles)
   const showSend = !audioActive && hasContent && (!hasFiles || allUploaded)
   const showCancel = isProcessing && !audioActive
@@ -273,15 +273,9 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
                   onActiveChange={setAudioActive}
                 />
               </div>
-              {showSend && (
-                <button
-                  onClick={handleSend}
-                  className="p-2 rounded-xl bg-accent text-white disabled:opacity-30 hover:bg-accent-hover transition-colors"
-                  title="Send"
-                >
-                  <Send size={16} />
-                </button>
-              )}
+              {/* Stop sits left of Send, never the other way round: Send has to
+                  keep the same spot whether or not a turn is running, otherwise
+                  stacking a message while Claude works lands on Stop instead. */}
               {showCancel && (
                 <button
                   onClick={onCancel}
@@ -289,6 +283,15 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
                   title="Stop"
                 >
                   <Square size={16} fill="currentColor" />
+                </button>
+              )}
+              {showSend && (
+                <button
+                  onClick={handleSend}
+                  className="p-2 rounded-xl bg-accent text-white disabled:opacity-30 hover:bg-accent-hover transition-colors"
+                  title="Send"
+                >
+                  <Send size={16} />
                 </button>
               )}
             </div>
