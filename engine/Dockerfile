@@ -2,6 +2,16 @@ FROM node:25-slim
 
 RUN apt-get update && apt-get install -y curl git python3 make g++ && rm -rf /var/lib/apt/lists/*
 
+# Chromium for puppeteer-based skills. Installed from Debian rather than
+# letting puppeteer fetch its own: on aarch64 hosts Chrome-for-Testing
+# publishes no linux-arm64 build, so puppeteer's download resolves to a
+# binary that does not exist.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      chromium fonts-liberation ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+ENV PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
 # Install Claude Code CLI globally
 RUN npm install -g @anthropic-ai/claude-code@2.1.220
 
