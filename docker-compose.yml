@@ -26,7 +26,12 @@ services:
     volumes:
       - ./:/jarvis
       - /jarvis/backend/node_modules
-    env_file: .env
+    # Optional — secrets are auto-generated on first boot and the Claude OAuth
+    # token is entered through the setup wizard, so a fresh clone runs with no
+    # .env at all. (`required: false` needs Compose v2.24+.)
+    env_file:
+      - path: .env
+        required: false
     environment:
       PORT: 3005
       DB_PATH: /jarvis/agent/data/jarvis.db
@@ -57,7 +62,9 @@ services:
     volumes:
       - ./:/jarvis
       - /jarvis/engine/node_modules
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     depends_on:
       setup:
         condition: service_completed_successfully

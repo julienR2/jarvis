@@ -73,27 +73,17 @@ The recovery strategy: try discarding uncommitted changes first. If the repo is 
 
 ## Quick Start
 
-Requires Docker and Docker Compose.
+Requires Docker and Docker Compose (v2.24+).
 
 ```bash
 git clone <repo-url> jarvis
 cd jarvis
-cp .env.example .env
-```
-
-Edit `.env` and set the three required variables:
-
-| Variable | How to get it |
-|----------|---------------|
-| `JWT_SECRET` | `openssl rand -hex 32` |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Run `claude setup-token`, paste the `sk-ant-oat01-...` token it prints (not the one in `~/.claude/.credentials.json` -- that one expires within hours) |
-| `INTERNAL_SECRET` | Leave blank -- auto-generated on first boot |
-
-```bash
 docker compose up -d
 ```
 
-Open `http://localhost:5173`. First visit prompts you to create an admin account.
+Open `http://localhost:5173`. The first visit walks you through the rest: create an admin account, then paste a Claude OAuth token (the wizard shows how to get one with `claude setup-token` -- requires a Claude subscription). Secrets are auto-generated on first boot; there is nothing to configure by hand.
+
+No `.env` file is needed. To pre-seed values instead -- a headless install, or handing off a pre-configured instance -- copy `.env.example` to `.env` and fill in what you want (OAuth token, admin credentials, timezone).
 
 ## Architecture
 
