@@ -6,7 +6,6 @@ import { config } from '../config.js'
 import type { UserRow } from '../types.js'
 
 const SECRETS_PATH = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
-const ENV_PATH = '/jarvis/.env'
 
 function readSecrets(): Record<string, unknown> {
   try {
@@ -18,21 +17,6 @@ function readSecrets(): Record<string, unknown> {
 
 function writeSecrets(secrets: Record<string, unknown>): void {
   writeFileSync(SECRETS_PATH, JSON.stringify(secrets, null, 2), { mode: 0o600 })
-}
-
-function updateEnvFile(key: string, value: string): void {
-  let content = ''
-  try {
-    content = readFileSync(ENV_PATH, 'utf8')
-  } catch { /* file doesn't exist yet */ }
-
-  const regex = new RegExp(`^${key}=.*$`, 'm')
-  if (regex.test(content)) {
-    content = content.replace(regex, `${key}=${value}`)
-  } else {
-    content = content.trimEnd() + `\n${key}=${value}\n`
-  }
-  writeFileSync(ENV_PATH, content)
 }
 
 export async function authRoutes(app: FastifyInstance) {
@@ -123,13 +107,12 @@ export async function authRoutes(app: FastifyInstance) {
 
     const trimmed = token.trim()
 
-    // Persist to secrets.json (read by the engine when spawning claude)
+    // Persist to secrets.json — the durable store (bind-mounted, survives
+    // rebuilds), read fresh by the engine on every claude spawn. The .env
+    // file is operator/infra territory; the app never writes to it.
     const secrets = readSecrets()
     secrets.claudeOauthToken = trimmed
     writeSecrets(secrets)
-
-    // Persist to .env (survives container rebuilds)
-    updateEnvFile('CLAUDE_CODE_OAUTH_TOKEN', trimmed)
 
     return { ok: true }
   })

@@ -2,7 +2,7 @@
   "mcpServers": {
     "playwright": {
       "type": "http",
-      "url": "http://jarvis-playwright:8931/mcp"
+      "url": "http://playwright:8931/mcp"
     }
   }
 }

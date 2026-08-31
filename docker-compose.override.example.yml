@@ -3,23 +3,55 @@
 #
 # Common use cases:
 #   - Attaching the stack to an existing external network
-#   - Overriding ports
+#   - Pinning container names (e.g. when a reverse proxy routes by name)
+#   - Overriding host ports (or set BACKEND_PORT / FRONTEND_PORT in .env)
 #
 # This file is NOT required. Jarvis runs fine without it.
+#
+# ── Recipe: an instance behind a reverse proxy ──────────────────────────────
+# When a reverse proxy (Nginx Proxy Manager, Traefik, Caddy...) on a shared
+# Docker network routes to the containers by name, the loopback ports serve
+# no purpose — drop them and several instances coexist with no .env at all.
+# Point the proxy at <name>:5173 (frontend) and <name>:3005 (backend).
+#
+# services:
+#   backend:
+#     container_name: myjarvis-backend
+#     ports: !override []
+#     networks: [my-proxy-network, default]
+#   frontend:
+#     container_name: myjarvis-frontend
+#     ports: !override []
+#     networks: [my-proxy-network, default]
+#   engine:
+#     networks: [my-proxy-network, default]
+#
+# networks:
+#   my-proxy-network:
+#     external: true
+# ─────────────────────────────────────────────────────────────────────────────
 
 services:
   backend:
+    # Pin a stable container name. By default Compose prefixes names with the
+    # project (directory) name so several clones can coexist — pin only if
+    # something external (reverse proxy, scripts) addresses this container
+    # by a fixed name.
+    # container_name: jarvis-backend
+
     # Attach to a pre-existing network on your host.
     # networks:
     #   - my-existing-network
     #   - default
 
-  # Mirror the same network overrides on other services if you use them.
+  # Mirror the same overrides on other services if you use them.
   # engine:
+  #   container_name: jarvis-engine
   #   networks:
   #     - my-existing-network
   #     - default
   # frontend:
+  #   container_name: jarvis-frontend
   #   networks:
   #     - my-existing-network
   #     - default

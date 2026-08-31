@@ -18,9 +18,13 @@ services:
       - ./agent:/agent
     restart: 'no'
 
+  # No container_name anywhere: Compose prefixes containers with the project
+  # (directory) name, so several clones can run side by side on one host.
+  # Services reach each other by service name (backend, engine, whisper, ...).
+  # Pin names in docker-compose.override.yml if something external (e.g. a
+  # reverse proxy) routes by container name.
   backend:
     build: ./backend
-    container_name: jarvis-backend
     working_dir: /jarvis/backend
     command: sh -c "npm install && npx tsx watch src/index.ts"
     volumes:
@@ -42,10 +46,11 @@ services:
       ENGINE_URL: http://engine:3010
       TZ: ${TZ:-UTC}
     ports:
-      # Bind to loopback only — external traffic reaches the backend through nginx
-      # over the `homelab` network (by container name), not this published port.
-      # This keeps the plain-HTTP API (JWT login, /internal) off the LAN.
-      - '127.0.0.1:3005:3005'
+      # Bind to loopback only — external traffic reaches the backend through a
+      # reverse proxy on the Docker network, not this published port. This keeps
+      # the plain-HTTP API (JWT login, /internal) off the LAN. Override the host
+      # port (e.g. for a second instance) with BACKEND_PORT.
+      - '127.0.0.1:${BACKEND_PORT:-3005}:3005'
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -56,7 +61,6 @@ services:
 
   engine:
     build: ./engine
-    container_name: jarvis-engine
     working_dir: /jarvis/engine
     command: sh -c "npm install && npx tsx src/index.ts"
     volumes:
@@ -80,15 +84,15 @@ services:
 
   frontend:
     image: node:25
-    container_name: jarvis-frontend
     working_dir: /app
     command: sh -c "npm install && npx vite build --watch & sleep 5 && npm run preview -- --host"
     volumes:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      # Loopback only — served to the LAN through nginx, not this port. See backend.
-      - '127.0.0.1:5173:5173'
+      # Loopback only — served to the LAN through a reverse proxy, not this
+      # port. See backend. Override the host port with FRONTEND_PORT.
+      - '127.0.0.1:${FRONTEND_PORT:-5173}:5173'
     depends_on:
       - backend
     restart: unless-stopped
@@ -96,7 +100,6 @@ services:
 
   whisper:
     image: onerahmet/openai-whisper-asr-webservice:latest
-    container_name: jarvis-whisper
     restart: unless-stopped
     environment:
       ASR_MODEL: small
@@ -107,7 +110,6 @@ services:
 
   playwright:
     image: mcr.microsoft.com/playwright/mcp
-    container_name: jarvis-playwright
     command: [ "--port", "8931", "--host", "0.0.0.0", "--allowed-hosts", "*", "--headless", "--isolated", "--output-dir", "/uploads" ]
     volumes:
       - ./agent/workspace/uploads:/uploads
