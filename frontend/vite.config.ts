@@ -2,6 +2,12 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+// The generic `backend` alias is ambiguous when several Jarvis clones share a
+// Docker network (each stack's service gets the same alias, and Docker DNS
+// round-robins across them). Multi-instance setups pin BACKEND_URL to the
+// clone's container name in docker-compose.override.yml.
+const backendUrl = process.env.BACKEND_URL || 'http://backend:3005'
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
@@ -15,16 +21,16 @@ export default defineConfig({
     port: 5173,
     allowedHosts: true,
     proxy: {
-      '/api': 'http://backend:3005',
-      '/health': 'http://backend:3005',
+      '/api': backendUrl,
+      '/health': backendUrl,
     },
   },
   preview: {
     port: 5173,
     allowedHosts: true,
     proxy: {
-      '/api': 'http://backend:3005',
-      '/health': 'http://backend:3005',
+      '/api': backendUrl,
+      '/health': backendUrl,
     },
   },
 })

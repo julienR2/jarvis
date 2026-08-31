@@ -85,7 +85,13 @@ services:
   frontend:
     image: node:25
     working_dir: /app
-    command: sh -c "npm install && npx vite build --watch & sleep 5 && npm run preview -- --host"
+    # Install and first build run to completion in the FOREGROUND before
+    # anything else starts. The old form (`npm install && build --watch & sleep
+    # 5 && preview`) backgrounded the install, so on a fresh clone preview died
+    # first (`vite: not found`), the container restart killed npm mid-extract,
+    # and a truncated native binary (SIGBUS crash-loop) was left behind that
+    # later installs never re-extracted.
+    command: sh -c "npm install && npx vite build && { npx vite build --watch & exec npm run preview -- --host; }"
     volumes:
       - ./frontend:/app
       - /app/node_modules
