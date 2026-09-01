@@ -59,6 +59,11 @@ export const api = {
   getConnection: () => request<ConnectionStatus>('GET', '/auth/connection'),
   setConnection: (body: { mode: 'anthropic' | 'gateway'; baseUrl: string; credential: string }) =>
     request<{ ok: boolean; busy: string[] }>('POST', '/auth/connection', body),
+  // Mirrors the session into an httpOnly cookie so <img>/<a> inside chat and
+  // apps can load uploads and proxied connector content, which can't send an
+  // Authorization header. Best-effort: failure only costs inline media.
+  syncSessionCookie: () =>
+    request<{ ok: boolean }>('POST', '/auth/session-cookie').catch(() => ({ ok: false })),
   getMe: () => request<{ id: number; email: string; onboarded: boolean }>('GET', '/auth/me'),
   completeOnboarding: () => request<{ ok: boolean }>('POST', '/auth/complete-onboarding'),
 

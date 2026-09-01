@@ -6,6 +6,7 @@ import { getDb } from '../db.js'
 import { config } from '../config.js'
 import { verifyConnection, recycleSessions } from '../engine.js'
 import { secureEquals } from '../security.js'
+import { extractRequestToken, SESSION_COOKIE } from '../request-auth.js'
 import type { UserRow } from '../types.js'
 
 const SECRETS_PATH = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
@@ -173,6 +174,33 @@ export async function authRoutes(app: FastifyInstance) {
     writeSecrets(secrets)
     await recycleSessions()
 
+    return { ok: true }
+  })
+
+  // POST /session-cookie — mirror the caller's session into an httpOnly cookie.
+  //
+  // Browsers can't attach an Authorization header to `<img src>`, `<a href>` or
+  // EventSource. Rather than leave those routes open (they serve uploads and
+  // proxied connector content), they accept this cookie. It is set from an
+  // already-authenticated request, so it grants nothing the caller didn't have.
+  app.post('/session-cookie', { onRequest: [app.authenticate] }, async (req, reply) => {
+    const token = extractRequestToken(req)
+    if (!token) return reply.code(400).send({ error: 'No token on request' })
+
+    const secure = req.protocol === 'https'
+    reply.header(
+      'Set-Cookie',
+      [
+        `${SESSION_COOKIE}=${token}`,
+        'HttpOnly',
+        // Lax, not Strict: Strict withholds the cookie on cross-site
+        // navigations, which breaks opening a file or app link from elsewhere.
+        'SameSite=Lax',
+        'Path=/api',
+        `Max-Age=${60 * 60 * 24 * 30}`,
+        ...(secure ? ['Secure'] : []),
+      ].join('; '),
+    )
     return { ok: true }
   })
 

@@ -61,6 +61,9 @@ export default function ChatPage() {
   ])
 
   useEffect(() => {
+    // Establish the media cookie before anything renders inline files.
+    api.syncSessionCookie()
+
     api.getMe().then(({ onboarded }) => {
       if (!onboarded) navigate('/onboarding', { replace: true })
     }).catch(() => {})

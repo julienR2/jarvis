@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { Readable } from 'node:stream'
+import { extractRequestToken } from '../request-auth.js'
 import type { ConnectorInput } from '../connectors.js'
 import {
   getAllConnectors,
@@ -107,9 +108,22 @@ export async function connectorRoutes(app: FastifyInstance) {
   }
 
   // GET /:id/proxy/* — stream content from the connector's internal HTTP endpoint.
-  // Unauthenticated by design: <img>/<a> tags can't send headers. Same threat model
-  // as /api/uploads/files/ — URLs are only surfaced inside JWT-gated chat + apps.
+  //
+  // Authenticated, but not via the header: this exists so `<img>`/`<a>` inside
+  // chat and generated apps can load proxied content, and those can't set one.
+  // The session cookie (POST /api/auth/session-cookie) or ?token= carries it
+  // instead. It used to be fully open, which — since the proxy attaches the
+  // connector's stored credentials and the backend is internet-reachable —
+  // handed anyone who guessed a connector id (they are slugified names)
+  // authenticated GET access to that internal service.
   app.get<{ Params: { id: string, '*': string } }>('/:id/proxy/*', async (req, reply) => {
+    const token = extractRequestToken(req)
+    if (!token) return reply.code(404).send({ error: 'Not found' })
+    try {
+      await app.jwt.verify(token)
+    } catch {
+      return reply.code(404).send({ error: 'Not found' })
+    }
     return handleProxy(req, reply, 'GET')
   })
 

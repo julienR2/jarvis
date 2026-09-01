@@ -7,6 +7,7 @@ import rateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import bcrypt from 'bcrypt'
 import { config } from './config.js'
+import { extractRequestToken } from './request-auth.js'
 import { initDb, getDb } from './db.js'
 import { authRoutes } from './routes/auth.js'
 import {
@@ -76,6 +77,21 @@ await app.register(fastifyStatic, {
   root: UPLOADS_DIR,
   prefix: '/api/uploads/files/',
   decorateReply: false,
+})
+
+// Uploaded and agent-generated files were served to anyone who knew the path.
+// UUID filenames are obscurity, not access control, and the paths leak through
+// app frames, Referer headers and logs. Gate them like everything else — via
+// the session cookie or ?token=, since <img>/<a> can't set a header.
+app.addHook('onRequest', async (req, reply) => {
+  if (!req.url.startsWith('/api/uploads/files/')) return
+  const token = extractRequestToken(req)
+  if (!token) return reply.code(404).send({ error: 'Not found' })
+  try {
+    await app.jwt.verify(token)
+  } catch {
+    return reply.code(404).send({ error: 'Not found' })
+  }
 })
 
 // ── Auth decorator ────────────────────────────────────────────────────────────
