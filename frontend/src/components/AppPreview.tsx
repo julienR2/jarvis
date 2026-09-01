@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from 'react'
 import { ExternalLink, RefreshCw } from 'lucide-react'
-import { api } from '../api'
+import { api, APPS_ORIGIN } from '../api'
 
 interface ShareIntent {
   title?: string
@@ -33,23 +33,28 @@ export default function AppPreview({
   shareIntent,
   onShareIntentConsumed,
 }: Props) {
-  const token = localStorage.getItem('token') || ''
   const appHashRef = useRef(window.location.hash)
-  const src = `/api/apps/${appSlug}/index.html?token=${token}&v=${refreshKey}${appHashRef.current}`
 
-  // Share token, fetched lazily: the link opens only this app and can be
-  // rotated, unlike the session JWT the iframe uses above.
+  // The app's own token — used for BOTH the preview iframe and the share link.
+  //
+  // The iframe used to carry the session JWT, which an app can read out of its
+  // own location.search. App HTML is written by the agent from web content, so
+  // the account credential simply shouldn't be reachable from inside the frame:
+  // this token opens one app and nothing else.
   const [shareToken, setShareToken] = useState('')
   useEffect(() => {
     let cancelled = false
     api.getAppToken(appSlug)
       .then(({ token: t }) => { if (!cancelled) setShareToken(t) })
-      .catch(() => { /* falls back to the session-authenticated URL below */ })
+      .catch(() => { /* leaves the frame blank rather than falling back to the JWT */ })
     return () => { cancelled = true }
   }, [appSlug])
-  const shareUrl = shareToken
-    ? `/api/apps/${appSlug}/index.html?token=${shareToken}${appHashRef.current}`
-    : src
+
+  const appBase = `${APPS_ORIGIN}/api/apps/${appSlug}/index.html`
+  const src = shareToken
+    ? `${appBase}?token=${shareToken}&v=${refreshKey}${appHashRef.current}`
+    : ''
+  const shareUrl = shareToken ? `${appBase}?token=${shareToken}` : ''
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingIntentRef = useRef<ShareIntent | null>(null)
 

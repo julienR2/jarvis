@@ -1,5 +1,13 @@
 const BASE = '/api'
 
+// Origin that serves generated apps. Same origin by default, which keeps a
+// zero-config deploy working; set VITE_APPS_ORIGIN to a different host or port
+// to give apps their own origin, so an app cannot reach the SPA's page or
+// storage even though it runs with allow-same-origin (it needs that for its own
+// localStorage). Documented in .env.example.
+export const APPS_ORIGIN: string =
+  import.meta.env.VITE_APPS_ORIGIN?.replace(/\/+$/, '') || ''
+
 function getToken(): string | null {
   return localStorage.getItem('token')
 }
