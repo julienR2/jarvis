@@ -121,6 +121,13 @@ export const api = {
       effort,
     }),
 
+  // App share link. The token is scoped to this conversation's app and carries
+  // no account rights, unlike the session JWT these URLs used to embed.
+  getAppToken: (conversationId: string) =>
+    request<{ token: string }>('GET', `/conversations/${conversationId}/app-token`),
+  rotateAppToken: (conversationId: string) =>
+    request<{ token: string }>('POST', `/conversations/${conversationId}/app-token/rotate`),
+
   cancelMessage: (conversationId: string) =>
     request<{ ok: boolean }>('POST', `/conversations/${conversationId}/cancel`),
 

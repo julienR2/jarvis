@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { join, extname, sep } from 'path'
 import { mkdirSync, createReadStream, statSync } from 'fs'
 import { config } from '../config.js'
+import { conversationForAppToken } from '../app-tokens.js'
 
 const MIME: Record<string, string> = {
   '.html': 'text/html',
@@ -44,21 +45,31 @@ export async function appRoutes(app: FastifyInstance) {
     const token = extractToken(req)
     if (!token) return reply.code(404).send('Not found')
 
-    try {
-      await app.jwt.verify(token)
-    } catch {
-      return reply.code(404).send('Not found')
+    const urlPath = (req.params as any)['*'] as string
+    const slashIdx = urlPath.indexOf('/')
+    const slug = slashIdx > 0 ? urlPath.slice(0, slashIdx) : urlPath
+    const filePath = slashIdx > 0 ? urlPath.slice(slashIdx + 1) : 'index.html'
+
+    // Two ways in, deliberately different in scope:
+    //   - the conversation's own share token: opens this app and nothing else,
+    //     revocable by rotating it. This is what shared links carry.
+    //   - a logged-in session JWT: the owner viewing their own app in the
+    //     preview pane, where minting a share link would be pointless friction.
+    // The share token is checked first so a shared link never depends on the
+    // recipient happening to hold a session.
+    const viaShareToken = !!conversationForAppToken(slug, token)
+    if (!viaShareToken) {
+      try {
+        await app.jwt.verify(token)
+      } catch {
+        return reply.code(404).send('Not found')
+      }
     }
 
     reply.header(
       'Set-Cookie',
       `jarvis_app=${token}; HttpOnly; SameSite=Strict; Path=/api/apps; Max-Age=86400`,
     )
-
-    const urlPath = (req.params as any)['*'] as string
-    const slashIdx = urlPath.indexOf('/')
-    const slug = slashIdx > 0 ? urlPath.slice(0, slashIdx) : urlPath
-    const filePath = slashIdx > 0 ? urlPath.slice(slashIdx + 1) : 'index.html'
 
     const fullPath = join(root, slug, filePath || 'index.html')
 

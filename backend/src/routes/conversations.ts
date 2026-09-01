@@ -3,6 +3,7 @@ import { existsSync } from 'fs'
 import { basename, extname, resolve, sep } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { archiveAppDir } from '../app-archive.js'
+import { ensureAppToken, rotateAppToken } from '../app-tokens.js'
 import { UPLOADS_DIR } from './uploads.js'
 import {
   sendMessage,
@@ -899,6 +900,26 @@ export async function conversationRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Not found' })
     return { ok: true }
   })
+
+  // ── App share link ─────────────────────────────────────────────────────────
+
+  // GET /:id/app-token — the conversation's share token, minted on first ask.
+  app.get<{ Params: { id: string } }>('/:id/app-token', auth, async (req, reply) => {
+    const token = ensureAppToken(req.params.id)
+    if (!token) return reply.code(404).send({ error: 'Not found' })
+    return { token }
+  })
+
+  // POST /:id/app-token/rotate — invalidate every link already handed out.
+  app.post<{ Params: { id: string } }>(
+    '/:id/app-token/rotate',
+    auth,
+    async (req, reply) => {
+      const token = rotateAppToken(req.params.id)
+      if (!token) return reply.code(404).send({ error: 'Not found' })
+      return { token }
+    },
+  )
 
   // ── SSE event stream ───────────────────────────────────────────────────────
 

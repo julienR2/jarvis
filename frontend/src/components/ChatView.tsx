@@ -77,6 +77,22 @@ export default function ChatView({
 
   const title = conv?.title ?? ''
   const hasApp = !!conv?.app_path
+
+  // Share link for the conversation's app: a token scoped to this app alone,
+  // rotatable, and carrying none of the account rights the session JWT does.
+  const [appShareToken, setAppShareToken] = useState('')
+  useEffect(() => {
+    if (!hasApp || !conversationId) return
+    let cancelled = false
+    api.getAppToken(conversationId)
+      .then(({ token }) => { if (!cancelled) setAppShareToken(token) })
+      .catch(() => { /* link stays hidden until the token resolves */ })
+    return () => { cancelled = true }
+  }, [hasApp, conversationId])
+  const appShareUrl =
+    hasApp && appShareToken
+      ? `/api/apps/${conv!.app_path!.replace(/^apps\//, '')}/index.html?token=${appShareToken}`
+      : undefined
   const notify: Conversation['notify'] = conv?.notify ?? 'subscribe'
   const model = conv?.model ?? DEFAULT_MODEL
   const effort = conv?.effort ?? DEFAULT_EFFORT
@@ -318,7 +334,7 @@ export default function ChatView({
               <span className='flex items-center gap-2'>
                 <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
                 <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? `/api/apps/${conv!.app_path!.replace(/^apps\//, '')}/index.html?token=${localStorage.getItem('token') || ''}&v=${appRefreshKey}` : undefined} />
+                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} />
               </span>
             ) : undefined}
           >

@@ -1,5 +1,6 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { ExternalLink, RefreshCw } from 'lucide-react'
+import { api } from '../api'
 
 interface ShareIntent {
   title?: string
@@ -35,6 +36,20 @@ export default function AppPreview({
   const token = localStorage.getItem('token') || ''
   const appHashRef = useRef(window.location.hash)
   const src = `/api/apps/${appSlug}/index.html?token=${token}&v=${refreshKey}${appHashRef.current}`
+
+  // Share token, fetched lazily: the link opens only this app and can be
+  // rotated, unlike the session JWT the iframe uses above.
+  const [shareToken, setShareToken] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    api.getAppToken(appSlug)
+      .then(({ token: t }) => { if (!cancelled) setShareToken(t) })
+      .catch(() => { /* falls back to the session-authenticated URL below */ })
+    return () => { cancelled = true }
+  }, [appSlug])
+  const shareUrl = shareToken
+    ? `/api/apps/${appSlug}/index.html?token=${shareToken}${appHashRef.current}`
+    : src
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingIntentRef = useRef<ShareIntent | null>(null)
 
@@ -91,7 +106,7 @@ export default function AppPreview({
             <RefreshCw size={13} />
           </button>
           <a
-            href={src}
+            href={shareUrl}
             target='_blank'
             rel='noopener noreferrer'
             title='Open in new tab'

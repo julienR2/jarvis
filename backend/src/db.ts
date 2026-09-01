@@ -236,6 +236,22 @@ export function initDb(): void {
     db.exec(`ALTER TABLE webhooks ADD COLUMN user_message_key TEXT DEFAULT NULL`)
   } catch { /* already exists */ }
 
+  // Migration: per-conversation app share token.
+  //
+  // App URLs used to carry the user's own login JWT, which meant one token
+  // opened every app AND handed whoever received the link a 30-day credential
+  // for the whole API. This is a capability for exactly one app, revocable on
+  // its own by rotating it.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN app_token TEXT DEFAULT NULL`)
+  } catch { /* already exists */ }
+  try {
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_app_token
+       ON conversations(app_token) WHERE app_token IS NOT NULL`,
+    )
+  } catch { /* already exists */ }
+
   // Connectors — one row per connector holding its definition AND its values.
   // Unified from the former three-way split (hardcoded catalog + custom_connectors
   // definitions + connectors secrets). See connectors.ts.
