@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
 import { FileText, ChevronRight, Copy, Check } from 'lucide-react'
+import { withMediaToken } from '../api'
 import type { Message, Attachment } from '../api'
 
 interface Props {
@@ -552,7 +553,9 @@ function Linkify({ text }: { text: string }) {
 
 function translateSrc(src?: string): string {
   if (!src) return ''
-  return src.replace(/^\/(?:jarvis\/(?:agent\/)?)?workspace\/uploads\//, '/api/uploads/files/')
+  return withMediaToken(
+    src.replace(/^\/(?:jarvis\/(?:agent\/)?)?workspace\/uploads\//, '/api/uploads/files/'),
+  )
 }
 
 // Exported so the live-streaming view can render partial text through the exact
@@ -636,13 +639,13 @@ function AttachmentPreview({ attachment }: { attachment: Attachment }) {
   if (isImage) {
     return (
       <a
-        href={attachment.url}
+        href={withMediaToken(attachment.url)}
         target='_blank'
         rel='noopener noreferrer'
         className='block'
       >
         <img
-          src={attachment.url}
+          src={withMediaToken(attachment.url)}
           alt={attachment.originalName}
           className='max-w-[240px] max-h-[200px] rounded-lg object-cover border border-border'
         />
@@ -652,7 +655,7 @@ function AttachmentPreview({ attachment }: { attachment: Attachment }) {
 
   return (
     <a
-      href={attachment.url}
+      href={withMediaToken(attachment.url)}
       target='_blank'
       rel='noopener noreferrer'
       className='flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-bg hover:bg-surface transition-colors'

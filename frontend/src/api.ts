@@ -345,6 +345,22 @@ export function connectEvents(
   }
 }
 
+/**
+ * Add the session token to a same-origin media URL.
+ *
+ * Uploaded files and proxied connector content are authenticated, but they are
+ * loaded by `<img>`/`<a>`, which can't send a header. The session cookie covers
+ * this, but it is established asynchronously on boot and a failed image load
+ * never retries — so put the token on the URL too rather than racing it.
+ */
+export function withMediaToken(url?: string): string {
+  if (!url) return ''
+  if (!url.startsWith('/api/uploads/files/') && !url.includes('/proxy/')) return url
+  const token = getToken()
+  if (!token) return url
+  return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type Effort = 'low' | 'medium' | 'high' | 'max'
