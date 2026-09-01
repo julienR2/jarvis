@@ -104,7 +104,7 @@ export default function CodeBrowser() {
   const splat = (params['*'] || '').replace(/^\/+/, '')
 
   const [searchParams, setSearchParams] = useSearchParams()
-  const TABS: Tab[] = ['agent', 'all', 'commits']
+  const TABS: Tab[] = ['agent', 'all', 'changed', 'commits']
   const tabParam = searchParams.get('tab') as Tab | null
   const initialTab = tabParam && TABS.includes(tabParam) ? tabParam : 'agent'
   const expandedParam = searchParams.get('open')
@@ -221,10 +221,10 @@ function MainView({
       <div className='flex items-center gap-2 mb-4'>
         <div className='inline-flex rounded-lg bg-surface border border-border p-0.5'>
           <TabButton active={tab === 'agent'} onClick={() => setTab('agent')}>
-            Agent
+            Config
           </TabButton>
           <TabButton active={tab === 'all'} onClick={() => setTab('all')}>
-            Tracked
+            Source
           </TabButton>
           <TabButton active={tab === 'changed'} onClick={() => setTab('changed')}>
             Changed
@@ -235,6 +235,16 @@ function MainView({
           </TabButton>
         </div>
       </div>
+
+      <p className='text-xs text-text-muted mb-3'>
+        {tab === 'agent'
+          ? "Jarvis's configuration — system prompt, skills, rules and settings. Includes files that aren't committed."
+          : tab === 'all'
+            ? "Jarvis's own source code, as committed to git."
+            : tab === 'changed'
+              ? 'Source files modified since the last commit.'
+              : 'Recent commits to the Jarvis repo.'}
+      </p>
 
       {tab === 'commits' ? (
         <CommitsList
