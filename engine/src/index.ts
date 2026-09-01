@@ -8,6 +8,7 @@ import {
   MAX_EVENTS,
   internalSecret,
   claudeOauthToken,
+  secureEquals,
 } from './shared.js'
 import {
   ensureSession,
@@ -387,7 +388,8 @@ const app = Fastify({ logger: false })
 app.addHook('onRequest', async (req, reply) => {
   if (req.url === '/health') return
   const secret = internalSecret()
-  if (!secret || req.headers['authorization'] !== `Bearer ${secret}`) {
+  const auth = req.headers['authorization']
+  if (!secret || typeof auth !== 'string' || !secureEquals(auth, `Bearer ${secret}`)) {
     return reply.code(401).send({ error: 'unauthorized' })
   }
 })

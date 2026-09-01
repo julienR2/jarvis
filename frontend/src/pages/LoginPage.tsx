@@ -8,6 +8,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [setupCode, setSetupCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
@@ -43,7 +44,7 @@ export default function LoginPage() {
     try {
       const { token } =
         mode === 'setup'
-          ? await api.setup(email, password)
+          ? await api.setup(email, password, setupCode.trim())
           : await api.login(email, password)
       localStorage.setItem('token', token)
       navigate('/')
@@ -100,14 +101,30 @@ export default function LoginPage() {
           className='bg-bg border border-border text-text-primary rounded-xl px-3.5 py-2.5 text-sm focus:border-accent transition-colors'
         />
         {isSetup && (
-          <input
-            type='password'
-            placeholder='Confirm password'
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            required
-            className='bg-bg border border-border text-text-primary rounded-xl px-3.5 py-2.5 text-sm focus:border-accent transition-colors'
-          />
+          <>
+            <input
+              type='password'
+              placeholder='Confirm password'
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+              className='bg-bg border border-border text-text-primary rounded-xl px-3.5 py-2.5 text-sm focus:border-accent transition-colors'
+            />
+            <div>
+              <input
+                type='text'
+                placeholder='Setup code (from server logs)'
+                value={setupCode}
+                onChange={(e) => setSetupCode(e.target.value)}
+                required
+                autoComplete='off'
+                className='w-full bg-bg border border-border text-text-primary rounded-xl px-3.5 py-2.5 text-sm font-mono focus:border-accent transition-colors'
+              />
+              <p className='text-xs text-text-muted mt-1.5'>
+                Run <code className='bg-bg px-1 rounded'>docker compose logs backend | grep setup</code>
+              </p>
+            </div>
+          </>
         )}
         <button
           type='submit'

@@ -6,6 +6,7 @@
 // has switched to the session API.
 
 import { readFileSync } from 'fs'
+import { timingSafeEqual } from 'crypto'
 
 /**
  * Which assistant message an activity event came from.
@@ -76,6 +77,17 @@ export function internalSecret(): string | undefined {
   } catch {
     return undefined
   }
+}
+
+// Constant-time comparison for the Bearer secret check.
+export function secureEquals(a: string, b: string): boolean {
+  const ab = Buffer.from(a)
+  const bb = Buffer.from(b)
+  if (ab.length !== bb.length) {
+    timingSafeEqual(ab, ab)
+    return false
+  }
+  return timingSafeEqual(ab, bb)
 }
 
 // Back-fill the Claude OAuth token from the persisted secrets file when it is

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { join, extname } from 'path'
+import { join, extname, sep } from 'path'
 import { mkdirSync, createReadStream, statSync } from 'fs'
 import { config } from '../config.js'
 
@@ -62,8 +62,9 @@ export async function appRoutes(app: FastifyInstance) {
 
     const fullPath = join(root, slug, filePath || 'index.html')
 
-    // Prevent path traversal
-    if (!fullPath.startsWith(root)) {
+    // Prevent path traversal. The trailing separator matters: without it a
+    // slug of ".." satisfies startsWith(root) via sibling dirs like apps-archive.
+    if (!fullPath.startsWith(root + sep)) {
       return reply.code(404).send('Not found')
     }
 

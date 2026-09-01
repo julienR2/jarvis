@@ -43,6 +43,10 @@ declare module 'fastify' {
 const app = Fastify({
   logger: { level: 'info' },
   bodyLimit: 1 * 1024 * 1024, // 1MB — multipart uploads use their own larger limit
+  // Without this, every request behind the reverse proxy shares the proxy's IP
+  // and one abusive client rate-limits everybody (e.g. locks all users out of
+  // login). See config.trustProxy for the TRUST_PROXY env contract.
+  trustProxy: config.trustProxy,
 })
 
 // ── Plugins ──────────────────────────────────────────────────────────────────

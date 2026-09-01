@@ -57,6 +57,7 @@ export default function OnboardingPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [setupCode, setSetupCode] = useState('')
   const [showPassword, setShowPassword] = useState(false)
 
   // Token step state
@@ -93,7 +94,7 @@ export default function OnboardingPage() {
 
     setLoading(true)
     try {
-      const { token: jwt } = await api.setup(email, password)
+      const { token: jwt } = await api.setup(email, password, setupCode.trim())
       localStorage.setItem('token', jwt)
       setNeedsSetup(false)
       if (hasToken) {
@@ -197,6 +198,8 @@ export default function OnboardingPage() {
             setPassword={setPassword}
             confirm={confirm}
             setConfirm={setConfirm}
+            setupCode={setupCode}
+            setSetupCode={setSetupCode}
             showPassword={showPassword}
             setShowPassword={setShowPassword}
             error={error}
@@ -278,11 +281,13 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
 
 function AccountStep({
   email, setEmail, password, setPassword, confirm, setConfirm,
+  setupCode, setSetupCode,
   showPassword, setShowPassword, error, loading, onSubmit, onBack,
 }: {
   email: string; setEmail: (v: string) => void
   password: string; setPassword: (v: string) => void
   confirm: string; setConfirm: (v: string) => void
+  setupCode: string; setSetupCode: (v: string) => void
   showPassword: boolean; setShowPassword: (v: boolean) => void
   error: string; loading: boolean
   onSubmit: (e: React.FormEvent) => void
@@ -347,6 +352,22 @@ function AccountStep({
             required
             className="bg-bg border border-border text-text-primary rounded-xl px-3.5 py-2.5 text-sm focus:border-accent transition-colors outline-none"
           />
+          <div>
+            <input
+              type="text"
+              placeholder="Setup code"
+              value={setupCode}
+              onChange={(e) => setSetupCode(e.target.value)}
+              required
+              autoComplete="off"
+              className="w-full bg-bg border border-border text-text-primary rounded-xl px-3.5 py-2.5 text-sm font-mono focus:border-accent transition-colors outline-none"
+            />
+            <p className="text-xs text-text-muted mt-1.5">
+              Printed in your server logs at startup — run{' '}
+              <code className="bg-bg px-1 rounded">docker compose logs backend | grep setup</code>.
+              This proves you own the server.
+            </p>
+          </div>
           <button
             type="submit"
             disabled={loading}

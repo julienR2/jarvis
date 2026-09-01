@@ -41,8 +41,22 @@ function loadOrGenerateSecrets(): { jwt: string; internal: string } {
 
 const secrets = loadOrGenerateSecrets()
 
+// How many reverse-proxy hops to trust when resolving the client IP from
+// X-Forwarded-For (rate limiting keys on it). Default 1: the shipped stack puts
+// one XFF-writing proxy (nginx / Traefik / Coolify) in front; the vite preview
+// proxy in between forwards headers without appending. Set TRUST_PROXY=false if
+// clients hit the backend directly, or a number/address list for deeper chains.
+function parseTrustProxy(raw: string | undefined): boolean | number | string {
+  if (raw === undefined || raw === '') return 1
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  const n = Number(raw)
+  return Number.isInteger(n) ? n : raw
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '3005'),
+  trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   jwtSecret: secrets.jwt,
   internalSecret: secrets.internal,
   dbPath: process.env.DB_PATH || '/jarvis/agent/data/jarvis.db',

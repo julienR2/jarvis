@@ -13,11 +13,12 @@ import { schedule, rescheduleAll } from '../crons.js'
 import { emitConversationEvent } from '../sse.js'
 import { sendPushToAll } from '../push.js'
 import { config } from '../config.js'
+import { secureEquals } from '../security.js'
 import type { CronRow, WebhookRow, ConvRow } from '../types.js'
 
 function checkSecret(req: any, reply: any): boolean {
   const auth = req.headers['x-internal-secret']
-  if (auth !== config.internalSecret) {
+  if (typeof auth !== 'string' || !secureEquals(auth, config.internalSecret)) {
     reply.code(403).send({ error: 'Forbidden' })
     return false
   }
