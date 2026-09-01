@@ -3,7 +3,7 @@ import { existsSync } from 'fs'
 import { basename, extname, resolve, sep } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { archiveAppDir } from '../app-archive.js'
-import { ensureAppToken, rotateAppToken } from '../app-tokens.js'
+import { ensureAppToken, rotateAppToken, generateShareToken } from '../app-tokens.js'
 import { UPLOADS_DIR } from './uploads.js'
 import {
   sendMessage,
@@ -112,7 +112,7 @@ function getMessageRow(id: string): MessageRow {
  * resolution, so it can't order a burst of messages on its own, while rowid is
  * strict insertion order — which is why it, not created_at, is the cursor.
  */
-function fetchMessagePage(
+export function fetchMessagePage(
   conversationId: string,
   limit: number,
   before?: number,
@@ -136,7 +136,7 @@ function fetchMessagePage(
   return { messages: rows.reverse(), has_more }
 }
 
-function parsePageLimit(raw: string | undefined): number {
+export function parsePageLimit(raw: string | undefined): number {
   const n = Number(raw)
   if (!Number.isFinite(n) || n <= 0) return MESSAGE_PAGE_SIZE
   return Math.min(Math.floor(n), MAX_MESSAGE_PAGE_SIZE)
@@ -899,6 +899,52 @@ export async function conversationRoutes(app: FastifyInstance) {
     if (result.changes === 0)
       return reply.code(404).send({ error: 'Not found' })
     return { ok: true }
+  })
+
+  // ── Conversation sharing ───────────────────────────────────────────────────
+
+  // GET /:id/share — current share state for this conversation.
+  app.get<{ Params: { id: string } }>('/:id/share', auth, async (req, reply) => {
+    const row = getDb()
+      .prepare('SELECT share_token, share_mode FROM conversations WHERE id = ?')
+      .get(req.params.id) as
+      | { share_token: string | null; share_mode: string | null }
+      | undefined
+    if (!row) return reply.code(404).send({ error: 'Not found' })
+    return { mode: row.share_mode, token: row.share_mode ? row.share_token : null }
+  })
+
+  // PUT /:id/share — enable, change mode, or disable ({ mode: null }).
+  app.put<{ Params: { id: string } }>('/:id/share', auth, async (req, reply) => {
+    const { mode, rotate } = (req.body ?? {}) as {
+      mode?: 'read' | 'write' | null
+      rotate?: boolean
+    }
+    if (mode !== null && mode !== 'read' && mode !== 'write') {
+      return reply.code(400).send({ error: 'mode must be "read", "write" or null' })
+    }
+
+    const row = getDb()
+      .prepare('SELECT share_token FROM conversations WHERE id = ?')
+      .get(req.params.id) as { share_token: string | null } | undefined
+    if (!row) return reply.code(404).send({ error: 'Not found' })
+
+    if (mode === null) {
+      // Disabling clears the token too: re-sharing later should not silently
+      // reactivate a link the owner believed they had revoked.
+      getDb()
+        .prepare(
+          'UPDATE conversations SET share_mode = NULL, share_token = NULL WHERE id = ?',
+        )
+        .run(req.params.id)
+      return { mode: null, token: null }
+    }
+
+    const token = rotate || !row.share_token ? generateShareToken() : row.share_token
+    getDb()
+      .prepare('UPDATE conversations SET share_mode = ?, share_token = ? WHERE id = ?')
+      .run(mode, token, req.params.id)
+    return { mode, token }
   })
 
   // ── App share link ─────────────────────────────────────────────────────────

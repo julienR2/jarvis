@@ -141,6 +141,14 @@ export const api = {
   rotateAppToken: (conversationId: string) =>
     request<{ token: string }>('POST', `/conversations/${conversationId}/app-token/rotate`),
 
+  // Conversation sharing (owner side).
+  getShare: (conversationId: string) =>
+    request<{ mode: 'read' | 'write' | null; token: string | null }>(
+      'GET', `/conversations/${conversationId}/share`),
+  setShare: (conversationId: string, mode: 'read' | 'write' | null, rotate = false) =>
+    request<{ mode: 'read' | 'write' | null; token: string | null }>(
+      'PUT', `/conversations/${conversationId}/share`, { mode, rotate }),
+
   cancelMessage: (conversationId: string) =>
     request<{ ok: boolean }>('POST', `/conversations/${conversationId}/cancel`),
 
@@ -359,6 +367,50 @@ export function withMediaToken(url?: string): string {
   const token = getToken()
   if (!token) return url
   return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
+}
+
+// ── Shared conversations (public — the token in the URL is the credential) ────
+
+export interface SharedConversation {
+  title: string
+  mode: 'read' | 'write'
+  app_url: string | null
+  created_at: number
+  updated_at: number
+  messages: Message[]
+  has_more: boolean
+}
+
+async function sharedRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${BASE}/shared${path}`, {
+    method,
+    headers: body != null ? { 'Content-Type': 'application/json' } : {},
+    body: body != null ? JSON.stringify(body) : undefined,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || res.statusText)
+  }
+  return res.json()
+}
+
+export const getSharedConversation = (token: string) =>
+  sharedRequest<SharedConversation>('GET', `/${encodeURIComponent(token)}`)
+
+export const sendSharedMessage = (token: string, content: string) =>
+  sharedRequest<{ id: string }>('POST', `/${encodeURIComponent(token)}/messages`, { content })
+
+export function connectSharedEvents(
+  token: string,
+  onEvent: (ev: ChatEvent) => void,
+): { close: () => void } {
+  const es = new EventSource(`${BASE}/shared/${encodeURIComponent(token)}/events`)
+  es.onmessage = (e) => {
+    try { onEvent(JSON.parse(e.data)) } catch { /* heartbeat */ }
+  }
+  // EventSource reconnects on its own; a shared view has no session to refresh,
+  // so there is nothing else to do on error.
+  return { close: () => es.close() }
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────

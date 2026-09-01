@@ -12,6 +12,10 @@ export interface ConvRow {
   context_tokens: number | null
   context_window: number | null
   last_read_at: number
+  /** Capability granted by the share link; null when the chat isn't shared. */
+  share_mode: 'read' | 'write' | null
+  share_token: string | null
+  app_token: string | null
   created_at: number
   updated_at: number
 }

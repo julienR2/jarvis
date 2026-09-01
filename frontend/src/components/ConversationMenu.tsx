@@ -7,8 +7,9 @@ import {
   useCallback,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound } from 'lucide-react'
+import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2 } from 'lucide-react'
 import { MODELS, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, modelSupportsEffort } from './ModelSelector'
+import ShareDialog from './ShareDialog'
 import type { Effort } from '../api'
 
 type NotifyMode = 'subscribe' | 'unsubscribe' | 'auto'
@@ -59,6 +60,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
   }, ref) {
     const navigate = useNavigate()
     const [open, setOpen] = useState(false)
+    const [sharing, setSharing] = useState(false)
     const btnRef = useRef<HTMLButtonElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -261,6 +263,16 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
               </>
             )}
 
+            {conversationId && (
+              <button
+                onClick={() => { setOpen(false); setSharing(true) }}
+                className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+              >
+                <Share2 size={14} />
+                Share conversation
+              </button>
+            )}
+
             {onMove && (
               <button
                 onClick={() => { setOpen(false); onMove() }}
@@ -290,6 +302,13 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
               Delete
             </button>
           </div>
+        )}
+
+        {sharing && conversationId && (
+          <ShareDialog
+            conversationId={conversationId}
+            onClose={() => setSharing(false)}
+          />
         )}
       </div>
     )

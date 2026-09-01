@@ -25,6 +25,7 @@ import { gitRoutes } from './routes/git.js'
 import { connectorRoutes } from './routes/connectors.js'
 import { pluginRoutes } from './routes/plugins.js'
 import { manifestRoutes } from './routes/manifest.js'
+import { sharedRoutes } from './routes/shared.js'
 import { startCronScheduler } from './crons.js'
 import { startFrontendWatch } from './frontend-watch.js'
 import { initPush } from './push.js'
@@ -139,6 +140,7 @@ await app.register(gitRoutes, { prefix: '/api/git' })
 await app.register(connectorRoutes, { prefix: '/api/connectors' })
 await app.register(pluginRoutes, { prefix: '/api/plugins' })
 await app.register(manifestRoutes, { prefix: '/api' })
+await app.register(sharedRoutes, { prefix: '/api/shared' })
 
 // ── Global SSE (app-level events) ────────────────────────────────────────────
 

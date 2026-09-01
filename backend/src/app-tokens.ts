@@ -15,6 +15,11 @@ import type { ConvRow } from './types.js'
 // app. That is the intent of a share link — the point is that it can do nothing
 // else, and can be revoked without disturbing the user's session.
 
+/** Share tokens live in URLs people paste around; same entropy as app tokens. */
+export function generateShareToken(): string {
+  return randomBytes(24).toString('base64url')
+}
+
 export function generateAppToken(): string {
   return randomBytes(24).toString('base64url')
 }

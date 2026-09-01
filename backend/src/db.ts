@@ -252,6 +252,24 @@ export function initDb(): void {
     )
   } catch { /* already exists */ }
 
+  // Migration: conversation sharing.
+  //
+  // share_mode is the capability the link grants: 'read' shows the transcript,
+  // 'write' also lets the visitor reply. NULL means not shared — the token is
+  // kept across a disable/enable cycle only if the owner doesn't rotate it.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN share_token TEXT DEFAULT NULL`)
+  } catch { /* already exists */ }
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN share_mode TEXT DEFAULT NULL`)
+  } catch { /* already exists */ }
+  try {
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_share_token
+       ON conversations(share_token) WHERE share_token IS NOT NULL`,
+    )
+  } catch { /* already exists */ }
+
   // Connectors — one row per connector holding its definition AND its values.
   // Unified from the former three-way split (hardcoded catalog + custom_connectors
   // definitions + connectors secrets). See connectors.ts.
