@@ -15,6 +15,7 @@ import WebhookManager from '../components/WebhookManager'
 import CodeBrowser from '../components/CodeBrowser'
 import ConnectorsPage from '../components/ConnectorsPage'
 import ConnectionPage from '../components/ConnectionPage'
+import BrowserPage from '../components/BrowserPage'
 import UpdateBanner from '../components/UpdateBanner'
 import PluginsPage from '../components/PluginsPage'
 import {
@@ -183,6 +184,7 @@ export default function ChatPage() {
             <Route path='/webhooks' element={<WebhookManager />} />
             <Route path='/connectors' element={<ConnectorsPage />} />
             <Route path='/connection' element={<ConnectionPage />} />
+            <Route path='/browser' element={<BrowserPage />} />
             <Route path='/plugins' element={<PluginsPage />} />
             <Route path='/code/*' element={<CodeBrowser />} />
           </Routes>

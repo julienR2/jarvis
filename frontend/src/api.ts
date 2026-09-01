@@ -56,6 +56,7 @@ export const api = {
     request<{ token: string }>('POST', '/auth/setup', { email, password, setupCode }),
   setupToken: (token: string) =>
     request<{ ok: boolean }>('POST', '/auth/setup-token', { token }),
+  getBrowserStatus: () => request<{ enabled: boolean }>('GET', '/browser-status'),
   getConnection: () => request<ConnectionStatus>('GET', '/auth/connection'),
   setConnection: (body: { mode: 'anthropic' | 'gateway'; baseUrl: string; credential: string }) =>
     request<{ ok: boolean; busy: string[] }>('POST', '/auth/connection', body),

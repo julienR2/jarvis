@@ -6,6 +6,7 @@ import {
   Code2,
   Plug,
   KeyRound,
+  Globe,
   Blocks,
   LogOut,
   Moon,
@@ -106,6 +107,7 @@ export default function Sidebar({
     location.pathname === '/webhooks' ||
     location.pathname === '/connectors' ||
     location.pathname === '/connection' ||
+    location.pathname === '/browser' ||
     location.pathname === '/plugins' ||
     location.pathname.startsWith('/code')
 
@@ -327,6 +329,12 @@ function SettingsMenu({
             icon={<Plug size={15} />}
             active={activePath === '/connectors'}
             onClick={() => go('/connectors')}
+          />
+          <NavItem
+            label='Browser'
+            icon={<Globe size={15} />}
+            active={activePath === '/browser'}
+            onClick={() => go('/browser')}
           />
           <NavItem
             label='Connection'

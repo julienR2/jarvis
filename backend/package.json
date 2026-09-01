@@ -10,6 +10,7 @@
   "dependencies": {
     "@fastify/cors": "^11",
     "@fastify/helmet": "^13",
+    "@fastify/http-proxy": "^11",
     "@fastify/jwt": "^10",
     "@fastify/multipart": "^9",
     "@fastify/rate-limit": "^10",

@@ -125,5 +125,65 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
+  # ── Optional headful browser ────────────────────────────────────────────────
+  #
+  # Off by default. Start it with:  docker compose --profile browser up -d
+  #
+  # The bundled `playwright` service above is headless and isolated, which is
+  # right for most work but cannot take a login or a captcha for you. This one
+  # is a real Chromium with a persistent profile that you can watch and click
+  # through Settings → Browser — the agent and the human drive the same session.
+  #
+  # It publishes no port: the backend proxies it behind your Jarvis login, so
+  # there is no second password and nothing extra exposed.
+  chromium:
+    profiles: [ browser ]
+    image: lscr.io/linuxserver/chromium:latest
+    security_opt:
+      # Chromium's own sandbox needs syscalls the default seccomp profile blocks.
+      - seccomp:unconfined
+    environment:
+      PUID: ${UID:-1000}
+      PGID: ${GID:-1000}
+      TZ: ${TZ:-UTC}
+      CUSTOM_USER: jarvis
+      # Only reachable through the authenticated proxy, so this is a formality —
+      # KasmVNC refuses to start without one.
+      PASSWORD: ${BROWSER_PASSWORD:-jarvis}
+      # DevTools stays on localhost inside this container; the MCP service below
+      # shares the network namespace, and Chrome rejects DevTools requests whose
+      # Host header is neither localhost nor a bare IP.
+      CHROME_CLI: '--remote-debugging-port=9222'
+    volumes:
+      # Logins, cookies and solved challenges persist here — which is most of
+      # the point, an aged profile is far less suspicious than a fresh one.
+      - ./agent/data/browser-profile:/config
+    shm_size: 1gb
+    restart: unless-stopped
+    logging: *default-logging
+
+  # Playwright MCP attached to the Chromium above over CDP. It ATTACHES to a
+  # running browser rather than launching one, so the session carries neither
+  # --enable-automation nor navigator.webdriver.
+  #
+  # Shares chromium's network namespace, so it has no address of its own and is
+  # reached as `chromium:8931`.
+  browser-mcp:
+    profiles: [ browser ]
+    image: mcr.microsoft.com/playwright/mcp
+    network_mode: 'service:chromium'
+    # The image's default user doesn't own the uploads dir, so screenshots fail
+    # with EACCES. HOME follows, since the image's home isn't writable for it.
+    user: '${UID:-1000}:${GID:-1000}'
+    environment:
+      HOME: /tmp
+    command: [ "--port", "8931", "--host", "0.0.0.0", "--allowed-hosts", "*", "--cdp-endpoint", "http://localhost:9222", "--output-dir", "/uploads" ]
+    volumes:
+      - ./agent/workspace/uploads:/uploads
+    depends_on:
+      - chromium
+    restart: unless-stopped
+    logging: *default-logging
+
 volumes:
   whisper-cache:
