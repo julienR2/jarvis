@@ -568,6 +568,9 @@ export type ChatEvent =
 
 export type GlobalEvent =
   | { type: 'new_message'; conversation_id: string }
+  // A new frontend build landed (Jarvis edited its own UI). The tab is running
+  // stale code until it reloads — see useFrontendUpdate.
+  | { type: 'frontend_updated' }
 
 // ── Global SSE connection ────────────────────────────────────────────────────
 

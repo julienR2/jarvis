@@ -82,7 +82,13 @@ This project (`/jarvis`) is a git repository. You can inspect and modify it free
 - `git add`, `git commit -m "..."` — stage and commit changes
 - `git config user.name` / `user.email` are already set at the repo level, so commits attribute to the owner without any setup on your side
 
-Commit meaningful changes, but don't commit eagerly — for multi-file or testable changes, wait for the user to review first. Keep messages short and focused on the *why*. The admin recovery page (`http://localhost:3006`) gives the user a safety net to discard uncommitted changes or reset the last commit if something breaks — so committing often makes recovery easier, not harder.
+Commit meaningful changes, but don't commit eagerly — for multi-file or testable changes, wait for the user to review first. Keep messages short and focused on the *why*.
+
+Committing often is what makes a broken change recoverable: with a clean history the
+fix is `git diff` to see what you did, then discard the working tree or revert the
+last commit. If you break the app badly enough that the UI won't load, say so plainly
+and tell the user which command to run on the host — you may not get another turn
+through the chat to fix it.
 
 ## Notifications
 

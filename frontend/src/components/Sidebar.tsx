@@ -26,6 +26,7 @@ import {
   Settings,
 } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
+import { reloadApp } from '../lib/reload'
 import { useNotifications } from '../hooks/useNotifications'
 import { useLongPress } from '../hooks/useLongPress'
 import ConversationMenu, {
@@ -215,15 +216,7 @@ export default function Sidebar({
             onLogout={logout}
           />
           <button
-            onClick={async () => {
-              const keys = await caches.keys()
-              await Promise.all(keys.map((k) => caches.delete(k)))
-              const reg = await navigator.serviceWorker?.getRegistration()
-              if (reg) {
-                await reg.unregister()
-              }
-              window.location.reload()
-            }}
+            onClick={reloadApp}
             title='Reload app'
             className='p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'
           >

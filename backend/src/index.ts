@@ -25,6 +25,7 @@ import { connectorRoutes } from './routes/connectors.js'
 import { pluginRoutes } from './routes/plugins.js'
 import { manifestRoutes } from './routes/manifest.js'
 import { startCronScheduler } from './crons.js'
+import { startFrontendWatch } from './frontend-watch.js'
 import { initPush } from './push.js'
 import { subscribeGlobal, addGlobalClient, removeGlobalClient } from './sse.js'
 import { listBusyConversations } from './engine.js'
@@ -170,6 +171,12 @@ app.get('/health', async () => ({ ok: true }))
 // ── Cron scheduler ────────────────────────────────────────────────────────────
 
 startCronScheduler()
+
+// ── Frontend build watcher ────────────────────────────────────────────────────
+// Tells open tabs when Jarvis has rebuilt its own UI, so a self-edit doesn't sit
+// invisible behind a stale bundle.
+
+startFrontendWatch()
 
 // ── Reconnect to in-flight engine invocations ──────────────────────
 //

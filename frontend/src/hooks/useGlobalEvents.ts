@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { connectGlobalEvents } from '../api'
 import { useChatStore } from '../stores/chatStore'
+import { FRONTEND_UPDATED_EVENT } from '../components/UpdateBanner'
 
 // Subscribes to the global SSE stream and dispatches into the chat store.
 // Mounted once near the app root.
@@ -29,6 +30,12 @@ export function useGlobalEvents() {
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
     const conn = connectGlobalEvents((ev) => {
+      if (ev.type === 'frontend_updated') {
+        // The tab is now running a stale bundle. UpdateBanner offers the reload
+        // rather than forcing it — a reload mid-reply would be hostile.
+        window.dispatchEvent(new CustomEvent(FRONTEND_UPDATED_EVENT))
+        return
+      }
       if (ev.type === 'new_message') {
         // "Viewing" is route *and* foreground. Route alone was wrong: leaving
         // the app mid-answer keeps the route pointed at the conversation, so

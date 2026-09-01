@@ -15,6 +15,7 @@ import WebhookManager from '../components/WebhookManager'
 import CodeBrowser from '../components/CodeBrowser'
 import ConnectorsPage from '../components/ConnectorsPage'
 import ConnectionPage from '../components/ConnectionPage'
+import UpdateBanner from '../components/UpdateBanner'
 import PluginsPage from '../components/PluginsPage'
 import {
   SidebarToggleProvider,
@@ -184,6 +185,8 @@ export default function ChatPage() {
           </Routes>
         </SidebarToggleProvider>
       </main>
+
+      <UpdateBanner />
     </div>
   )
 }

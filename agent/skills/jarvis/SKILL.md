@@ -6,7 +6,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 
 # Self-Edit Skill — Modify Jarvis Frontend
 
-You can edit Jarvis's own frontend source code. Changes are picked up instantly by Vite HMR — no restart needed.
+You can edit Jarvis's own frontend source code. The container rebuilds automatically, but the user's open tab keeps running the old bundle until it reloads — see "Telling the user to reload" below.
 
 ## When to use this skill
 
@@ -42,12 +42,29 @@ The source is mounted at `/jarvis/frontend/` inside the container.
 1. Use `Glob` and `Grep` to explore the codebase and understand existing patterns
 2. Read the relevant files before editing — understand the existing code first
 3. Use `Edit` for targeted changes, `Write` only for new files
-4. Changes are live immediately — Vite HMR updates the browser without a full reload
+4. Save your edits and let the rebuild finish (a second or two)
+
+## Telling the user to reload
+
+There is **no hot reload**. The container runs `vite build --watch` behind
+`vite preview` — a production build, not a dev server — so nothing is pushed to
+the browser. Until the tab reloads, the user is looking at the old interface and
+your change appears to have done nothing.
+
+When the rebuild lands, a **"Jarvis updated its interface" banner with a Reload
+button** appears at the bottom of their screen automatically. So:
+
+- **Finish by telling them to reload**, e.g. "Reload to see it — use the Reload
+  button in the banner at the bottom, or the ↻ button at the bottom of the sidebar."
+- Give the rebuild a moment before you say you're done; the banner only appears
+  once the new build is on disk.
+- If they say the change isn't showing, the first question is always whether
+  they reloaded.
 
 ## Important guidelines
 
 - **Follow existing patterns** — match the code style, component structure, and naming conventions already in use
-- **Small, incremental changes** — make one change at a time so the user can see each update live
+- **Small, incremental changes** — make one change at a time so the user can review each one after a reload
 - **Don't break things** — if you're unsure about a change, explain what you plan to do and ask before editing
 - **No backend changes** — this skill is for frontend only. If the user needs backend changes, explain that those require a different approach
-- **Explain what you changed** — after each edit, briefly tell the user what you modified and what they should see
+- **Explain what you changed** — after each edit, briefly tell the user what you modified, what they should see, and that they need to reload
