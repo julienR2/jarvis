@@ -144,6 +144,13 @@ export default function CodeBrowser() {
   const [expandedCommits, setExpandedCommits] = useState<Set<string>>(new Set())
   const [commitFiles, setCommitFiles] = useState<Record<string, CodeEntry[]>>({})
 
+  const reload = useCallback(() => {
+    api.getAgentTree().then(setAgentEntries).catch((e) => setAgentError(e.message))
+    api.getCodeTree().then(setEntries).catch((e) => setTreeError(e.message))
+    // The commit list changes too when work is committed or reverted.
+    api.getCommits().then(setCommits).catch((e) => setCommitsError(e.message))
+  }, [])
+
   useEffect(() => {
     api.getAgentTree().then(setAgentEntries).catch((e) => setAgentError(e.message))
     api.getCodeTree().then(setEntries).catch((e) => setTreeError(e.message))
@@ -166,6 +173,7 @@ export default function CodeBrowser() {
     <MainView
       tab={tab}
       setTab={setTab}
+      onReload={reload}
       agentEntries={agentEntries}
       agentError={agentError}
       entries={entries}
@@ -197,9 +205,11 @@ function MainView({
   setExpandedCommits,
   commitFiles,
   setCommitFiles,
+  onReload,
 }: {
   tab: Tab
   setTab: (t: Tab) => void
+  onReload: () => void
   agentEntries: CodeEntry[] | null
   agentError: string | null
   entries: CodeEntry[] | null
@@ -245,6 +255,10 @@ function MainView({
               ? 'Source files modified since the last commit.'
               : 'Recent commits to the Jarvis repo.'}
       </p>
+
+      {tab === 'changed' && changedCount > 0 && (
+        <RecoveryActions onDone={onReload} />
+      )}
 
       {tab === 'commits' ? (
         <CommitsList
@@ -1117,6 +1131,78 @@ function DiffBlock({ diff, emptyLabel }: { diff: string; emptyLabel: string }) {
           })}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+
+/**
+ * Commit or throw away what Jarvis changed.
+ *
+ * This is the guardrail that makes self-editing survivable: when a change
+ * breaks the app, the fix has to be reachable from the UI, because the chat
+ * that would normally fix it may be exactly what is broken. Discard first;
+ * revert the last commit if the tree is already clean and still wrong.
+ */
+function RecoveryActions({ onDone }: { onDone: () => void }) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  async function run(key: string, action: () => Promise<unknown>) {
+    setBusy(key)
+    setError('')
+    try {
+      await action()
+      setMessage('')
+      onDone()
+    } catch (err: any) {
+      setError(err.message || 'Failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className='rounded-xl border border-border bg-surface p-3 mb-4 flex flex-col gap-2'>
+      <div className='flex gap-2'>
+        <input
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder='Commit message'
+          className='flex-1 bg-bg border border-border text-text-primary rounded-lg px-3 py-1.5 text-sm outline-none focus:border-accent'
+        />
+        <button
+          onClick={() => run('commit', () => api.commitChanges(message.trim()))}
+          disabled={!message.trim() || busy !== null}
+          className='bg-accent text-white text-sm px-3 py-1.5 rounded-lg hover:bg-accent-hover disabled:opacity-60 transition-colors'
+        >
+          {busy === 'commit' ? 'Committing…' : 'Commit'}
+        </button>
+      </div>
+      <div className='flex gap-3 text-xs'>
+        <button
+          onClick={() => {
+            if (!confirm('Throw away every uncommitted change?\n\nThis cannot be undone.')) return
+            run('discard', () => api.discardChanges())
+          }}
+          disabled={busy !== null}
+          className='text-danger hover:underline disabled:opacity-60'
+        >
+          {busy === 'discard' ? 'Discarding…' : 'Discard all changes'}
+        </button>
+        <button
+          onClick={() => {
+            if (!confirm('Reset to the previous commit?\n\nThe last commit and any uncommitted work are lost.')) return
+            run('revert', () => api.revertLastCommit())
+          }}
+          disabled={busy !== null}
+          className='text-danger hover:underline disabled:opacity-60'
+        >
+          {busy === 'revert' ? 'Reverting…' : 'Revert last commit'}
+        </button>
+      </div>
+      {error && <p className='text-danger text-xs'>{error}</p>}
     </div>
   )
 }

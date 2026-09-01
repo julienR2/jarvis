@@ -218,6 +218,14 @@ export const api = {
       'GET',
       `/git/log/${encodeURIComponent(hash)}/file?path=${encodeURIComponent(path)}`,
     ),
+  // Recovery. The backend has had these since the beginning; nothing called
+  // them, so the safety net the docs promised wasn't actually reachable.
+  commitChanges: (message: string) =>
+    request<{ ok: boolean }>('POST', '/git/commit', { message }),
+  discardChanges: () =>
+    request<{ ok: boolean; message: string }>('POST', '/git/discard'),
+  revertLastCommit: () =>
+    request<{ ok: boolean; message: string }>('POST', '/git/revert'),
 
   // Push notifications
   getVapidKey: () => request<{ key: string }>('GET', '/push/vapid-key'),
