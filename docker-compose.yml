@@ -50,7 +50,7 @@ services:
       # reverse proxy on the Docker network, not this published port. This keeps
       # the plain-HTTP API (JWT login, /internal) off the LAN. Override the host
       # port (e.g. for a second instance) with BACKEND_PORT.
-      - '127.0.0.1:${BACKEND_PORT:-3005}:3005'
+      - '${BIND_ADDR:-127.0.0.1}:${BACKEND_PORT:-3005}:3005'
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -98,7 +98,7 @@ services:
     ports:
       # Loopback only — served to the LAN through a reverse proxy, not this
       # port. See backend. Override the host port with FRONTEND_PORT.
-      - '127.0.0.1:${FRONTEND_PORT:-5173}:5173'
+      - '${BIND_ADDR:-127.0.0.1}:${FRONTEND_PORT:-5173}:5173'
     depends_on:
       - backend
     restart: unless-stopped

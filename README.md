@@ -123,6 +123,32 @@ Your Claude credentials aren't frozen at setup: Settings → Connection changes 
 
 No `.env` file is needed. To pre-seed values instead -- a headless install, or handing off a pre-configured instance -- copy `.env.example` to `.env` and fill in what you want (OAuth token, admin credentials, timezone).
 
+## Deploying it somewhere
+
+Jarvis edits its own source at runtime, so its code is a **bind-mounted git
+checkout, not a baked image**. That is the feature, not an oversight: an
+immutable image can't rewrite itself. Deploying Jarvis means putting the repo on
+a host and running compose against it.
+
+On a managed Docker platform (Coolify, Dokploy, Portainer), use the
+**Docker Compose** deployment type pointed at your fork — it clones the repo to
+the host, which is exactly the layout Jarvis needs. Two settings matter:
+
+- **`BIND_ADDR`** — ports bind to `127.0.0.1` by default. If your platform routes
+  to the container over the Docker network, leave it. If it routes to a host
+  port, set `BIND_ADDR=0.0.0.0` and make sure the proxy in front terminates TLS.
+- **`SETUP_CODE`** — set it explicitly. On a platform where reading container
+  logs is awkward, pinning the code beats hunting for it, and the instance may
+  be internet-reachable the moment it boots.
+
+Everything else is optional. Secrets generate themselves on first boot, and all
+state lives in `agent/` — back up that one directory and you have the instance.
+
+Upgrades are `git pull` plus `docker compose up -d`. Database migrations run
+automatically at startup. Because the agent may have committed its own changes,
+expect to merge rather than fast-forward: your instance's history is genuinely
+its own.
+
 ## Architecture
 
 ```
