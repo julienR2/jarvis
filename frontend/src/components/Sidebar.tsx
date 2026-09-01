@@ -5,6 +5,7 @@ import {
   Clock,
   Code2,
   Plug,
+  KeyRound,
   Blocks,
   LogOut,
   Moon,
@@ -103,6 +104,7 @@ export default function Sidebar({
     location.pathname === '/crons' ||
     location.pathname === '/webhooks' ||
     location.pathname === '/connectors' ||
+    location.pathname === '/connection' ||
     location.pathname === '/plugins' ||
     location.pathname.startsWith('/code')
 
@@ -332,6 +334,12 @@ function SettingsMenu({
             icon={<Plug size={15} />}
             active={activePath === '/connectors'}
             onClick={() => go('/connectors')}
+          />
+          <NavItem
+            label='Connection'
+            icon={<KeyRound size={15} />}
+            active={activePath === '/connection'}
+            onClick={() => go('/connection')}
           />
           <NavItem
             label='Plugins'

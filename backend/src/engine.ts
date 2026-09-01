@@ -276,6 +276,51 @@ export async function pluginRequest<T>(
   return data as T
 }
 
+/**
+ * Ask the engine to actually run `claude` with a candidate credential set.
+ * Format checks can't tell a valid token from an expired one — only a real
+ * round-trip can, and that is exactly the failure that otherwise bricks an
+ * instance with no way to correct it from the UI.
+ */
+export async function verifyConnection(body: {
+  baseUrl?: string
+  authToken?: string
+  oauthToken?: string
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${ENGINE_URL}/verify-connection`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      return { ok: false, error: `engine returned ${res.status}` }
+    }
+    return (await res.json()) as { ok: boolean; error?: string }
+  } catch (err: any) {
+    return { ok: false, error: `could not reach engine: ${err?.message ?? err}` }
+  }
+}
+
+/**
+ * Close idle sessions so the next turn picks up changed provider config. Busy
+ * conversations keep their current process (and old config) until their turn
+ * ends; they come back in `busy` so the UI can say so.
+ */
+export async function recycleSessions(): Promise<{ recycled: string[]; busy: string[] }> {
+  try {
+    const res = await fetch(`${ENGINE_URL}/recycle`, {
+      method: 'POST',
+      headers: authHeader(),
+    })
+    if (!res.ok) return { recycled: [], busy: [] }
+    return (await res.json()) as { recycled: string[]; busy: string[] }
+  } catch (err) {
+    console.error('[engine client] recycle failed:', err)
+    return { recycled: [], busy: [] }
+  }
+}
+
 export async function listBusyConversations(): Promise<string[]> {
   try {
     const res = await fetch(`${ENGINE_URL}/status`, { headers: authHeader() })

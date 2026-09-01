@@ -14,6 +14,7 @@ import CronManager from '../components/CronManager'
 import WebhookManager from '../components/WebhookManager'
 import CodeBrowser from '../components/CodeBrowser'
 import ConnectorsPage from '../components/ConnectorsPage'
+import ConnectionPage from '../components/ConnectionPage'
 import PluginsPage from '../components/PluginsPage'
 import {
   SidebarToggleProvider,
@@ -177,6 +178,7 @@ export default function ChatPage() {
             <Route path='/crons' element={<CronManager />} />
             <Route path='/webhooks' element={<WebhookManager />} />
             <Route path='/connectors' element={<ConnectorsPage />} />
+            <Route path='/connection' element={<ConnectionPage />} />
             <Route path='/plugins' element={<PluginsPage />} />
             <Route path='/code/*' element={<CodeBrowser />} />
           </Routes>

@@ -17,6 +17,7 @@ import {
   listSessions,
   sendUserMessage,
   interruptSession,
+  recycleIdleSessions,
   type SessionEvent,
 } from './sessions.js'
 import { registerPluginRoutes } from './plugins.js'
@@ -669,6 +670,88 @@ app.get<{ Params: { conversationId: string } }>(
     return { running: false }
   },
 )
+
+// ── Connection ───────────────────────────────────────────────────────────────
+
+// POST /verify-connection — does this credential actually work?
+//
+// The only trustworthy check is the real thing: spawn `claude` exactly the way
+// a turn does, with the candidate credentials, and see whether it answers. A
+// format check would happily accept the expired/mistyped token that leaves an
+// instance failing every turn with no way back (the CLI only reports it at
+// spawn time, which the chat surfaces as an opaque exit code).
+app.post<{
+  Body: { baseUrl?: string; authToken?: string; oauthToken?: string }
+}>('/verify-connection', async (req) => {
+  const { baseUrl, authToken, oauthToken } = req.body ?? {}
+
+  const credentials: Record<string, string> = baseUrl
+    ? {
+        ANTHROPIC_BASE_URL: baseUrl,
+        ...(authToken
+          ? { ANTHROPIC_AUTH_TOKEN: authToken, ANTHROPIC_API_KEY: authToken }
+          : {}),
+        CLAUDE_CODE_OAUTH_TOKEN: '',
+      }
+    : {
+        ...(oauthToken ? { CLAUDE_CODE_OAUTH_TOKEN: oauthToken } : {}),
+        ANTHROPIC_BASE_URL: '',
+        ANTHROPIC_AUTH_TOKEN: '',
+      }
+
+  const { JWT_SECRET, ADMIN_PASSWORD, ADMIN_EMAIL, ...inherited } = process.env
+  void JWT_SECRET; void ADMIN_PASSWORD; void ADMIN_EMAIL
+
+  return await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+    let settled = false
+    const finish = (r: { ok: boolean; error?: string }) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      try { proc.kill('SIGKILL') } catch { /* already gone */ }
+      resolve(r)
+    }
+
+    // No tools, no MCP config, no session state — just enough to force an
+    // authenticated round-trip to the provider.
+    const proc = spawn('claude', ['-p', '--output-format', 'text'], {
+      env: { ...inherited, ...credentials },
+      cwd: WORKSPACE_DIR,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+
+    const timer = setTimeout(
+      () => finish({ ok: false, error: 'Timed out after 45s waiting for a reply.' }),
+      45_000,
+    )
+
+    let stderr = ''
+    let stdout = ''
+    proc.stdout?.on('data', (d) => { stdout += d.toString() })
+    proc.stderr?.on('data', (d) => { stderr += d.toString().slice(0, 2000) })
+
+    proc.on('error', (err) =>
+      finish({ ok: false, error: `Could not start claude: ${err.message}` }),
+    )
+    proc.on('close', (code) => {
+      if (code === 0 && stdout.trim()) return finish({ ok: true })
+      const detail = stderr.trim() || stdout.trim() || `exit code ${code}`
+      finish({ ok: false, error: detail.split('\n').slice(-4).join('\n').slice(0, 500) })
+    })
+
+    try {
+      proc.stdin?.write('Reply with the single word: ok')
+      proc.stdin?.end()
+    } catch (err: any) {
+      finish({ ok: false, error: `Could not write to claude: ${err?.message ?? err}` })
+    }
+  })
+})
+
+// POST /recycle — close idle sessions so the next turn spawns with fresh
+// config (provider switch, plugin change). Busy sessions finish their turn on
+// the old config and are reported back.
+app.post('/recycle', async () => recycleIdleSessions())
 
 // ── Plugins ──────────────────────────────────────────────────────────────────
 // Marketplace + plugin management (`claude plugin …`). Behind the same Bearer

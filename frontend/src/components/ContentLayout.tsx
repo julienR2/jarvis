@@ -19,7 +19,6 @@ interface ContentLayoutProps {
 export function SidebarToggle() {
   const ctx = useContext(SidebarContext)
   if (!ctx) return null
-  console.log('SidebarToggle render', ctx.hasUnread)
   return (
     <button
       onClick={ctx.onToggle}

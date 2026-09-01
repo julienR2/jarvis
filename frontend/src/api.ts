@@ -48,6 +48,9 @@ export const api = {
     request<{ token: string }>('POST', '/auth/setup', { email, password, setupCode }),
   setupToken: (token: string) =>
     request<{ ok: boolean }>('POST', '/auth/setup-token', { token }),
+  getConnection: () => request<ConnectionStatus>('GET', '/auth/connection'),
+  setConnection: (body: { mode: 'anthropic' | 'gateway'; baseUrl: string; credential: string }) =>
+    request<{ ok: boolean; busy: string[] }>('POST', '/auth/connection', body),
   getMe: () => request<{ id: number; email: string; onboarded: boolean }>('GET', '/auth/me'),
   completeOnboarding: () => request<{ ok: boolean }>('POST', '/auth/complete-onboarding'),
 
@@ -325,6 +328,16 @@ export function connectEvents(
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type Effort = 'low' | 'medium' | 'high' | 'max'
+
+export interface ConnectionStatus {
+  mode: 'anthropic' | 'gateway'
+  baseUrl: string
+  hasCredential: boolean
+  /** Redacted: first and last few characters, enough to recognise the key. */
+  credentialHint: string
+  /** A credential is also set in the environment, which overrides this UI. */
+  envManaged: boolean
+}
 
 export interface Conversation {
   id: string

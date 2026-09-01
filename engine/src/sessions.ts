@@ -23,7 +23,7 @@ import {
   WORKSPACE_DIR,
   MAX_EVENTS,
   internalSecret,
-  claudeOauthToken,
+  providerEnv,
 } from './shared.js'
 
 export type SessionEvent = ClaudeEvent | { type: 'end' }
@@ -296,7 +296,9 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
       env: {
         ...inheritedEnv,
         INTERNAL_SECRET: internalSecret() ?? inheritedEnv.INTERNAL_SECRET,
-        ...(claudeOauthToken() ? { CLAUDE_CODE_OAUTH_TOKEN: claudeOauthToken() } : {}),
+        // Provider credentials, resolved fresh per spawn: either the Anthropic
+        // OAuth token or a gateway's base URL + key. See shared.ts.
+        ...providerEnv(),
         ...sess.envVars,
         JARVIS_CONVERSATION_ID: sess.conversationId,
       },

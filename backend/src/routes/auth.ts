@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto'
 import { readFileSync, writeFileSync } from 'fs'
 import { getDb } from '../db.js'
 import { config } from '../config.js'
+import { verifyConnection, recycleSessions } from '../engine.js'
 import { secureEquals } from '../security.js'
 import type { UserRow } from '../types.js'
 
@@ -170,7 +171,87 @@ export async function authRoutes(app: FastifyInstance) {
     const secrets = readSecrets()
     secrets.claudeOauthToken = trimmed
     writeSecrets(secrets)
+    await recycleSessions()
 
     return { ok: true }
+  })
+
+  // ── Connection settings ────────────────────────────────────────────────────
+  //
+  // Reachable at any time, unlike the onboarding wizard, which skips its token
+  // step once any token is stored — so an instance set up with a bad key had no
+  // way back short of editing secrets.json on the host.
+
+  // GET /connection — current provider, with the credential redacted.
+  app.get('/connection', { onRequest: [app.authenticate] }, async () => {
+    const secrets = readSecrets()
+    const baseUrl = (secrets.providerBaseUrl as string) || process.env.ANTHROPIC_BASE_URL || ''
+    const oauth = (secrets.claudeOauthToken as string) || process.env.CLAUDE_CODE_OAUTH_TOKEN || ''
+    const gatewayKey = (secrets.providerAuthToken as string) || process.env.ANTHROPIC_AUTH_TOKEN || ''
+    const active = baseUrl ? gatewayKey : oauth
+    return {
+      mode: baseUrl ? 'gateway' : 'anthropic',
+      baseUrl,
+      hasCredential: !!active,
+      // Enough to recognise which key is installed, not enough to use it.
+      credentialHint: active ? `${active.slice(0, 12)}…${active.slice(-4)}` : '',
+      // Set in the environment means compose/.env owns it and the UI can't win.
+      envManaged: !!(process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_BASE_URL),
+    }
+  })
+
+  // POST /connection — verify a credential, then persist it if it works.
+  // Verification is not optional: accepting an unusable key silently is the
+  // whole bug this endpoint exists to fix.
+  app.post('/connection', { onRequest: [app.authenticate] }, async (req, reply) => {
+    const { mode, baseUrl, credential } = req.body as {
+      mode?: 'anthropic' | 'gateway'
+      baseUrl?: string
+      credential?: string
+    }
+
+    if (mode !== 'anthropic' && mode !== 'gateway') {
+      return reply.code(400).send({ error: 'mode must be "anthropic" or "gateway"' })
+    }
+    if (!credential || !credential.trim()) {
+      return reply.code(400).send({ error: 'Credential is required' })
+    }
+    const cred = credential.trim()
+
+    let url = ''
+    if (mode === 'gateway') {
+      url = (baseUrl || '').trim().replace(/\/+$/, '')
+      if (!/^https?:\/\//.test(url)) {
+        return reply.code(400).send({ error: 'Base URL must start with http:// or https://' })
+      }
+    }
+
+    const check = await verifyConnection(
+      mode === 'gateway'
+        ? { baseUrl: url, authToken: cred }
+        : { oauthToken: cred },
+    )
+    if (!check.ok) {
+      return reply.code(400).send({
+        error: check.error || 'Those credentials did not work.',
+        verificationFailed: true,
+      })
+    }
+
+    const secrets = readSecrets()
+    if (mode === 'gateway') {
+      secrets.providerBaseUrl = url
+      secrets.providerAuthToken = cred
+    } else {
+      secrets.claudeOauthToken = cred
+      delete secrets.providerBaseUrl
+      delete secrets.providerAuthToken
+    }
+    writeSecrets(secrets)
+
+    // Idle sessions are replaced so the next turn uses the new provider; a
+    // conversation mid-turn finishes on the old one.
+    const { busy } = await recycleSessions()
+    return { ok: true, busy }
   })
 }

@@ -79,6 +79,58 @@ export function internalSecret(): string | undefined {
   }
 }
 
+// Provider config: which Anthropic-compatible endpoint the CLI talks to.
+// Stored in secrets.json and read fresh on every spawn (never cached), so
+// switching provider from the UI applies to the next turn with no restart.
+//
+// `baseUrl` unset  → Anthropic direct, authenticated with the OAuth token.
+// `baseUrl` set    → a gateway (OpenRouter, LiteLLM, a proxy). The OAuth token
+//                    is deliberately withheld in that case: it is an Anthropic
+//                    credential and must not be sent to a third-party host.
+export interface ProviderConfig {
+  baseUrl?: string
+  authToken?: string
+}
+
+export function providerConfig(): ProviderConfig {
+  try {
+    const secretsPath =
+      process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
+    const s = JSON.parse(readFileSync(secretsPath, 'utf8'))
+    const baseUrl = s.providerBaseUrl || process.env.ANTHROPIC_BASE_URL
+    const authToken = s.providerAuthToken || process.env.ANTHROPIC_AUTH_TOKEN
+    return { baseUrl: baseUrl || undefined, authToken: authToken || undefined }
+  } catch {
+    return {
+      baseUrl: process.env.ANTHROPIC_BASE_URL || undefined,
+      authToken: process.env.ANTHROPIC_AUTH_TOKEN || undefined,
+    }
+  }
+}
+
+// The credential env for a claude spawn, given the active provider. Callers
+// spread this over the child env; keys set to '' are cleared rather than
+// inherited, so a stale value in the engine's own environment can't leak into
+// a gateway request.
+export function providerEnv(): Record<string, string> {
+  const { baseUrl, authToken } = providerConfig()
+  if (baseUrl) {
+    return {
+      ANTHROPIC_BASE_URL: baseUrl,
+      ...(authToken
+        ? { ANTHROPIC_AUTH_TOKEN: authToken, ANTHROPIC_API_KEY: authToken }
+        : {}),
+      CLAUDE_CODE_OAUTH_TOKEN: '',
+    }
+  }
+  const oauth = claudeOauthToken()
+  return {
+    ...(oauth ? { CLAUDE_CODE_OAUTH_TOKEN: oauth } : {}),
+    ANTHROPIC_BASE_URL: '',
+    ANTHROPIC_AUTH_TOKEN: '',
+  }
+}
+
 // Constant-time comparison for the Bearer secret check.
 export function secureEquals(a: string, b: string): boolean {
   const ab = Buffer.from(a)
