@@ -97,8 +97,8 @@ There is **no hardcoded connector catalog** — every connector is just a DB row
   pagination, non-obvious endpoints, or a repeated idiom (gmail, github, linear,
   slack, pocketbase, copyparty, elevenlabs, imagerouter).
 - **No** when it's plain REST with an obvious pattern, rarely used, or already
-  covered by a domain skill (e.g. `example` covers `example-cms`, `example-skill`
-  covers `racketid`). Those are reached via the inventory + read pattern above.
+  covered by a domain skill that owns the whole workflow it belongs to. Those are
+  reached via the inventory + read pattern above.
 
 ## People → mailboxes
 

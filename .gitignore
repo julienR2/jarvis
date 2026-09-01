@@ -43,6 +43,7 @@ agent/skills/*
 !agent/skills/elevenlabs/
 !agent/skills/whisper/
 !agent/skills/pocketbase/
+!agent/skills/browser/
 
 # Whitelist default rules — anything else under agent/rules/ is gitignored
 agent/rules/*
