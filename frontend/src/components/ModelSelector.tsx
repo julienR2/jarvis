@@ -10,12 +10,40 @@ export interface ModelOption {
   effort?: boolean
 }
 
+/**
+ * Fallback catalogue.
+ *
+ * The real list comes from GET /api/models, which reflects the active provider —
+ * a gateway serves a different set entirely. This is what the picker shows
+ * before that resolves, and if it fails.
+ */
 export const MODELS: ModelOption[] = [
   { id: 'claude-fable-5', name: 'Fable 5', desc: 'Most capable, for long-running agents' },
   { id: 'claude-opus-5', name: 'Opus 5', desc: 'Most capable — complex agentic coding & enterprise work' },
   { id: 'claude-sonnet-5', name: 'Sonnet 5', desc: 'Best mix of speed and intelligence' },
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', desc: 'Fastest, near-frontier', effort: false },
 ]
+
+// Populated once per page load from the server, then read synchronously by the
+// pickers (which are rendered in menus that can't easily be async).
+let liveModels: ModelOption[] = MODELS
+let liveAllowCustom = false
+
+export function getModels(): ModelOption[] { return liveModels }
+export function allowsCustomModel(): boolean { return liveAllowCustom }
+
+/** Called once at app start; failures leave the fallback in place. */
+export async function loadModelCatalogue(
+  fetcher: () => Promise<{ models: ModelOption[]; allowCustom?: boolean }>,
+): Promise<void> {
+  try {
+    const cat = await fetcher()
+    if (cat.models?.length) liveModels = cat.models
+    liveAllowCustom = !!cat.allowCustom
+  } catch {
+    // keep the fallback
+  }
+}
 
 export const DEFAULT_MODEL = 'claude-opus-5'
 
@@ -31,11 +59,11 @@ export const DEFAULT_EFFORT: Effort = 'high'
 
 /** Haiku uses classic extended thinking, not the effort parameter. */
 export function modelSupportsEffort(id: string): boolean {
-  return MODELS.find((m) => m.id === id)?.effort !== false && !/haiku/i.test(id)
+  return getModels().find((m) => m.id === id)?.effort !== false && !/haiku/i.test(id)
 }
 
 export function modelName(id: string): string {
-  const known = MODELS.find(m => m.id === id)
+  const known = getModels().find(m => m.id === id)
   if (known) return known.name
   const raw = id.replace(/^claude-/, '').replace(/-\d{8}.*$/, '')
   const [family, ...vParts] = raw.split('-')
@@ -58,7 +86,7 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
   const menuRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  const selectedModel = MODELS.find(m => m.id === model) || { id: model, name: modelName(model), desc: '' }
+  const selectedModel = getModels().find(m => m.id === model) || { id: model, name: modelName(model), desc: '' }
   const supportsEffort = modelSupportsEffort(model)
   const effortLabel = EFFORTS.find(e => e.id === effort)?.label ?? effort
 
@@ -114,7 +142,7 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
         >
           {/* Models list */}
           <div className="p-2">
-            {MODELS.map((m, i) => (
+            {getModels().map((m, i) => (
               <button
                 key={m.id}
                 onClick={() => { onModelChange(m.id); setShowMenu(false) }}

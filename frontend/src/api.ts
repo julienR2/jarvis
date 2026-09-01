@@ -57,6 +57,8 @@ export const api = {
   setupToken: (token: string) =>
     request<{ ok: boolean }>('POST', '/auth/setup-token', { token }),
   getBrowserStatus: () => request<{ enabled: boolean }>('GET', '/browser-status'),
+  // Server-fed so switching provider changes the picker without a rebuild.
+  getModels: () => request<ModelCatalogue>('GET', '/models'),
   getConnection: () => request<ConnectionStatus>('GET', '/auth/connection'),
   setConnection: (body: { mode: 'anthropic' | 'gateway'; baseUrl: string; credential: string }) =>
     request<{ ok: boolean; busy: string[] }>('POST', '/auth/connection', body),
@@ -425,6 +427,15 @@ export function connectSharedEvents(
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type Effort = 'low' | 'medium' | 'high' | 'max'
+
+export interface ModelCatalogue {
+  provider: 'anthropic' | 'gateway'
+  models: { id: string; name: string; desc: string; effort?: boolean }[]
+  default: string
+  /** Gateways serve more than they list; let the user type an id. */
+  allowCustom?: boolean
+  error?: string
+}
 
 export interface ConnectionStatus {
   mode: 'anthropic' | 'gateway'

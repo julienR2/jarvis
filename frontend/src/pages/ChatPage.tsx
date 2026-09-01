@@ -26,6 +26,7 @@ import { api, type Conversation, type Attachment } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { useServiceWorker } from '../hooks/useServiceWorker'
 import { useGlobalEvents } from '../hooks/useGlobalEvents'
+import { loadModelCatalogue } from '../components/ModelSelector'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useSwipeToOpen } from '../hooks/useSwipeToOpen'
 
@@ -64,6 +65,10 @@ export default function ChatPage() {
   useEffect(() => {
     // Establish the media cookie before anything renders inline files.
     api.syncSessionCookie()
+
+    // The picker's options depend on the active provider, so they come from the
+    // server rather than a compiled-in constant.
+    loadModelCatalogue(() => api.getModels())
 
     api.getMe().then(({ onboarded }) => {
       if (!onboarded) navigate('/onboarding', { replace: true })
