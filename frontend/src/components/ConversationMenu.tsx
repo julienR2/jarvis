@@ -7,7 +7,7 @@ import {
   useCallback,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, FolderInput, RefreshCw, ExternalLink } from 'lucide-react'
+import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound } from 'lucide-react'
 import { MODELS, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, modelSupportsEffort } from './ModelSelector'
 import type { Effort } from '../api'
 
@@ -35,6 +35,7 @@ interface Props {
   onMove?: () => void
   onRefreshApp?: () => void
   appUrl?: string
+  onRotateAppToken?: () => Promise<void>
   /** Extra classes for the trigger button */
   triggerClassName?: string
   /** Sidebar mode: only show ⋯ trigger and Edit/Delete in dropdown */
@@ -52,7 +53,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     model = DEFAULT_MODEL, effort = DEFAULT_EFFORT, onModelChange, onEffortChange,
     conversationId, hasCron, hasWebhook,
     onMove,
-    onRefreshApp, appUrl,
+    onRefreshApp, appUrl, onRotateAppToken,
     triggerClassName = '',
     compact = false,
   }, ref) {
@@ -210,16 +211,51 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                   Refresh preview
                 </button>
                 {appUrl && (
-                  <a
-                    href={appUrl}
-                    target='_blank'
-                    rel='noopener noreferrer'
-                    onClick={() => setOpen(false)}
-                    className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
-                  >
-                    <ExternalLink size={14} />
-                    Open in new tab
-                  </a>
+                  <>
+                    <a
+                      href={appUrl}
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      onClick={() => setOpen(false)}
+                      className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+                    >
+                      <ExternalLink size={14} />
+                      Open in new tab
+                    </a>
+                    <button
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(
+                          new URL(appUrl, window.location.origin).toString(),
+                        )
+                        setOpen(false)
+                        window.__jarvisToast?.success('Share link copied.')
+                      }}
+                      className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+                    >
+                      <Copy size={14} />
+                      Copy share link
+                    </button>
+                    <button
+                      onClick={async () => {
+                        // Anyone still holding the old link loses access, so
+                        // make that consequence explicit before doing it.
+                        if (!confirm(
+                          'Generate a new share link?\n\nThe current link will stop working for anyone you gave it to.',
+                        )) return
+                        setOpen(false)
+                        try {
+                          await onRotateAppToken?.()
+                          window.__jarvisToast?.success('New share link generated. The old one no longer works.')
+                        } catch {
+                          window.__jarvisToast?.error("Couldn't generate a new link.")
+                        }
+                      }}
+                      className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+                    >
+                      <KeyRound size={14} />
+                      New share link
+                    </button>
+                  </>
                 )}
                 <div className='h-px bg-border my-1' />
               </>

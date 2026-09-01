@@ -334,7 +334,7 @@ export default function ChatView({
               <span className='flex items-center gap-2'>
                 <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
                 <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} />
+                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShareToken(token) } : undefined} />
               </span>
             ) : undefined}
           >
