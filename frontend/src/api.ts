@@ -52,11 +52,15 @@ export const api = {
   completeOnboarding: () => request<{ ok: boolean }>('POST', '/auth/complete-onboarding'),
 
   // Uploads
-  uploadFile: async (file: File): Promise<Attachment> => {
+  // `conversationId` files the upload under uploads/<id>/ so it can be cleaned
+  // up with the conversation. Omitted when there is no conversation yet (share
+  // intent into a not-yet-created chat) — those land flat, as before.
+  uploadFile: async (file: File, conversationId?: string): Promise<Attachment> => {
     const form = new FormData()
     form.append('file', file)
     const token = getToken()
-    const res = await fetch(`${BASE}/uploads`, {
+    const qs = conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : ''
+    const res = await fetch(`${BASE}/uploads${qs}`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: form,

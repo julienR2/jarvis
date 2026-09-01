@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { existsSync } from 'fs'
-import { basename, extname } from 'path'
+import { basename, extname, resolve, sep } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { archiveAppDir } from '../app-archive.js'
+import { UPLOADS_DIR } from './uploads.js'
 import {
   sendMessage,
   streamConversation,
@@ -59,15 +60,23 @@ function detectUploadedFiles(text: string): Attachment[] {
     seen.add(fullPath)
     if (!existsSync(fullPath)) continue
 
+    // The captured group is the path *relative to* uploads/, which may now be
+    // nested (`<conversationId>/file.png`). It has to survive into the url or
+    // the static handler 404s — but it comes out of model-written text, so
+    // reject anything that climbs back out of the uploads tree.
+    const relPath = match[1]
+    const resolved = resolve(UPLOADS_DIR, relPath)
+    if (resolved !== UPLOADS_DIR && !resolved.startsWith(UPLOADS_DIR + sep)) continue
+
     const name = basename(fullPath)
     const ext = extname(name).toLowerCase()
     const mimetype = MIME_TYPES[ext] || 'application/octet-stream'
     attachments.push({
       id: uuid(),
-      filename: name,
+      filename: relPath,
       originalName: name,
       mimetype,
-      url: `/api/uploads/files/${name}`,
+      url: `/api/uploads/files/${relPath}`,
       path: fullPath,
     })
   }

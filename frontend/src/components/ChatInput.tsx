@@ -16,13 +16,14 @@ interface Props {
   onSendAudio: (blob: Blob) => Promise<void>
   onCancel: () => void
   isProcessing: boolean
+  conversationId?: string
   autoFocus?: boolean
   initialText?: string
   initialFiles?: File[]
   onInitialFilesConsumed?: () => void
 }
 
-export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing, autoFocus, initialText, initialFiles, onInitialFilesConsumed }: Props) {
+export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing, conversationId, autoFocus, initialText, initialFiles, onInitialFilesConsumed }: Props) {
   const [input, setInput] = useState(initialText || '')
   const [audioActive, setAudioActive] = useState(false)
   const [files, setFiles] = useState<PendingFile[]>([])
@@ -62,7 +63,7 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
 
   async function uploadFile(pending: PendingFile, index: number) {
     try {
-      const attachment = await api.uploadFile(pending.file)
+      const attachment = await api.uploadFile(pending.file, conversationId)
       setFiles(prev => prev.map((f, i) => i === index ? { ...f, uploading: false, uploaded: attachment } : f))
     } catch (err: any) {
       setFiles(prev => prev.map((f, i) => i === index ? { ...f, uploading: false, error: err.message } : f))

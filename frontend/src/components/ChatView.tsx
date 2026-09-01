@@ -421,6 +421,7 @@ export default function ChatView({
             onSendAudio={sendAudio}
             onCancel={cancelMessage}
             isProcessing={isProcessing}
+            conversationId={conversationId}
             autoFocus={!showSkeleton && messages.length === 0}
             initialText={initialMessage || undefined}
             initialFiles={initialFiles || undefined}

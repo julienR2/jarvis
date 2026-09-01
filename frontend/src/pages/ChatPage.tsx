@@ -438,11 +438,13 @@ function ShareHandler({
     if (sending) return
     setSending(true)
     try {
+      // Conversation first, so the shared audio lands in uploads/<conv id>/ and
+      // gets cleaned up with the conversation rather than orphaned at the root.
+      const conv = await api.createConversation()
       const attachments: Attachment[] = []
       for (const f of files) {
-        attachments.push(await api.uploadFile(f))
+        attachments.push(await api.uploadFile(f, conv.id))
       }
-      const conv = await api.createConversation()
       await api.sendMessage(conv.id, prompt, attachments)
       onAutoSent(conv.id)
     } catch (err) {

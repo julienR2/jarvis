@@ -48,14 +48,31 @@ passthrough, and which mailbox maps to whom. (jq is not installed; use `python3`
 
 ## File output (images, PDFs, etc.)
 
-When you generate or download a file the user should see, save it to `$WORKSPACE_DIR/uploads/` and reference it in your response with a markdown link using the **literal absolute path** (the chat scans for it):
+When you generate or download a file the user should see, save it **under your own
+conversation's folder** — `$WORKSPACE_DIR/uploads/$JARVIS_CONVERSATION_ID/` — and
+reference it with a markdown link using the **literal absolute path** (the chat
+scans for it):
 
-- Images: `![description](/jarvis/agent/workspace/uploads/filename.png)`
-- Other files: `[filename](/jarvis/agent/workspace/uploads/filename.pdf)`
+```bash
+mkdir -p "$WORKSPACE_DIR/uploads/$JARVIS_CONVERSATION_ID"
+# …write chart.png there…
+echo "$JARVIS_CONVERSATION_ID"   # paste this into the literal link below
+```
 
-The shell variable expands when saving, but the markdown link must be the literal path — the chat's file detector matches `/jarvis/agent/workspace/uploads/<name>` and serves it inline.
+- Images: `![description](/jarvis/agent/workspace/uploads/<conversation-id>/filename.png)`
+- Other files: `[filename](/jarvis/agent/workspace/uploads/<conversation-id>/filename.pdf)`
 
-**Playwright screenshots**: the Playwright MCP server writes files into `/uploads` from its own container — that's the **same directory** as `$WORKSPACE_DIR/uploads/` in yours (shared mount). When you call `browser_take_screenshot` with a filename, reference the result as `![desc](/jarvis/agent/workspace/uploads/<filename>)`, not `/uploads/<filename>`.
+`$JARVIS_CONVERSATION_ID` is always set in your environment. The shell variable
+expands when saving, but the markdown link must be the **literal** path — the
+chat's file detector matches `/jarvis/agent/workspace/uploads/<relative path>`
+and serves it inline. Writing per-conversation keeps `uploads/` cleanable: when a
+conversation is deleted its folder goes with it, instead of leaving files nobody
+can trace back to anything.
+
+Long-lived artefacts that outlive the chat that made them (a reference PDF, an
+archive) belong in `$WORKSPACE_DIR/memory/` or on the drive — not in `uploads/`.
+
+**Playwright screenshots**: the Playwright MCP server writes files into `/uploads` from its own container — that's the **same directory** as `$WORKSPACE_DIR/uploads/` in yours (shared mount). It cannot write to a subfolder, so pass a filename and reference the result as `![desc](/jarvis/agent/workspace/uploads/<filename>)`, not `/uploads/<filename>`. It also drops `page-*.yml` / `console-*.log` debris there — delete those when you're done.
 
 ## Git
 
