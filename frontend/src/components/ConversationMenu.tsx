@@ -7,8 +7,9 @@ import {
   useCallback,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2 } from 'lucide-react'
-import { useModelCatalogue, useModelSearch, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, modelSupportsEffort } from './ModelSelector'
+import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2, ChevronRight } from 'lucide-react'
+import { useModelCatalogue, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, modelSupportsEffort } from './ModelSelector'
+import GatewayModelPicker from './GatewayModelPicker'
 import ShareDialog from './ShareDialog'
 import type { Effort } from '../api'
 
@@ -64,8 +65,8 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     const btnRef = useRef<HTMLButtonElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
-    const catalogue = useModelCatalogue()
-    const models = useModelSearch(catalogue, model)
+    const { models: catalogue, provider } = useModelCatalogue()
+    const [pickingModel, setPickingModel] = useState(false)
     const selectedModel = catalogue.find(m => m.id === model)
     const shortName = selectedModel?.name ?? modelName(model ?? DEFAULT_MODEL)
     const supportsEffort = modelSupportsEffort(model ?? DEFAULT_MODEL)
@@ -110,16 +111,22 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                 {/* Model selector */}
                 <div className='px-2 py-1.5'>
                   <span className='text-[11px] text-text-muted font-medium'>Model</span>
-                  {models.searchable && (
-                    <input
-                      value={models.query}
-                      onChange={(e) => models.setQuery(e.target.value)}
-                      placeholder='Search models…'
-                      className='w-full mt-1 bg-bg border border-border rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent'
-                    />
-                  )}
+                  {/* A gateway's hundreds don't fit a menu — one row opens a
+                      searchable picker. A Claude catalogue is four, so it stays
+                      inline where it's one click. */}
+                  {provider === 'gateway' ? (
+                    <button
+                      onClick={() => { setOpen(false); setPickingModel(true) }}
+                      className='w-full flex items-center gap-2 text-left mt-1 px-2 py-1.5 text-xs rounded-md text-text-secondary hover:bg-surface2 hover:text-text-primary transition-colors'
+                    >
+                      <span className='flex-1 truncate'>
+                        {selectedModel?.name ?? modelName(model ?? DEFAULT_MODEL)}
+                      </span>
+                      <ChevronRight size={13} className='shrink-0 text-text-muted' />
+                    </button>
+                  ) : (
                   <div className='flex flex-col gap-0.5 mt-1'>
-                    {models.visible.map(m => (
+                    {catalogue.map(m => (
                       <button
                         key={m.id}
                         onClick={() => onModelChange?.(m.id)}
@@ -133,19 +140,8 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                         {m.name}
                       </button>
                     ))}
-                    {models.hidden > 0 && (
-                      <span className='px-2 pt-1 text-[11px] text-text-muted'>
-                        {models.query
-                          ? `+${models.hidden} more — keep typing`
-                          : `${models.total} available — search to narrow`}
-                      </span>
-                    )}
-                    {models.total === 0 && (
-                      <span className='px-2 pt-1 text-[11px] text-text-muted'>
-                        No model matches “{models.query}”.
-                      </span>
-                    )}
                   </div>
+                  )}
                 </div>
 
                 {/* Effort selector */}
@@ -324,6 +320,15 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
               Delete
             </button>
           </div>
+        )}
+
+        {pickingModel && (
+          <GatewayModelPicker
+            models={catalogue}
+            selected={model ?? DEFAULT_MODEL}
+            onSelect={(id) => onModelChange?.(id)}
+            onClose={() => setPickingModel(false)}
+          />
         )}
 
         {sharing && conversationId && (
