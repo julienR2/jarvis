@@ -62,11 +62,15 @@ export interface SendMessageOptions {
 export async function sendMessage(
   opts: SendMessageOptions,
 ): Promise<{ queued: boolean }> {
-  // Subagents run on a cheaper model than the main loop (see models.ts). The
-  // engine forwards envVars into the claude process environment.
+  // Subagents run on a cheaper model than the main loop (see models.ts), on
+  // the same provider as the turn itself. The engine forwards envVars into the
+  // claude process environment.
   const body = {
     ...opts,
-    envVars: { CLAUDE_CODE_SUBAGENT_MODEL: defaultSubagentModel(), ...opts.envVars },
+    envVars: {
+      CLAUDE_CODE_SUBAGENT_MODEL: defaultSubagentModel(opts.model),
+      ...opts.envVars,
+    },
   }
   const res = await fetch(`${ENGINE_URL}/message`, {
     method: 'POST',

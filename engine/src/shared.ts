@@ -128,15 +128,34 @@ export function isGatewayModel(model?: string | null): boolean {
 // Both credentials may be configured. The model decides: a namespaced id goes
 // to the gateway, a bare one to Anthropic — so a conversation on GPT and one on
 // Claude can run side by side on the same instance.
+/**
+ * The model each of Claude Code's internal roles resolves to on a gateway.
+ *
+ * The CLI doesn't only run the model you picked: it reaches for a role — opus,
+ * sonnet, haiku — for its own work, like summarising or a cheap subagent. Left
+ * unmapped those resolve to bare Anthropic ids, which a gateway has no reason
+ * to recognise. OpenRouter publishes `~`-prefixed aliases that track the latest
+ * of each line, which is what its Claude Code guide recommends pinning to.
+ */
+const GATEWAY_ROLE_MODELS: Record<string, string> = {
+  ANTHROPIC_DEFAULT_FABLE_MODEL: '~anthropic/claude-fable-latest',
+  ANTHROPIC_DEFAULT_OPUS_MODEL: '~anthropic/claude-opus-latest',
+  ANTHROPIC_DEFAULT_SONNET_MODEL: '~anthropic/claude-sonnet-latest',
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: '~anthropic/claude-haiku-latest',
+}
+
 export function providerEnv(model?: string | null): Record<string, string> {
   const { baseUrl, authToken } = providerConfig()
   if (baseUrl && isGatewayModel(model)) {
     return {
       ANTHROPIC_BASE_URL: baseUrl,
-      ...(authToken
-        ? { ANTHROPIC_AUTH_TOKEN: authToken, ANTHROPIC_API_KEY: authToken }
-        : {}),
+      ...(authToken ? { ANTHROPIC_AUTH_TOKEN: authToken } : {}),
+      // Blanked, not set to the key. OpenRouter's guide is explicit: the token
+      // goes in ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY must be empty, or
+      // the two conflict.
+      ANTHROPIC_API_KEY: '',
       CLAUDE_CODE_OAUTH_TOKEN: '',
+      ...GATEWAY_ROLE_MODELS,
     }
   }
   const oauth = claudeOauthToken()
@@ -144,6 +163,10 @@ export function providerEnv(model?: string | null): Record<string, string> {
     ...(oauth ? { CLAUDE_CODE_OAUTH_TOKEN: oauth } : {}),
     ANTHROPIC_BASE_URL: '',
     ANTHROPIC_AUTH_TOKEN: '',
+    ANTHROPIC_API_KEY: '',
+    // Cleared so a gateway's role pins can't follow a conversation back to the
+    // Anthropic route, where those ids mean nothing.
+    ...Object.fromEntries(Object.keys(GATEWAY_ROLE_MODELS).map((k) => [k, ''])),
   }
 }
 

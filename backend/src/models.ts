@@ -59,8 +59,16 @@ export function defaultModel(): string {
   return DEFAULT_MODEL
 }
 
-/** The subagent model, matching whichever provider the instance can reach. */
-export function defaultSubagentModel(): string {
+/**
+ * The subagent model for a turn, matching the route that turn is taking.
+ *
+ * It follows the conversation's model, not the instance's configuration: with
+ * both providers set up, a conversation on a gateway model would otherwise
+ * spawn subagents on a bare Anthropic id, which the gateway has no reason to
+ * recognise — the fan-out fails while the main loop looks fine.
+ */
+export function defaultSubagentModel(model?: string | null): string {
+  if (model) return model.includes('/') ? GATEWAY_PREFIX + SUBAGENT_MODEL : SUBAGENT_MODEL
   if (hasAnthropicCredential()) return SUBAGENT_MODEL
   if (hasGateway()) return GATEWAY_PREFIX + SUBAGENT_MODEL
   return SUBAGENT_MODEL
