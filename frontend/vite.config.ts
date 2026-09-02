@@ -21,7 +21,11 @@ export default defineConfig({
     port: 5173,
     allowedHosts: true,
     proxy: {
-      '/api': backendUrl,
+      // ws: the browser page proxies a websocket (the VNC stream behind
+      // Settings → Browser). Vite's string shorthand does not enable upgrade
+      // forwarding, so without this the handshake is dropped here — the page
+      // loads and then sits forever on "connecting".
+      '/api': { target: backendUrl, ws: true },
       '/health': backendUrl,
     },
   },
@@ -29,7 +33,7 @@ export default defineConfig({
     port: 5173,
     allowedHosts: true,
     proxy: {
-      '/api': backendUrl,
+      '/api': { target: backendUrl, ws: true },
       '/health': backendUrl,
     },
   },
