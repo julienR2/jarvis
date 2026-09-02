@@ -32,6 +32,9 @@ const ANTHROPIC_MODELS: ModelOption[] = [
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', desc: 'Fastest, near-frontier', effort: false },
 ]
 
+/** Below this a model cannot hold one Jarvis turn. See the filter below. */
+const MIN_CONTEXT = 32_000
+
 const SECRETS_PATH = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
 
 function readSecretsSafe(): Record<string, unknown> {
@@ -78,14 +81,25 @@ async function gatewayModels(
 
   const body = (await res.json()) as { data?: Array<Record<string, unknown>> }
   const models: ModelOption[] = (body.data ?? [])
-    // Jarvis is an agent: every turn can call tools, so a model that doesn't
-    // support them cannot drive it at all. Offering one means handing the user
-    // a model that fails on its first message with "There's an issue with the
-    // selected model", which reads like a broken instance rather than a model
-    // that was never a candidate. Image-generation models are the common case.
+    // Only models that can actually drive Jarvis.
+    //
+    // Offering one that can't means handing the user a model that fails on its
+    // first message with "There's an issue with the selected model" — which
+    // reads like a broken instance rather than a model that was never a
+    // candidate. Three requirements, each from a real failure mode:
+    //
+    //  - tools: every turn can call Bash, Read, Edit or an MCP server. A model
+    //    without tool calling cannot run the agent at all. Image-generation
+    //    models are the common case.
+    //  - max_tokens: required by the Messages API the CLI speaks.
+    //  - context: the agent's own prompt, rules and skills are large. The
+    //    smallest context this instance has ever recorded for a real turn is
+    //    ~36k, so anything under 32k cannot hold even one.
     .filter((m) => {
       const params = (m.supported_parameters ?? []) as string[]
-      return Array.isArray(params) && params.includes('tools')
+      if (!Array.isArray(params)) return false
+      if (!params.includes('tools') || !params.includes('max_tokens')) return false
+      return Number(m.context_length ?? 0) >= MIN_CONTEXT
     })
     .map((m) => {
       const id = String(m.id ?? '')
