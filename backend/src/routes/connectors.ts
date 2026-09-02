@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { Readable } from 'node:stream'
 import { extractRequestToken } from '../request-auth.js'
+import { conversationByAppToken } from '../app-tokens.js'
 import type { ConnectorInput } from '../connectors.js'
 import {
   getAllConnectors,
@@ -107,35 +108,62 @@ export async function connectorRoutes(app: FastifyInstance) {
     return reply.send(Readable.fromWeb(upstream.body as any))
   }
 
-  // GET /:id/proxy/* — stream content from the connector's internal HTTP endpoint.
-  //
-  // Authenticated, but not via the header: this exists so `<img>`/`<a>` inside
-  // chat and generated apps can load proxied content, and those can't set one.
-  // The session cookie (POST /api/auth/session-cookie) or ?token= carries it
-  // instead. It used to be fully open, which — since the proxy attaches the
+  /**
+   * Authorise a proxy request.
+   *
+   * Two credentials are accepted, and the difference is the point:
+   *
+   *  - a session JWT — the owner, from chat or the settings UI. Arrives in the
+   *    header, the session cookie, or `?token=`, because `<img>`/`<a>` can't
+   *    set a header and this route exists to serve them.
+   *  - an app's own token — a generated app calling the one API it needs. It
+   *    can proxy through connectors and do nothing else: no conversations, no
+   *    git, no plugins, and no reading the connector's stored credentials.
+   *
+   * The second is why apps no longer borrow the account token out of shared
+   * localStorage. An app is the least trusted code here — written by the agent
+   * from web content, loading CDN scripts — so it gets a credential that is
+   * scoped to this and rotatable on its own.
+   */
+  async function authorizeProxy(req: any, reply: any): Promise<boolean> {
+    const token = extractRequestToken(req)
+    if (!token) {
+      reply.code(404).send({ error: 'Not found' })
+      return false
+    }
+    if (conversationByAppToken(token)) return true
+    try {
+      await app.jwt.verify(token)
+      return true
+    } catch {
+      reply.code(404).send({ error: 'Not found' })
+      return false
+    }
+  }
+
+  // GET /:id/proxy/* — stream content from the connector's internal HTTP
+  // endpoint. This used to be fully open, which — since the proxy attaches the
   // connector's stored credentials and the backend is internet-reachable —
   // handed anyone who guessed a connector id (they are slugified names)
   // authenticated GET access to that internal service.
   app.get<{ Params: { id: string, '*': string } }>('/:id/proxy/*', async (req, reply) => {
-    const token = extractRequestToken(req)
-    if (!token) return reply.code(404).send({ error: 'Not found' })
-    try {
-      await app.jwt.verify(token)
-    } catch {
-      return reply.code(404).send({ error: 'Not found' })
-    }
+    if (!(await authorizeProxy(req, reply))) return
     return handleProxy(req, reply, 'GET')
   })
 
   // PUT/POST/DELETE /:id/proxy/* — write through to the upstream service.
-  // JWT-protected because these are mutating operations.
-  app.put<{ Params: { id: string, '*': string } }>('/:id/proxy/*', auth, async (req, reply) => {
+  // Apps genuinely write (notes, uploads, bookmarks), so they are allowed here
+  // too — still only through a connector, never to the rest of the API.
+  app.put<{ Params: { id: string, '*': string } }>('/:id/proxy/*', async (req, reply) => {
+    if (!(await authorizeProxy(req, reply))) return
     return handleProxy(req, reply, 'PUT')
   })
-  app.post<{ Params: { id: string, '*': string } }>('/:id/proxy/*', auth, async (req, reply) => {
+  app.post<{ Params: { id: string, '*': string } }>('/:id/proxy/*', async (req, reply) => {
+    if (!(await authorizeProxy(req, reply))) return
     return handleProxy(req, reply, 'POST')
   })
-  app.delete<{ Params: { id: string, '*': string } }>('/:id/proxy/*', auth, async (req, reply) => {
+  app.delete<{ Params: { id: string, '*': string } }>('/:id/proxy/*', async (req, reply) => {
+    if (!(await authorizeProxy(req, reply))) return
     return handleProxy(req, reply, 'DELETE')
   })
 }

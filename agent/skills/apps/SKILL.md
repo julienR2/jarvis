@@ -68,6 +68,33 @@ Examples of what an app can do with shared data:
 
 When the user shares content and picks an app from the share picker, the app opens and receives the data automatically via `postMessage`. The app should handle the intent and give visual feedback (e.g. a toast, highlight the new item).
 
+## Calling the Jarvis API from an app
+
+An app that needs a connector (CopyParty, a self-hosted service, anything with a
+proxy configured) calls it through `/api/connectors/<id>/proxy/...`, authenticated
+with **the app's own token**, which Jarvis puts in the URL the app is opened with:
+
+```js
+// Read it once at startup. Scoped to connector proxying and nothing else.
+const APP_TOKEN = new URLSearchParams(location.search).get('token') || ''
+const auth = () => (APP_TOKEN ? { Authorization: `Bearer ${APP_TOKEN}` } : {})
+
+const res = await fetch('/api/connectors/copyparty/proxy/notes/', { headers: auth() })
+```
+
+Works for GET, PUT, POST and DELETE.
+
+**Never read `localStorage` for a token.** Apps share an origin — and therefore a
+`localStorage` — with the Jarvis UI, so `localStorage.getItem('token')` returns the
+user's full account session: every conversation, git write access, connector
+secrets, plugin installs. An app is the least trusted code in Jarvis (written from
+web content, loading CDN scripts), and it must not hold that. The app token can
+proxy through connectors and do nothing else, and the user can rotate it per app.
+
+For the same reason, **prefix any `localStorage` key you do use with the app's own
+name** (`drive-sort`, not `sort`). The namespace is shared with the Jarvis UI:
+writing `token` or `jarvis-theme` will log the user out or corrupt their theme.
+
 ## Guidelines
 - Always register first, then write files, then notify
 - **Apps are frontend-only by default** — pure HTML/CSS/JS served as static assets. Do NOT add backend routes, API endpoints, or server-side code unless the user explicitly asks for a full-stack app. The backend only serves static files from the app folder; there is no support for app-specific server processes or internal ports.

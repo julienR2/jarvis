@@ -58,6 +58,24 @@ export function rotateAppToken(conversationId: string): string | null {
 }
 
 /**
+ * Resolve an app token on its own, with no slug to narrow it down.
+ *
+ * Used by the API routes an app is allowed to call, where the request carries
+ * the token but nothing says which app it belongs to. Scanning is fine: the
+ * table is small, and the constant-time compare below is what actually decides.
+ */
+export function conversationByAppToken(token: string): ConvRow | null {
+  if (!token) return null
+  const rows = getDb()
+    .prepare('SELECT * FROM conversations WHERE app_token IS NOT NULL')
+    .all() as (ConvRow & { app_token: string })[]
+  for (const row of rows) {
+    if (secureEquals(token, row.app_token)) return row
+  }
+  return null
+}
+
+/**
  * Resolve an app URL slug + token to the conversation it unlocks.
  *
  * The slug is the directory under apps/, which is NOT always the conversation

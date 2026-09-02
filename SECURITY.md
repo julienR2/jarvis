@@ -60,10 +60,15 @@ Being honest about the things that are not solved:
   clears local storage. There's no password change endpoint yet; to invalidate
   every session, delete `jwt` from `agent/data/secrets.json` and restart.
 - **Generated apps run on the same origin as the UI by default.** They need
-  `allow-same-origin` for their own storage, which on a shared origin also lets
-  them reach the Jarvis page. Set `VITE_APPS_ORIGIN` to serve apps from a
-  separate hostname if you care about this — recommended if other people use
-  your app links.
+  `allow-same-origin` for their own storage, which on a shared origin also means
+  an app can read the Jarvis page and shares one `localStorage` namespace with
+  it. Apps authenticate with their own scoped token rather than the account
+  session, so a misbehaving app can proxy through connectors but can't reach the
+  rest of the API — but it could still read the session out of the shared
+  storage. `VITE_APPS_ORIGIN` serves apps from a separate hostname and closes
+  this properly; it is worth doing if other people open your app links. Note
+  that moving origin gives apps a fresh, empty `localStorage`, so anything they
+  kept there starts over.
 - **A "can reply" share link spends your Claude usage** and runs your agent.
   Give those out deliberately.
 
