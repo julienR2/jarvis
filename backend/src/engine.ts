@@ -10,7 +10,7 @@
 
 import type { EffortLevel } from './types.js'
 import { config } from './config.js'
-import { SUBAGENT_MODEL } from './models.js'
+import { defaultSubagentModel } from './models.js'
 
 // The engine authenticates every request against the shared internal secret
 // (it runs arbitrary Claude prompts, so it must reject unknown callers).
@@ -66,7 +66,7 @@ export async function sendMessage(
   // engine forwards envVars into the claude process environment.
   const body = {
     ...opts,
-    envVars: { CLAUDE_CODE_SUBAGENT_MODEL: SUBAGENT_MODEL, ...opts.envVars },
+    envVars: { CLAUDE_CODE_SUBAGENT_MODEL: defaultSubagentModel(), ...opts.envVars },
   }
   const res = await fetch(`${ENGINE_URL}/message`, {
     method: 'POST',

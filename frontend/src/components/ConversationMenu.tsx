@@ -53,7 +53,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
   function ConversationMenu({
     onDelete, onRename,
     notify = 'subscribe', onNotifyChange,
-    model = DEFAULT_MODEL, effort = DEFAULT_EFFORT, onModelChange, onEffortChange,
+    model, effort = DEFAULT_EFFORT, onModelChange, onEffortChange,
     conversationId, hasCron, hasWebhook,
     onMove,
     onRefreshApp, appUrl, onRotateAppToken,
@@ -66,11 +66,14 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     const btnRef = useRef<HTMLButtonElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
-    const { models: catalogue, anthropic, gateway } = useModelCatalogue()
+    const { models: catalogue, anthropic, gateway, default: defaultModel } = useModelCatalogue()
+    // Server-decided: a gateway-only instance defaults to the gateway's
+    // route, since a bare id would be sent to Anthropic and fail.
+    const activeModel = model ?? defaultModel
     const [pickingModel, setPickingModel] = useState(false)
-    const selectedModel = catalogue.find(m => m.id === model)
-    const shortName = selectedModel?.name ?? modelName(model ?? DEFAULT_MODEL)
-    const supportsEffort = modelSupportsEffort(model ?? DEFAULT_MODEL)
+    const selectedModel = catalogue.find(m => m.id === activeModel)
+    const shortName = selectedModel?.name ?? modelName(activeModel)
+    const supportsEffort = modelSupportsEffort(activeModel)
 
     useImperativeHandle(ref, () => ({
       open() { setOpen(true) },
@@ -129,7 +132,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                         key={m.id}
                         onClick={() => onModelChange?.(m.id)}
                         className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
-                          model === m.id
+                          activeModel === m.id
                             ? 'bg-accent/10 text-accent font-medium'
                             : 'text-text-secondary hover:bg-surface2 hover:text-text-primary'
                         }`}
@@ -142,7 +145,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                       <button
                         onClick={() => { setOpen(false); setPickingModel(true) }}
                         className={`w-full flex items-center gap-2 text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
-                          isGatewayModel(model)
+                          isGatewayModel(activeModel)
                             ? 'bg-accent/10 text-accent font-medium'
                             : 'text-text-secondary hover:bg-surface2 hover:text-text-primary'
                         }`}
@@ -152,9 +155,9 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                           // Gateway names run long ("Anthropic: Claude Opus 4.5
                           // (self-moderated)") — truncate, and let a hover show
                           // the whole thing rather than widening the menu.
-                          title={isGatewayModel(model) ? (selectedModel?.name ?? model) : undefined}
+                          title={isGatewayModel(activeModel) ? (selectedModel?.name ?? model) : undefined}
                         >
-                          {isGatewayModel(model)
+                          {isGatewayModel(activeModel)
                             ? (selectedModel?.name ?? model)
                             : `OpenRouter · ${gateway.length} models`}
                         </span>
@@ -348,7 +351,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
             // Anthropic's models inside the gateway picker, where choosing
             // "Opus 5" silently selected the subscription route instead.
             models={gateway}
-            selected={model ?? DEFAULT_MODEL}
+            selected={activeModel}
             onSelect={(id) => onModelChange?.(id)}
             onClose={() => setPickingModel(false)}
           />

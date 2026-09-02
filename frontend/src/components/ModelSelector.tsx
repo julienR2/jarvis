@@ -35,12 +35,17 @@ export const MODELS: ModelOption[] = [
 // Reactive, because the catalogue changes during a session: switching provider
 // swaps an Anthropic shortlist for a gateway's hundreds, and a picker still
 // showing the old list would be wrong in a way the user can see.
+/** Fallback default; the server's answer replaces it once loaded. */
+export const DEFAULT_MODEL = 'claude-opus-5'
+
 let liveModels: ModelOption[] = MODELS
 let liveAllowCustom = false
 let liveAnthropic: ModelOption[] = MODELS
 let liveGateway: ModelOption[] = []
+let liveDefault: string = DEFAULT_MODEL
 let snapshot: Catalogue = {
   models: MODELS,
+  default: DEFAULT_MODEL,
   anthropic: MODELS,
   gateway: [],
   allowCustom: false,
@@ -50,6 +55,14 @@ const listeners = new Set<() => void>()
 export interface Catalogue {
   /** Everything selectable, for lookups by id. */
   models: ModelOption[]
+  /**
+   * What a conversation with no explicit model runs on.
+   *
+   * Server-decided, because it depends on which providers are configured: with
+   * only a gateway it is the gateway's route to the same model, since a bare id
+   * would be sent to Anthropic directly and fail.
+   */
+  default: string
   /** Anthropic's own models — empty when no OAuth token is configured. */
   anthropic: ModelOption[]
   /** The gateway's catalogue — empty when no gateway is configured. */
@@ -87,6 +100,7 @@ export function useModelCatalogue(): Catalogue {
 export async function loadModelCatalogue(
   fetcher: () => Promise<{
     models: ModelOption[]
+    default?: string
     anthropic?: ModelOption[]
     gateway?: ModelOption[]
     allowCustom?: boolean
@@ -98,8 +112,10 @@ export async function loadModelCatalogue(
     liveAnthropic = cat.anthropic ?? cat.models ?? MODELS
     liveGateway = cat.gateway ?? []
     liveAllowCustom = !!cat.allowCustom
+    liveDefault = cat.default || DEFAULT_MODEL
     snapshot = {
       models: liveModels,
+      default: liveDefault,
       anthropic: liveAnthropic,
       gateway: liveGateway,
       allowCustom: liveAllowCustom,
@@ -110,7 +126,6 @@ export async function loadModelCatalogue(
   }
 }
 
-export const DEFAULT_MODEL = 'claude-opus-5'
 
 /**
  * The visible slice of a model list, with search.

@@ -11,7 +11,7 @@
  */
 import type { FastifyInstance } from 'fastify'
 import { readFileSync } from 'fs'
-import { DEFAULT_MODEL } from '../models.js'
+import { defaultModel } from '../models.js'
 
 export interface ModelOption {
   id: string
@@ -141,7 +141,9 @@ export async function modelRoutes(app: FastifyInstance) {
       gatewayBaseUrl: cfg?.baseUrl ?? '',
       // Flat list of everything selectable, for lookups by id.
       models: [...anthropic, ...gateway],
-      default: DEFAULT_MODEL,
+      // Follows the configured providers, so a gateway-only instance
+      // defaults to the gateway's route rather than a bare id it can't reach.
+      default: defaultModel(),
       allowCustom: !!cfg,
       error,
     }
