@@ -30,7 +30,22 @@ interface ShareIntent {
   files?: File[]
 }
 
+/**
+ * How a shared link renders this view.
+ *
+ * The shared page is this component, not a copy of it — so a change to chat
+ * shows up there too. All a share does is drop the things that act on the
+ * owner's instance (the conversation menu, model and effort, rename, delete)
+ * and, for a read-only link, the composer.
+ */
+export interface SharedMode {
+  readOnly: boolean
+}
+
 interface Props {
+  /** Overrides the route param — the shared route carries a token, not an id. */
+  conversationId?: string
+  shared?: SharedMode
   initialMessage?: string | null
   onInitialMessageConsumed?: () => void
   initialFiles?: File[] | null
@@ -40,6 +55,8 @@ interface Props {
 }
 
 export default function ChatView({
+  conversationId: conversationIdProp,
+  shared,
   initialMessage,
   onInitialMessageConsumed,
   initialFiles,
@@ -47,7 +64,8 @@ export default function ChatView({
   shareIntent,
   onShareIntentConsumed,
 }: Props) {
-  const { id: conversationId } = useParams<{ id: string }>()
+  const { id: routeId } = useParams<{ id: string }>()
+  const conversationId = conversationIdProp ?? routeId
   const navigate = useNavigate()
 
   const conv = useChatStore((s) =>
@@ -330,7 +348,7 @@ export default function ChatView({
       {title && (
         <div className='md:hidden'>
           <ContentTitle
-            action={conversationId ? (
+            action={conversationId && !shared ? (
               <span className='flex items-center gap-2'>
                 <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
                 <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
@@ -371,7 +389,7 @@ export default function ChatView({
           {title && (
             <div className='hidden md:block'>
               <ContentTitle
-                action={conversationId ? (
+                action={conversationId && !shared ? (
                   <span className='flex items-center gap-2'>
                     <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
                     <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
@@ -431,7 +449,8 @@ export default function ChatView({
             </div>
           </div>
 
-          {/* Input */}
+          {/* Input — absent on a read-only link, present on an editable one */}
+          {!shared?.readOnly && (
           <ChatInput
             onSend={sendMessage}
             onSendAudio={sendAudio}
@@ -443,6 +462,7 @@ export default function ChatView({
             initialFiles={initialFiles || undefined}
             onInitialFilesConsumed={onInitialFilesConsumed}
           />
+          )}
         </div>
 
         {/* Preview pane */}

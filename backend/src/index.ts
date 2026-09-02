@@ -8,6 +8,7 @@ import fastifyStatic from '@fastify/static'
 import bcrypt from 'bcrypt'
 import { config } from './config.js'
 import { extractRequestToken } from './request-auth.js'
+import { resolveShareToken } from './share-access.js'
 import { initDb, getDb } from './db.js'
 import { authRoutes } from './routes/auth.js'
 import {
@@ -90,11 +91,45 @@ app.addHook('onRequest', async (req, reply) => {
   if (!req.url.startsWith('/api/uploads/files/')) return
   const token = extractRequestToken(req)
   if (!token) return reply.code(404).send({ error: 'Not found' })
+
   try {
     await app.jwt.verify(token)
+    return
   } catch {
-    return reply.code(404).send({ error: 'Not found' })
+    /* not a session — a share link may still own this file */
   }
+
+  // Uploads are stored under the conversation they belong to, so a share link
+  // can serve its own conversation's images without opening the whole store.
+  // Without this a shared chat would render every attachment as a broken image.
+  const share = resolveShareToken(token)
+  if (!share) return reply.code(404).send({ error: 'Not found' })
+
+  const rest = req.url.slice('/api/uploads/files/'.length).split('?')[0]
+  const segments = rest.split('/').filter(Boolean).map((x) => {
+    try { return decodeURIComponent(x) } catch { return x }
+  })
+
+  if (segments.length > 1) {
+    if (segments[0] !== share.conv.id) {
+      return reply.code(404).send({ error: 'Not found' })
+    }
+    return
+  }
+
+  // Files predating per-conversation folders sit flat in the uploads root, so
+  // the path says nothing about who owns them. Fall back to asking whether this
+  // conversation actually references the file — otherwise sharing an older
+  // conversation would render every one of its images broken.
+  const file = segments[0]
+  if (!file) return reply.code(404).send({ error: 'Not found' })
+  const referenced = getDb()
+    .prepare(
+      `SELECT 1 FROM messages
+        WHERE conversation_id = ? AND metadata LIKE ? LIMIT 1`,
+    )
+    .get(share.conv.id, `%${file}%`)
+  if (!referenced) return reply.code(404).send({ error: 'Not found' })
 })
 
 // ── Auth decorator ────────────────────────────────────────────────────────────

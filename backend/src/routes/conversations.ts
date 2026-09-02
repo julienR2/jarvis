@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { existsSync } from 'fs'
 import { basename, extname, resolve, sep } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
+import { ownerOrShare, resolveShareToken } from '../share-access.js'
 import { archiveAppDir } from '../app-archive.js'
 import { ensureAppToken, rotateAppToken, generateShareToken } from '../app-tokens.js'
 import { UPLOADS_DIR } from './uploads.js'
@@ -731,6 +732,12 @@ export function resumeProcessMessage(
 export async function conversationRoutes(app: FastifyInstance) {
   const auth = { onRequest: [app.authenticate] }
 
+  // Endpoints a share link may drive, so the shared view can be the real chat
+  // UI rather than a parallel implementation. Each is confined to the link's
+  // own conversation; see share-access.ts for the whole allowlist.
+  const sharedRead = { onRequest: [ownerOrShare(app, 'read')] }
+  const sharedWrite = { onRequest: [ownerOrShare(app, 'write')] }
+
   // ── CRUD ────────────────────────────────────────────────────────────────────
 
   app.get('/', auth, async () => {
@@ -766,7 +773,7 @@ export async function conversationRoutes(app: FastifyInstance) {
   // catching up doesn't throw away the pages it scrolled back through.
   app.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
     '/:id',
-    auth,
+    sharedRead,
     async (req, reply) => {
       // unread_count is read *before* the last_read_at reset below — it is what
       // the client needs to place the "unread messages" divider, and after the
@@ -804,7 +811,7 @@ export async function conversationRoutes(app: FastifyInstance) {
   app.get<{
     Params: { id: string }
     Querystring: { before?: string; limit?: string }
-  }>('/:id/messages', auth, async (req, reply) => {
+  }>('/:id/messages', sharedRead, async (req, reply) => {
     const exists = getDb()
       .prepare('SELECT 1 FROM conversations WHERE id = ?')
       .get(req.params.id)
@@ -950,7 +957,7 @@ export async function conversationRoutes(app: FastifyInstance) {
   // ── App share link ─────────────────────────────────────────────────────────
 
   // GET /:id/app-token — the conversation's share token, minted on first ask.
-  app.get<{ Params: { id: string } }>('/:id/app-token', auth, async (req, reply) => {
+  app.get<{ Params: { id: string } }>('/:id/app-token', sharedRead, async (req, reply) => {
     const token = ensureAppToken(req.params.id)
     if (!token) return reply.code(404).send({ error: 'Not found' })
     return { token }
@@ -973,19 +980,29 @@ export async function conversationRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string }; Querystring: { token?: string } }>(
     '/:id/events',
     async (req, reply) => {
+      const { id } = req.params
       try {
         await req.jwtVerify()
       } catch {
-        const token = req.query.token
-        if (!token) return reply.code(401).send({ error: 'Unauthorized' })
-        try {
-          app.jwt.verify(token)
-        } catch {
-          return reply.code(401).send({ error: 'Unauthorized' })
+        // EventSource can't set headers, so the credential rides in the query.
+        // A share link is accepted here too — a shared conversation that never
+        // updated until reload would be a worse lie than not sharing at all —
+        // but only for the conversation that link belongs to.
+        const token = req.query.token ?? null
+        const share = resolveShareToken(token)
+        if (share) {
+          if (share.conv.id !== id) {
+            return reply.code(403).send({ error: 'This link does not open that conversation' })
+          }
+        } else {
+          if (!token) return reply.code(401).send({ error: 'Unauthorized' })
+          try {
+            app.jwt.verify(token)
+          } catch {
+            return reply.code(401).send({ error: 'Unauthorized' })
+          }
         }
       }
-
-      const { id } = req.params
 
       const conv = getDb()
         .prepare('SELECT id FROM conversations WHERE id = ?')
@@ -1096,7 +1113,7 @@ export async function conversationRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { id: string } }>(
     '/:id/messages',
-    auth,
+    sharedWrite,
     async (req, reply) => {
       const { id } = req.params
       const { content, attachments, model, effort } = req.body as {
@@ -1133,7 +1150,7 @@ export async function conversationRoutes(app: FastifyInstance) {
 
   // ── Cancel ─────────────────────────────────────────────────────────────────
 
-  app.post<{ Params: { id: string } }>('/:id/cancel', auth, async (req) => {
+  app.post<{ Params: { id: string } }>('/:id/cancel', sharedWrite, async (req) => {
     await cancelConversation(req.params.id)
     return { ok: true }
   })

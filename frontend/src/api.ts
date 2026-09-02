@@ -8,8 +8,25 @@ const BASE = '/api'
 export const APPS_ORIGIN: string =
   import.meta.env.VITE_APPS_ORIGIN?.replace(/\/+$/, '') || ''
 
+/**
+ * Credential used for a shared conversation, in place of the account session.
+ *
+ * A visitor on /s/:token has no account. Setting this lets the ordinary API
+ * layer — and therefore the ordinary chat components — work unchanged for
+ * them, with the backend confining the token to its one conversation.
+ */
+let shareToken: string | null = null
+
+export function useShareCredential(token: string | null): void {
+  shareToken = token
+}
+
+export function isSharedSession(): boolean {
+  return shareToken !== null
+}
+
 function getToken(): string | null {
-  return localStorage.getItem('token')
+  return shareToken ?? localStorage.getItem('token')
 }
 
 function headers(hasBody: boolean): Record<string, string> {
@@ -21,6 +38,11 @@ function headers(hasBody: boolean): Record<string, string> {
 }
 
 function handleUnauthorized() {
+  // A visitor on a share link has no session to expire and no login to be sent
+  // to — a revoked or mistyped link should say so where they are, not bounce
+  // them to a sign-in page for an account they don't have.
+  if (shareToken !== null) return
+
   const hadToken = !!localStorage.getItem('token')
   localStorage.removeItem('token')
   if (hadToken && window.location.pathname !== '/login') {
@@ -380,48 +402,19 @@ export function withMediaToken(url?: string): string {
   return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
 }
 
-// ── Shared conversations (public — the token in the URL is the credential) ────
+// ── Shared conversations ──────────────────────────────────────────────────────
 
-export interface SharedConversation {
+export interface SharedConversationRef {
+  id: string
   title: string
   mode: 'read' | 'write'
-  app_url: string | null
-  created_at: number
-  updated_at: number
-  messages: Message[]
-  has_more: boolean
 }
 
-async function sharedRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE}/shared${path}`, {
-    method,
-    headers: body != null ? { 'Content-Type': 'application/json' } : {},
-    body: body != null ? JSON.stringify(body) : undefined,
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error || res.statusText)
-  }
+/** Resolve a share link to the conversation it opens. Public, no session. */
+export async function resolveShare(token: string): Promise<SharedConversationRef> {
+  const res = await fetch(`${BASE}/shared/${encodeURIComponent(token)}`)
+  if (!res.ok) throw new Error('This link is no longer valid.')
   return res.json()
-}
-
-export const getSharedConversation = (token: string) =>
-  sharedRequest<SharedConversation>('GET', `/${encodeURIComponent(token)}`)
-
-export const sendSharedMessage = (token: string, content: string) =>
-  sharedRequest<{ id: string }>('POST', `/${encodeURIComponent(token)}/messages`, { content })
-
-export function connectSharedEvents(
-  token: string,
-  onEvent: (ev: ChatEvent) => void,
-): { close: () => void } {
-  const es = new EventSource(`${BASE}/shared/${encodeURIComponent(token)}/events`)
-  es.onmessage = (e) => {
-    try { onEvent(JSON.parse(e.data)) } catch { /* heartbeat */ }
-  }
-  // EventSource reconnects on its own; a shared view has no session to refresh,
-  // so there is nothing else to do on error.
-  return { close: () => es.close() }
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
