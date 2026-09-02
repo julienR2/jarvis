@@ -84,6 +84,8 @@ export const api = {
   getConnection: () => request<ConnectionStatus>('GET', '/auth/connection'),
   setConnection: (body: { mode: 'anthropic' | 'gateway'; baseUrl: string; credential: string }) =>
     request<{ ok: boolean; busy: string[] }>('POST', '/auth/connection', body),
+  clearConnection: (provider: 'anthropic' | 'gateway') =>
+    request<{ ok: boolean }>('DELETE', `/auth/connection/${provider}`),
   // Mirrors the session into an httpOnly cookie so <img>/<a> inside chat and
   // apps can load uploads and proxied connector content, which can't send an
   // Authorization header. Best-effort: failure only costs inline media.
@@ -430,14 +432,17 @@ export interface ModelCatalogue {
   error?: string
 }
 
-export interface ConnectionStatus {
-  mode: 'anthropic' | 'gateway'
-  baseUrl: string
-  hasCredential: boolean
-  /** Redacted: first and last few characters, enough to recognise the key. */
+export interface ProviderStatus {
+  configured: boolean
   credentialHint: string
-  /** A credential is also set in the environment, which overrides this UI. */
   envManaged: boolean
+  baseUrl?: string
+}
+
+/** Both providers, independently configurable. */
+export interface ConnectionStatus {
+  anthropic: ProviderStatus
+  gateway: ProviderStatus
 }
 
 export interface Conversation {

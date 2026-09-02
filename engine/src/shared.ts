@@ -108,13 +108,29 @@ export function providerConfig(): ProviderConfig {
   }
 }
 
-// The credential env for a claude spawn, given the active provider. Callers
+/**
+ * Whether a model id belongs to a gateway rather than Anthropic directly.
+ *
+ * Gateways namespace every model by vendor — `openai/gpt-5.6`,
+ * `anthropic/claude-opus-5` — while Anthropic's own ids never contain a slash.
+ * That shape is the discriminator, which is what lets both credentials be
+ * configured at once and the chosen model decide where the turn is sent.
+ */
+export function isGatewayModel(model?: string | null): boolean {
+  return !!model && model.includes('/')
+}
+
+// The credential env for a claude spawn, given the model being run. Callers
 // spread this over the child env; keys set to '' are cleared rather than
 // inherited, so a stale value in the engine's own environment can't leak into
 // a gateway request.
-export function providerEnv(): Record<string, string> {
+//
+// Both credentials may be configured. The model decides: a namespaced id goes
+// to the gateway, a bare one to Anthropic — so a conversation on GPT and one on
+// Claude can run side by side on the same instance.
+export function providerEnv(model?: string | null): Record<string, string> {
   const { baseUrl, authToken } = providerConfig()
-  if (baseUrl) {
+  if (baseUrl && isGatewayModel(model)) {
     return {
       ANTHROPIC_BASE_URL: baseUrl,
       ...(authToken

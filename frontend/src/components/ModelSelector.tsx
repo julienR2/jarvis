@@ -35,13 +35,23 @@ export const MODELS: ModelOption[] = [
 // showing the old list would be wrong in a way the user can see.
 let liveModels: ModelOption[] = MODELS
 let liveAllowCustom = false
-let liveProvider: 'anthropic' | 'gateway' = 'anthropic'
-let snapshot: Catalogue = { models: MODELS, provider: 'anthropic', allowCustom: false }
+let liveAnthropic: ModelOption[] = MODELS
+let liveGateway: ModelOption[] = []
+let snapshot: Catalogue = {
+  models: MODELS,
+  anthropic: MODELS,
+  gateway: [],
+  allowCustom: false,
+}
 const listeners = new Set<() => void>()
 
 export interface Catalogue {
+  /** Everything selectable, for lookups by id. */
   models: ModelOption[]
-  provider: 'anthropic' | 'gateway'
+  /** Anthropic's own models — empty when no OAuth token is configured. */
+  anthropic: ModelOption[]
+  /** The gateway's catalogue — empty when no gateway is configured. */
+  gateway: ModelOption[]
   allowCustom: boolean
 }
 
@@ -52,6 +62,14 @@ function subscribe(fn: () => void): () => void {
 
 export function getModels(): ModelOption[] { return liveModels }
 export function allowsCustomModel(): boolean { return liveAllowCustom }
+
+/**
+ * Whether a model id belongs to a gateway rather than Anthropic directly.
+ * Mirrors the engine's rule: gateways namespace by vendor, Anthropic doesn't.
+ */
+export function isGatewayModel(id?: string | null): boolean {
+  return !!id && id.includes('/')
+}
 
 /** Reactive read for components — re-renders when the catalogue changes. */
 export function useModelCatalogue(): Catalogue {
@@ -67,16 +85,23 @@ export function useModelCatalogue(): Catalogue {
 export async function loadModelCatalogue(
   fetcher: () => Promise<{
     models: ModelOption[]
-    provider?: 'anthropic' | 'gateway'
+    anthropic?: ModelOption[]
+    gateway?: ModelOption[]
     allowCustom?: boolean
   }>,
 ): Promise<void> {
   try {
     const cat = await fetcher()
     if (cat.models?.length) liveModels = cat.models
+    liveAnthropic = cat.anthropic ?? cat.models ?? MODELS
+    liveGateway = cat.gateway ?? []
     liveAllowCustom = !!cat.allowCustom
-    liveProvider = cat.provider ?? 'anthropic'
-    snapshot = { models: liveModels, provider: liveProvider, allowCustom: liveAllowCustom }
+    snapshot = {
+      models: liveModels,
+      anthropic: liveAnthropic,
+      gateway: liveGateway,
+      allowCustom: liveAllowCustom,
+    }
     listeners.forEach((fn) => fn())
   } catch {
     // keep whatever is loaded
@@ -134,7 +159,7 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
   const menuRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  const { models: catalogue, provider } = useModelCatalogue()
+  const { models: catalogue, anthropic, gateway } = useModelCatalogue()
   const [picking, setPicking] = useState(false)
   const selectedModel = catalogue.find(m => m.id === model) || { id: model, name: modelName(model), desc: '' }
   const supportsEffort = modelSupportsEffort(model)
@@ -192,26 +217,7 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
         >
           {/* Models list */}
           <div className="p-2">
-            {provider === 'gateway' ? (
-              // Same rule as chat: a gateway's hundreds open a searchable
-              // picker; a Claude catalogue is short enough to list.
-              <button
-                onClick={() => { setShowMenu(false); setPicking(true) }}
-                className='w-full flex items-center gap-2 text-left px-3 py-2.5 rounded-xl hover:bg-bg transition-colors'
-              >
-                <span className='flex-1 min-w-0'>
-                  <span className='block text-sm font-semibold text-text-primary truncate'>
-                    {selectedModel.name}
-                  </span>
-                  <span className='block text-xs text-text-muted truncate'>
-                    {catalogue.length} models available
-                  </span>
-                </span>
-                <ChevronDown size={14} className='shrink-0 -rotate-90 text-text-muted' />
-              </button>
-            ) : (
-            <>
-            {catalogue.map((m, i) => (
+            {anthropic.map((m, i) => (
               <button
                 key={m.id}
                 onClick={() => { onModelChange(m.id); setShowMenu(false) }}
@@ -228,7 +234,28 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
                 {model === m.id && <Check size={16} className="text-accent shrink-0" />}
               </button>
             ))}
-            </>
+            {gateway.length > 0 && (
+              // Same rule as chat: Anthropic's few are listed, a gateway's
+              // hundreds open a searchable picker, and both appear when both
+              // are configured.
+              <button
+                onClick={() => { setShowMenu(false); setPicking(true) }}
+                className={`w-full flex items-center gap-2 text-left px-3 py-2.5 rounded-xl transition-colors ${
+                  isGatewayModel(model) ? 'bg-accent/10' : 'hover:bg-bg'
+                }`}
+              >
+                <span className='flex-1 min-w-0'>
+                  <span className={`block text-sm font-semibold truncate ${
+                    isGatewayModel(model) ? 'text-accent' : 'text-text-primary'
+                  }`}>
+                    {isGatewayModel(model) ? selectedModel.name : 'OpenRouter'}
+                  </span>
+                  <span className='block text-xs text-text-muted truncate'>
+                    {gateway.length} models
+                  </span>
+                </span>
+                <ChevronDown size={14} className='shrink-0 -rotate-90 text-text-muted' />
+              </button>
             )}
           </div>
 

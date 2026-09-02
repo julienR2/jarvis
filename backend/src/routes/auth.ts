@@ -210,28 +210,56 @@ export async function authRoutes(app: FastifyInstance) {
   // step once any token is stored — so an instance set up with a bad key had no
   // way back short of editing secrets.json on the host.
 
-  // GET /connection — current provider, with the credential redacted.
+  // GET /connection — both providers, credentials redacted.
+  //
+  // They are independent, not a mode: with each configured the model picker
+  // offers Claude and the gateway's catalogue together, and whichever model a
+  // conversation is on decides where its turn is sent.
   app.get('/connection', { onRequest: [app.authenticate] }, async () => {
     const secrets = readSecrets()
     const baseUrl = (secrets.providerBaseUrl as string) || process.env.ANTHROPIC_BASE_URL || ''
     const oauth = (secrets.claudeOauthToken as string) || process.env.CLAUDE_CODE_OAUTH_TOKEN || ''
     const gatewayKey = (secrets.providerAuthToken as string) || process.env.ANTHROPIC_AUTH_TOKEN || ''
-    const active = baseUrl ? gatewayKey : oauth
+    // Enough to recognise which key is installed, not enough to use it.
+    const hint = (v: string) => (v ? `${v.slice(0, 12)}…${v.slice(-4)}` : '')
     return {
-      mode: baseUrl ? 'gateway' : 'anthropic',
-      baseUrl,
-      hasCredential: !!active,
-      // Enough to recognise which key is installed, not enough to use it.
-      credentialHint: active ? `${active.slice(0, 12)}…${active.slice(-4)}` : '',
-      // True only when the environment actually overrides what the UI saves,
-      // which depends on the active mode: the OAuth token is read from the
-      // environment first, but gateway settings prefer the stored ones. Warning
-      // about an override that isn't happening is its own kind of wrong.
-      envManaged: baseUrl
-        ? !secrets.providerBaseUrl && !!process.env.ANTHROPIC_BASE_URL
-        : !!process.env.CLAUDE_CODE_OAUTH_TOKEN,
+      anthropic: {
+        configured: !!oauth,
+        credentialHint: hint(oauth),
+        // The OAuth token is read from the environment first, so a value there
+        // overrides whatever the UI saves.
+        envManaged: !!process.env.CLAUDE_CODE_OAUTH_TOKEN,
+      },
+      gateway: {
+        configured: !!(baseUrl && gatewayKey),
+        baseUrl,
+        credentialHint: hint(gatewayKey),
+        // Gateway settings prefer the stored values, so the environment only
+        // wins when nothing is stored.
+        envManaged: !secrets.providerBaseUrl && !!process.env.ANTHROPIC_BASE_URL,
+      },
     }
   })
+
+  // DELETE /connection/:provider — forget one, keep the other.
+  app.delete<{ Params: { provider: string } }>(
+    '/connection/:provider',
+    { onRequest: [app.authenticate] },
+    async (req, reply) => {
+      const secrets = readSecrets()
+      if (req.params.provider === 'anthropic') {
+        delete secrets.claudeOauthToken
+      } else if (req.params.provider === 'gateway') {
+        delete secrets.providerBaseUrl
+        delete secrets.providerAuthToken
+      } else {
+        return reply.code(400).send({ error: 'Unknown provider' })
+      }
+      writeSecrets(secrets)
+      await recycleSessions()
+      return { ok: true }
+    },
+  )
 
   // POST /connection — verify a credential, then persist it if it works.
   // Verification is not optional: accepting an unusable key silently is the
@@ -271,14 +299,15 @@ export async function authRoutes(app: FastifyInstance) {
       })
     }
 
+    // Each provider is saved on its own. Setting one used to clear the other,
+    // which made them mutually exclusive — the reason a single instance could
+    // not offer Claude and a gateway's models side by side.
     const secrets = readSecrets()
     if (mode === 'gateway') {
       secrets.providerBaseUrl = url
       secrets.providerAuthToken = cred
     } else {
       secrets.claudeOauthToken = cred
-      delete secrets.providerBaseUrl
-      delete secrets.providerAuthToken
     }
     writeSecrets(secrets)
 

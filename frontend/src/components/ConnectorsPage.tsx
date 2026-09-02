@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { api, type ConnectorInfo, type ConnectorDetail, type ConnectorInput } from '../api'
 import ContentLayout from './ContentLayout'
+import { ProviderConnections } from './ConnectionPage'
 
 const ICON_MAP: Record<string, LucideIcon> = {
   Mail, Github: GitBranch, SquareKanban, Image, Database, MessageSquare,
@@ -68,7 +69,20 @@ export default function ConnectorsPage() {
 
   return (
     <ContentLayout title='Connectors'>
-      <p className='text-text-muted text-sm mb-6'>
+      {/* The model provider is a credential like any other, and the first one
+          that matters — so it sits above the rest rather than in its own
+          corner of the settings menu. Collapsed once it's set up. */}
+      <div className='mb-6'>
+        <h2 className='text-xs font-medium text-text-muted uppercase tracking-wide mb-2'>
+          Model provider
+        </h2>
+        <ProviderConnections />
+      </div>
+
+      <h2 className='text-xs font-medium text-text-muted uppercase tracking-wide mb-2'>
+        Services
+      </h2>
+      <p className='text-text-muted text-sm mb-4'>
         Credentials for skills that need external services. Each connector is a
         set of named values Jarvis reads on demand.
       </p>

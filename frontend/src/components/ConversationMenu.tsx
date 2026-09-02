@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom'
 import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2, ChevronRight } from 'lucide-react'
 import { useModelCatalogue, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, modelSupportsEffort } from './ModelSelector'
 import GatewayModelPicker from './GatewayModelPicker'
+import { isGatewayModel } from './ModelSelector'
 import ShareDialog from './ShareDialog'
 import type { Effort } from '../api'
 
@@ -65,7 +66,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     const btnRef = useRef<HTMLButtonElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
-    const { models: catalogue, provider } = useModelCatalogue()
+    const { models: catalogue, anthropic, gateway } = useModelCatalogue()
     const [pickingModel, setPickingModel] = useState(false)
     const selectedModel = catalogue.find(m => m.id === model)
     const shortName = selectedModel?.name ?? modelName(model ?? DEFAULT_MODEL)
@@ -111,22 +112,12 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                 {/* Model selector */}
                 <div className='px-2 py-1.5'>
                   <span className='text-[11px] text-text-muted font-medium'>Model</span>
-                  {/* A gateway's hundreds don't fit a menu — one row opens a
-                      searchable picker. A Claude catalogue is four, so it stays
-                      inline where it's one click. */}
-                  {provider === 'gateway' ? (
-                    <button
-                      onClick={() => { setOpen(false); setPickingModel(true) }}
-                      className='w-full flex items-center gap-2 text-left mt-1 px-2 py-1.5 text-xs rounded-md text-text-secondary hover:bg-surface2 hover:text-text-primary transition-colors'
-                    >
-                      <span className='flex-1 truncate'>
-                        {selectedModel?.name ?? modelName(model ?? DEFAULT_MODEL)}
-                      </span>
-                      <ChevronRight size={13} className='shrink-0 text-text-muted' />
-                    </button>
-                  ) : (
+                  {/* Both providers can be configured at once. Anthropic's few
+                      models stay inline where they're one click; a gateway's
+                      hundreds get a row that opens a searchable picker. With
+                      both, you get both. */}
                   <div className='flex flex-col gap-0.5 mt-1'>
-                    {catalogue.map(m => (
+                    {anthropic.map(m => (
                       <button
                         key={m.id}
                         onClick={() => onModelChange?.(m.id)}
@@ -140,8 +131,24 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                         {m.name}
                       </button>
                     ))}
+                    {gateway.length > 0 && (
+                      <button
+                        onClick={() => { setOpen(false); setPickingModel(true) }}
+                        className={`w-full flex items-center gap-2 text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
+                          isGatewayModel(model)
+                            ? 'bg-accent/10 text-accent font-medium'
+                            : 'text-text-secondary hover:bg-surface2 hover:text-text-primary'
+                        }`}
+                      >
+                        <span className='flex-1 truncate'>
+                          {isGatewayModel(model)
+                            ? (selectedModel?.name ?? model)
+                            : `OpenRouter · ${gateway.length} models`}
+                        </span>
+                        <ChevronRight size={13} className='shrink-0 opacity-60' />
+                      </button>
+                    )}
                   </div>
-                  )}
                 </div>
 
                 {/* Effort selector */}

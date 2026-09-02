@@ -5,7 +5,6 @@ import {
   Clock,
   Code2,
   Plug,
-  KeyRound,
   Globe,
   Blocks,
   LogOut,
@@ -335,12 +334,6 @@ function SettingsMenu({
             icon={<Globe size={15} />}
             active={activePath === '/browser'}
             onClick={() => go('/browser')}
-          />
-          <NavItem
-            label='Connection'
-            icon={<KeyRound size={15} />}
-            active={activePath === '/connection'}
-            onClick={() => go('/connection')}
           />
           <NavItem
             label='Plugins'

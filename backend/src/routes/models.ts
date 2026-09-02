@@ -32,6 +32,14 @@ const ANTHROPIC_MODELS: ModelOption[] = [
 
 const SECRETS_PATH = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
 
+function readSecretsSafe(): Record<string, unknown> {
+  try {
+    return JSON.parse(readFileSync(SECRETS_PATH, 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
 function gatewayConfig(): { baseUrl: string; authToken: string } | null {
   try {
     const s = JSON.parse(readFileSync(SECRETS_PATH, 'utf8'))
@@ -92,28 +100,41 @@ async function gatewayModels(
 
 export async function modelRoutes(app: FastifyInstance) {
   app.get('/api/models', { onRequest: [app.authenticate] }, async () => {
+    const secrets = readSecretsSafe()
+    const hasAnthropic = !!(secrets.claudeOauthToken || process.env.CLAUDE_CODE_OAUTH_TOKEN)
     const cfg = gatewayConfig()
-    if (!cfg) {
-      return { provider: 'anthropic', models: ANTHROPIC_MODELS, default: DEFAULT_MODEL }
+
+    // Both catalogues when both are configured. They are distinguishable by id
+    // shape — Anthropic's are bare, a gateway's are namespaced — which is the
+    // same rule the engine uses to decide where to send a turn, so what the
+    // picker offers and what actually runs can't disagree.
+    const anthropic = hasAnthropic ? ANTHROPIC_MODELS : []
+    let gateway: ModelOption[] = []
+    let error: string | undefined
+
+    if (cfg) {
+      try {
+        gateway = await gatewayModels(cfg)
+      } catch (err: any) {
+        error = `Couldn't list models from the gateway: ${err?.message ?? err}`
+      }
     }
-    try {
-      const models = await gatewayModels(cfg)
-      return {
-        provider: 'gateway',
-        models,
-        default: DEFAULT_MODEL,
-        // Gateways serve models we can't enumerate reliably; let the user type
-        // an id rather than trapping them in whatever the catalogue returned.
-        allowCustom: true,
-      }
-    } catch (err: any) {
-      return {
-        provider: 'gateway',
-        models: [],
-        default: DEFAULT_MODEL,
-        allowCustom: true,
-        error: `Couldn't list models from the gateway: ${err?.message ?? err}`,
-      }
+
+    return {
+      // Kept for callers that just want to know what is available at all.
+      provider: gateway.length && anthropic.length
+        ? 'both'
+        : gateway.length
+          ? 'gateway'
+          : 'anthropic',
+      anthropic,
+      gateway,
+      gatewayBaseUrl: cfg?.baseUrl ?? '',
+      // Flat list of everything selectable, for lookups by id.
+      models: [...anthropic, ...gateway],
+      default: DEFAULT_MODEL,
+      allowCustom: !!cfg,
+      error,
     }
   })
 }

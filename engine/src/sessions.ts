@@ -296,9 +296,10 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
       env: {
         ...inheritedEnv,
         INTERNAL_SECRET: internalSecret() ?? inheritedEnv.INTERNAL_SECRET,
-        // Provider credentials, resolved fresh per spawn: either the Anthropic
-        // OAuth token or a gateway's base URL + key. See shared.ts.
-        ...providerEnv(),
+        // Provider credentials, resolved fresh per spawn. Which one depends on
+        // the model: a namespaced id (openai/gpt-…) goes to the gateway, a bare
+        // one to Anthropic. See shared.ts.
+        ...providerEnv(sess.model),
         ...sess.envVars,
         JARVIS_CONVERSATION_ID: sess.conversationId,
       },
