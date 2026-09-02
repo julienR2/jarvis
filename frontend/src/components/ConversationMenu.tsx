@@ -344,7 +344,10 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
 
         {pickingModel && (
           <GatewayModelPicker
-            models={catalogue}
+            // The gateway's catalogue only. Passing the combined list put
+            // Anthropic's models inside the gateway picker, where choosing
+            // "Opus 5" silently selected the subscription route instead.
+            models={gateway}
             selected={model ?? DEFAULT_MODEL}
             onSelect={(id) => onModelChange?.(id)}
             onClose={() => setPickingModel(false)}

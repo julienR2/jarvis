@@ -297,7 +297,10 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
 
       {picking && (
         <GatewayModelPicker
-          models={catalogue}
+          // The gateway's catalogue only. Passing the combined list put
+          // Anthropic's models inside the gateway picker, where choosing
+          // "Opus 5" silently selected the subscription route instead.
+          models={gateway}
           selected={model}
           onSelect={onModelChange}
           onClose={() => setPicking(false)}
