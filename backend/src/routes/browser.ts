@@ -23,6 +23,28 @@ const BROWSER_PASSWORD = process.env.BROWSER_PASSWORD || 'jarvis'
 const upstreamAuth =
   'Basic ' + Buffer.from(`${BROWSER_USER}:${BROWSER_PASSWORD}`).toString('base64')
 
+/**
+ * Pull the session token off a raw upgrade request.
+ *
+ * This runs before Fastify has parsed anything, so cookies and query string are
+ * read off the raw headers/url rather than a decorated request.
+ */
+function tokenFromUpgrade(req: {
+  headers: Record<string, string | undefined>
+  url?: string
+}): string | null {
+  const cookie = req.headers.cookie
+  if (cookie) {
+    const m = cookie.match(/(?:^|;\s*)jarvis_session=([^;]+)/)
+    if (m) return m[1]
+  }
+  // Fallback for clients that can't send the cookie; the URL is same-origin so
+  // this never leaves the instance.
+  const q = req.url?.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : ''
+  const token = new URLSearchParams(q).get('token')
+  return token || null
+}
+
 export async function browserRoutes(app: FastifyInstance) {
   // Always present, so the UI can explain how to turn the browser on rather
   // than showing a dead page.
@@ -46,6 +68,28 @@ export async function browserRoutes(app: FastifyInstance) {
         ...headers,
         authorization: upstreamAuth,
       }),
+    },
+    // The websocket carries the actual VNC stream, and it is a separate path
+    // from the HTTP proxying above — replyOptions does not apply to it.
+    //
+    // Upstream auth has to be repeated here, or KasmVNC 401s the upgrade and
+    // the client sits on a black screen saying "connecting".
+    wsClientOptions: {
+      headers: { authorization: upstreamAuth },
+    },
+    // And our own auth has to be re-checked here, because `preHandler` does not
+    // run for upgrade requests. Without this the websocket would be an
+    // unauthenticated way into the browser session even though the page in
+    // front of it is gated — the worst possible combination.
+    wsServerOptions: {
+      verifyClient: (
+        info: { req: { headers: Record<string, string | undefined>; url?: string } },
+        next: (ok: boolean, code?: number, message?: string) => void,
+      ) => {
+        const token = tokenFromUpgrade(info.req)
+        if (!token) return next(false, 401, 'Unauthorized')
+        app.jwt.verify(token, (err: unknown) => next(!err, 401, 'Unauthorized'))
+      },
     },
     preHandler: async (req, reply) => {
       const token = extractRequestToken(req)
