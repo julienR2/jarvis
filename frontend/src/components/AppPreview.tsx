@@ -1,6 +1,6 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect } from 'react'
 import { ExternalLink, RefreshCw } from 'lucide-react'
-import { api, APPS_ORIGIN } from '../api'
+import { APPS_ORIGIN } from '../api'
 
 interface ShareIntent {
   title?: string
@@ -11,6 +11,8 @@ interface ShareIntent {
 
 interface Props {
   appSlug: string
+  /** The app's scoped token, fetched by ChatView from the conversation id. */
+  appToken: string
   refreshKey: number
   onRefresh: () => void
   shareIntent?: ShareIntent | null
@@ -28,6 +30,7 @@ async function fileToDataUrl(file: File): Promise<{ name: string; type: string; 
 
 export default function AppPreview({
   appSlug,
+  appToken,
   refreshKey,
   onRefresh,
   shareIntent,
@@ -35,26 +38,24 @@ export default function AppPreview({
 }: Props) {
   const appHashRef = useRef(window.location.hash)
 
-  // The app's own token — used for BOTH the preview iframe and the share link.
+  // The app's own token, passed down from ChatView rather than fetched here.
+  //
+  // It used to be fetched with `appSlug`, but the token endpoint is keyed by
+  // conversation id, and a slug is only the same string when the app directory
+  // happens to be named after its conversation — so every app created by name
+  // (drive, scratchpad, morning-brief) got a 404 and rendered nothing. ChatView
+  // already holds the correctly-keyed token, and sharing it also keeps the
+  // preview and the share link in step when the token is rotated.
   //
   // The iframe used to carry the session JWT, which an app can read out of its
   // own location.search. App HTML is written by the agent from web content, so
-  // the account credential simply shouldn't be reachable from inside the frame:
-  // this token opens one app and nothing else.
-  const [shareToken, setShareToken] = useState('')
-  useEffect(() => {
-    let cancelled = false
-    api.getAppToken(appSlug)
-      .then(({ token: t }) => { if (!cancelled) setShareToken(t) })
-      .catch(() => { /* leaves the frame blank rather than falling back to the JWT */ })
-    return () => { cancelled = true }
-  }, [appSlug])
-
+  // the account credential shouldn't be reachable from inside the frame: this
+  // token opens one app and nothing else.
   const appBase = `${APPS_ORIGIN}/api/apps/${appSlug}/index.html`
-  const src = shareToken
-    ? `${appBase}?token=${shareToken}&v=${refreshKey}${appHashRef.current}`
+  const src = appToken
+    ? `${appBase}?token=${appToken}&v=${refreshKey}${appHashRef.current}`
     : ''
-  const shareUrl = shareToken ? `${appBase}?token=${shareToken}` : ''
+  const shareUrl = appToken ? `${appBase}?token=${appToken}` : ''
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const pendingIntentRef = useRef<ShareIntent | null>(null)
 

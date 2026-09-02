@@ -452,6 +452,7 @@ export default function ChatView({
           >
             <AppPreview
               appSlug={conv!.app_path!.replace(/^apps\//, '')}
+              appToken={appShareToken}
               refreshKey={appRefreshKey}
               onRefresh={bumpApp}
               shareIntent={shareIntent}
