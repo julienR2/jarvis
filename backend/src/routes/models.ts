@@ -95,11 +95,19 @@ async function gatewayModels(
     //  - context: the agent's own prompt, rules and skills are large. The
     //    smallest context this instance has ever recorded for a real turn is
     //    ~36k, so anything under 32k cannot hold even one.
+    //  - text-only output: an image or audio model runs, reasons, emits its
+    //    picture — and Jarvis shows nothing, because the CLI is a text agent
+    //    and a turn's result is text. Observed: gemini-3-pro-image thought its
+    //    way through a pixel-art scene and returned "(no response)". Generating
+    //    an image is a tool the agent calls, not a model it runs on.
     .filter((m) => {
       const params = (m.supported_parameters ?? []) as string[]
       if (!Array.isArray(params)) return false
       if (!params.includes('tools') || !params.includes('max_tokens')) return false
-      return Number(m.context_length ?? 0) >= MIN_CONTEXT
+      if (Number(m.context_length ?? 0) < MIN_CONTEXT) return false
+      const arch = (m.architecture ?? {}) as { output_modalities?: string[] }
+      const outs = arch.output_modalities ?? ['text']
+      return outs.every((o) => o === 'text')
     })
     .map((m) => {
       const id = String(m.id ?? '')
