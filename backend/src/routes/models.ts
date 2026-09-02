@@ -19,6 +19,8 @@ export interface ModelOption {
   desc: string
   /** Anthropic's effort parameter; gateways don't take it. */
   effort?: boolean
+  /** Sort key; lower is more prominent. Gateway catalogues only. */
+  rank?: number
 }
 
 const ANTHROPIC_MODELS: ModelOption[] = [
@@ -27,6 +29,46 @@ const ANTHROPIC_MODELS: ModelOption[] = [
   { id: 'claude-sonnet-5', name: 'Sonnet 5', desc: 'Best mix of speed and intelligence' },
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', desc: 'Fastest, near-frontier', effort: false },
 ]
+
+/**
+ * Rough popularity order for a gateway catalogue.
+ *
+ * OpenRouter serves hundreds of models and exposes no popularity signal — its
+ * `order` parameter is accepted and ignored, and the payload carries no usage
+ * data — so this is a judgement call rather than a measurement: the families
+ * people actually reach for, best-known first. Anything unlisted sorts after
+ * them, newest first, which is the most useful fallback for a model nobody has
+ * heard of yet.
+ *
+ * It only decides what the picker shows before you type. Search reaches
+ * everything.
+ */
+const POPULAR_FAMILIES = [
+  'anthropic/claude',
+  'openai/gpt',
+  'openai/o',
+  'google/gemini',
+  'x-ai/grok',
+  'deepseek/',
+  'meta-llama/',
+  'mistralai/',
+  'qwen/',
+  'amazon/nova',
+  'cohere/',
+]
+
+function popularityRank(id: string, created: number): number {
+  const family = POPULAR_FAMILIES.findIndex((f) => id.startsWith(f))
+  // Suffixed variants (:batch, :free, :thinking) are the same model in a
+  // narrower shape — keep them below the plain one rather than letting them
+  // take a slot in a four-model list.
+  const variant = id.includes(':') ? 1 : 0
+  if (family === -1) {
+    // Unknown families: newest first, all of them after the known ones.
+    return 1_000_000 - Math.min(created, 999_999)
+  }
+  return family * 10 + variant
+}
 
 const SECRETS_PATH = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
 
@@ -72,13 +114,37 @@ async function gatewayModels(
         // Effort is an Anthropic-native parameter; passing it to a gateway
         // model is at best ignored and at worst a 400.
         effort: false,
+        rank: popularityRank(id, Number(m.created ?? 0)),
       }
     })
     .filter((m) => m.id)
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
 
-  if (models.length) cache = { at: Date.now(), models }
-  return models
+  // Lead with the best of each family rather than the top of one.
+  //
+  // Straight popularity order fills the whole visible list with Claude
+  // variants, which is a strange thing to show someone who just pointed Jarvis
+  // at a gateway precisely to reach other providers. So the front of the list
+  // is one model per family, and the rest follows in rank order.
+  const leadIds = new Set<string>()
+  const seenProviders = new Set<string>()
+  const lead: ModelOption[] = []
+  for (const family of POPULAR_FAMILIES) {
+    const best = models.find((m) => m.id.startsWith(family) && !m.id.includes(':'))
+    if (!best) continue
+    // One per provider, not per model line: OpenAI's gpt-* and o* are separate
+    // families but the same vendor, and letting both in costs a slot that a
+    // different provider should have.
+    const provider = best.id.split('/')[0]
+    if (seenProviders.has(provider)) continue
+    seenProviders.add(provider)
+    lead.push(best)
+    leadIds.add(best.id)
+  }
+  const ranked = [...lead, ...models.filter((m) => !leadIds.has(m.id))]
+
+  if (ranked.length) cache = { at: Date.now(), models: ranked }
+  return ranked
 }
 
 export async function modelRoutes(app: FastifyInstance) {

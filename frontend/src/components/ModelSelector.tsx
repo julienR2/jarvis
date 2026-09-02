@@ -70,6 +70,49 @@ export async function loadModelCatalogue(
 
 export const DEFAULT_MODEL = 'claude-opus-5'
 
+/**
+ * The visible slice of a model list, with search.
+ *
+ * A gateway catalogue runs to hundreds of models, so the list is capped and
+ * searchable rather than scrolled. The cap applies to search results too: if
+ * what you typed isn't in the first few, the query is the thing to fix.
+ *
+ * Search appears only when there is enough to search — with four Anthropic
+ * models a search box is noise.
+ */
+export const MODEL_VISIBLE_LIMIT = 4
+const SEARCH_THRESHOLD = 8
+
+export function useModelSearch(catalogue: ModelOption[], selected?: string) {
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLowerCase()
+
+  const matches = q
+    ? catalogue.filter(
+        (m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q),
+      )
+    : catalogue
+
+  const visible = matches.slice(0, MODEL_VISIBLE_LIMIT)
+
+  // The current model always has a row, even when it isn't in the top few or
+  // doesn't match the query — a picker that can't show your own selection reads
+  // as though it were unset.
+  if (selected && !visible.some((m) => m.id === selected)) {
+    const current = catalogue.find((m) => m.id === selected)
+    if (current && !q) visible.push(current)
+  }
+
+  return {
+    query,
+    setQuery,
+    visible,
+    total: matches.length,
+    hidden: Math.max(0, matches.length - MODEL_VISIBLE_LIMIT),
+    searchable: catalogue.length > SEARCH_THRESHOLD,
+  }
+}
+
 /** Effort levels exposed in the UI (the CLI also accepts `xhigh`). */
 export const EFFORTS: { id: Effort; label: string; hint: string }[] = [
   { id: 'low', label: 'Low', hint: 'Fastest, minimal reasoning' },
@@ -110,6 +153,7 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   const catalogue = useModelCatalogue()
+  const models = useModelSearch(catalogue, model)
   const selectedModel = catalogue.find(m => m.id === model) || { id: model, name: modelName(model), desc: '' }
   const supportsEffort = modelSupportsEffort(model)
   const effortLabel = EFFORTS.find(e => e.id === effort)?.label ?? effort
@@ -166,7 +210,15 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
         >
           {/* Models list */}
           <div className="p-2">
-            {catalogue.map((m, i) => (
+            {models.searchable && (
+              <input
+                value={models.query}
+                onChange={(e) => models.setQuery(e.target.value)}
+                placeholder='Search models…'
+                className='w-full mb-2 bg-bg border border-border rounded-lg px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent'
+              />
+            )}
+            {models.visible.map((m, i) => (
               <button
                 key={m.id}
                 onClick={() => { onModelChange(m.id); setShowMenu(false) }}
@@ -183,6 +235,18 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
                 {model === m.id && <Check size={16} className="text-accent shrink-0" />}
               </button>
             ))}
+            {models.hidden > 0 && (
+              <p className='px-2 pt-1 text-xs text-text-muted'>
+                {models.query
+                  ? `+${models.hidden} more — keep typing`
+                  : `${models.total} available — search to narrow`}
+              </p>
+            )}
+            {models.total === 0 && (
+              <p className='px-2 pt-1 text-xs text-text-muted'>
+                No model matches “{models.query}”.
+              </p>
+            )}
           </div>
 
           <div className="h-px bg-border" />

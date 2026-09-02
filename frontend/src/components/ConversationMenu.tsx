@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2 } from 'lucide-react'
-import { useModelCatalogue, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, modelSupportsEffort } from './ModelSelector'
+import { useModelCatalogue, useModelSearch, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, modelSupportsEffort } from './ModelSelector'
 import ShareDialog from './ShareDialog'
 import type { Effort } from '../api'
 
@@ -65,6 +65,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     const containerRef = useRef<HTMLDivElement>(null)
 
     const catalogue = useModelCatalogue()
+    const models = useModelSearch(catalogue, model)
     const selectedModel = catalogue.find(m => m.id === model)
     const shortName = selectedModel?.name ?? modelName(model ?? DEFAULT_MODEL)
     const supportsEffort = modelSupportsEffort(model ?? DEFAULT_MODEL)
@@ -109,8 +110,16 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                 {/* Model selector */}
                 <div className='px-2 py-1.5'>
                   <span className='text-[11px] text-text-muted font-medium'>Model</span>
+                  {models.searchable && (
+                    <input
+                      value={models.query}
+                      onChange={(e) => models.setQuery(e.target.value)}
+                      placeholder='Search models…'
+                      className='w-full mt-1 bg-bg border border-border rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent'
+                    />
+                  )}
                   <div className='flex flex-col gap-0.5 mt-1'>
-                    {catalogue.map(m => (
+                    {models.visible.map(m => (
                       <button
                         key={m.id}
                         onClick={() => onModelChange?.(m.id)}
@@ -124,6 +133,18 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                         {m.name}
                       </button>
                     ))}
+                    {models.hidden > 0 && (
+                      <span className='px-2 pt-1 text-[11px] text-text-muted'>
+                        {models.query
+                          ? `+${models.hidden} more — keep typing`
+                          : `${models.total} available — search to narrow`}
+                      </span>
+                    )}
+                    {models.total === 0 && (
+                      <span className='px-2 pt-1 text-[11px] text-text-muted'>
+                        No model matches “{models.query}”.
+                      </span>
+                    )}
                   </div>
                 </div>
 
