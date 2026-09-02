@@ -21,6 +21,8 @@ export interface ModelOption {
   effort?: boolean
   /** Output modalities the model supports (text, image, audio). */
   outputs?: string[]
+  /** Input modalities the model accepts (text, file, image, video, audio). */
+  inputs?: string[]
 }
 
 const ANTHROPIC_MODELS: ModelOption[] = [
@@ -79,7 +81,10 @@ async function gatewayModels(
     .map((m) => {
       const id = String(m.id ?? '')
       const ctx = Number(m.context_length ?? 0)
-      const arch = (m.architecture ?? {}) as { output_modalities?: string[] }
+      const arch = (m.architecture ?? {}) as {
+        output_modalities?: string[]
+        input_modalities?: string[]
+      }
       return {
         id,
         name: String(m.name ?? id),
@@ -90,6 +95,10 @@ async function gatewayModels(
         // What the model can emit. Nearly everything is text; image and audio
         // are the rare ones worth filtering for.
         outputs: arch.output_modalities?.length ? arch.output_modalities : ['text'],
+        // What it accepts. Richer than the output side (file, image, video,
+        // audio) and the more useful filter in practice — "can this read a
+        // screenshot" is asked far more often than "can it draw one".
+        inputs: arch.input_modalities?.length ? arch.input_modalities : ['text'],
       }
     })
     .filter((m) => m.id)

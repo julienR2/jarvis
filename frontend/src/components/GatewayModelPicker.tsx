@@ -14,9 +14,6 @@ import type { ModelOption } from './ModelSelector'
  */
 const VISIBLE = 4
 
-/** Only worth offering as filters; nearly every model emits text. */
-const MODALITIES = ['image', 'audio'] as const
-
 export default function GatewayModelPicker({
   models,
   selected,
@@ -29,16 +26,45 @@ export default function GatewayModelPicker({
   onClose: () => void
 }) {
   const [query, setQuery] = useState('')
-  const [modality, setModality] = useState<string | null>(null)
+  const [filter, setFilter] = useState<{ kind: 'in' | 'out'; name: string } | null>(null)
+
+  // Only a gateway model can be the selection here. `claude-opus-5` on the
+  // Claude subscription and `anthropic/claude-opus-5` through a gateway are
+  // different routes, billed to different accounts, so showing one as the
+  // other's selection would be quietly wrong.
+  const activeId = selected && selected.includes('/') ? selected : undefined
+
+  // Filters come from the catalogue rather than a fixed list, so a gateway that
+  // starts serving a new modality gets a chip for free. Modalities every model
+  // has are dropped — they filter nothing.
+  const chips = useMemo(() => {
+    const tally = (pick: (m: ModelOption) => string[] | undefined) => {
+      const counts = new Map<string, number>()
+      for (const m of models) {
+        for (const o of pick(m) ?? []) counts.set(o, (counts.get(o) ?? 0) + 1)
+      }
+      return [...counts.entries()]
+        .filter(([, n]) => n < models.length)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name]) => name)
+    }
+    return {
+      out: tally((m) => m.outputs),
+      in: tally((m) => m.inputs),
+    }
+  }, [models])
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
     return models.filter((m) => {
-      if (modality && !m.outputs?.includes(modality)) return false
+      if (filter) {
+        const has = filter.kind === 'out' ? m.outputs : m.inputs
+        if (!has?.includes(filter.name)) return false
+      }
       if (!q) return true
       return m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)
     })
-  }, [models, query, modality])
+  }, [models, query, filter])
 
   // Cap the list even when searching: if what you want isn't in the first few,
   // refining the query beats scrolling four hundred rows.
@@ -79,24 +105,41 @@ export default function GatewayModelPicker({
             />
           </div>
 
-          <div className='flex gap-1.5'>
-            <FilterChip active={!modality} onClick={() => setModality(null)}>
+          <div className='flex gap-1.5 flex-wrap'>
+            <FilterChip active={!filter} onClick={() => setFilter(null)}>
               All
             </FilterChip>
-            {MODALITIES.map((m) => (
+            {chips.in.map((m) => (
               <FilterChip
-                key={m}
-                active={modality === m}
-                onClick={() => setModality(modality === m ? null : m)}
+                key={`in-${m}`}
+                active={filter?.kind === 'in' && filter.name === m}
+                onClick={() =>
+                  setFilter(
+                    filter?.kind === 'in' && filter.name === m ? null : { kind: 'in', name: m },
+                  )
+                }
               >
-                Outputs {m}
+                Reads {m}
+              </FilterChip>
+            ))}
+            {chips.out.map((m) => (
+              <FilterChip
+                key={`out-${m}`}
+                active={filter?.kind === 'out' && filter.name === m}
+                onClick={() =>
+                  setFilter(
+                    filter?.kind === 'out' && filter.name === m ? null : { kind: 'out', name: m },
+                  )
+                }
+              >
+                Makes {m}
               </FilterChip>
             ))}
           </div>
         </div>
 
         <div className='px-2 pb-2'>
-          {!query && !modality && (
+          {!query && !filter && (
             <p className='px-2 pb-1 text-[11px] text-text-muted uppercase tracking-wide'>
               Most popular
             </p>
@@ -107,23 +150,24 @@ export default function GatewayModelPicker({
               key={m.id}
               onClick={() => { onSelect(m.id); onClose() }}
               className={`w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl transition-colors ${
-                selected === m.id ? 'bg-accent/10' : 'hover:bg-surface2'
+                activeId === m.id ? 'bg-accent/10' : 'hover:bg-surface2'
               }`}
             >
               <span className='flex-1 min-w-0'>
                 <span
                   className={`block text-sm font-medium truncate ${
-                    selected === m.id ? 'text-accent' : 'text-text-primary'
+                    activeId === m.id ? 'text-accent' : 'text-text-primary'
                   }`}
+                  title={m.name}
                 >
                   {m.name}
                 </span>
-                <span className='block text-xs text-text-muted truncate font-mono'>
+                <span className='block text-xs text-text-muted truncate font-mono' title={m.id}>
                   {m.id}
                   {m.desc ? ` · ${m.desc}` : ''}
                 </span>
               </span>
-              {selected === m.id && <Check size={16} className='text-accent shrink-0' />}
+              {activeId === m.id && <Check size={16} className='text-accent shrink-0' />}
             </button>
           ))}
 

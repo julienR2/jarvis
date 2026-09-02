@@ -11,6 +11,8 @@ export interface ModelOption {
   effort?: boolean
   /** Output modalities (text, image, audio) — gateway catalogues only. */
   outputs?: string[]
+  /** Input modalities accepted (text, file, image, video, audio). */
+  inputs?: string[]
 }
 
 /**
@@ -245,9 +247,12 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
                 }`}
               >
                 <span className='flex-1 min-w-0'>
-                  <span className={`block text-sm font-semibold truncate ${
-                    isGatewayModel(model) ? 'text-accent' : 'text-text-primary'
-                  }`}>
+                  <span
+                    className={`block text-sm font-semibold truncate ${
+                      isGatewayModel(model) ? 'text-accent' : 'text-text-primary'
+                    }`}
+                    title={isGatewayModel(model) ? selectedModel.name : undefined}
+                  >
                     {isGatewayModel(model) ? selectedModel.name : 'OpenRouter'}
                   </span>
                   <span className='block text-xs text-text-muted truncate'>

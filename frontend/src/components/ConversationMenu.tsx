@@ -97,9 +97,16 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
           ref={btnRef}
           onClick={() => setOpen(o => !o)}
           className={`flex items-center gap-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors shrink-0 ${compact ? 'px-1.5 py-0.5' : 'px-2 py-1'} ${open ? 'bg-surface2 text-text-primary' : ''}`}
-          title='Conversation options'
+          title={shortName ? `${shortName} · conversation options` : 'Conversation options'}
         >
-          {!compact && <span className='text-xs font-medium text-text-secondary'>{shortName}</span>}
+          {/* Gateway model names can be far longer than "Opus 5"; cap the
+              header label so a long one can't push the title bar around. The
+              full name is on the button's tooltip. */}
+          {!compact && (
+            <span className='text-xs font-medium text-text-secondary max-w-[130px] truncate'>
+              {shortName}
+            </span>
+          )}
           {!compact && supportsEffort && effort !== DEFAULT_EFFORT && <Brain size={11} className='text-accent' />}
           <MoreHorizontal size={14} />
         </button>
@@ -140,7 +147,13 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                             : 'text-text-secondary hover:bg-surface2 hover:text-text-primary'
                         }`}
                       >
-                        <span className='flex-1 truncate'>
+                        <span
+                          className='flex-1 min-w-0 max-w-[180px] truncate'
+                          // Gateway names run long ("Anthropic: Claude Opus 4.5
+                          // (self-moderated)") — truncate, and let a hover show
+                          // the whole thing rather than widening the menu.
+                          title={isGatewayModel(model) ? (selectedModel?.name ?? model) : undefined}
+                        >
                           {isGatewayModel(model)
                             ? (selectedModel?.name ?? model)
                             : `OpenRouter · ${gateway.length} models`}
