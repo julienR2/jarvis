@@ -24,6 +24,7 @@ import {
   MAX_EVENTS,
   internalSecret,
   providerEnv,
+  isGatewayModel,
 } from './shared.js'
 
 export type SessionEvent = ClaudeEvent | { type: 'end' }
@@ -169,7 +170,23 @@ export function ensureSession(opts: EnsureOptions): Session {
       (opts.model ?? existing.model) !== existing.model ||
       (opts.effort ?? existing.effort) !== existing.effort
     ) {
-      const resumeId = existing.claudeSessionId ?? opts.resumeSessionId ?? null
+      // Crossing between Anthropic and a gateway means the transcript can't be
+      // resumed: the CLI references the previous response's message id, and the
+      // new provider never issued it — the turn fails with
+      // "previous_message_id must be the id from a prior /v1/messages
+      // response". Switching provider therefore starts a fresh CLI session.
+      // Jarvis keeps its own message history either way, so the conversation is
+      // intact on screen; what is lost is the CLI's own context carry-over.
+      const crossedProvider =
+        isGatewayModel(opts.model ?? existing.model) !== isGatewayModel(existing.model)
+      const resumeId = crossedProvider
+        ? null
+        : existing.claudeSessionId ?? opts.resumeSessionId ?? null
+      if (crossedProvider) {
+        console.log(
+          `[session] ${opts.conversationId}: provider changed, starting a fresh session`,
+        )
+      }
       console.log(
         `[session] ${opts.conversationId}: model/effort change, respawning`,
       )

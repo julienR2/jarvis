@@ -621,7 +621,12 @@ export function attachConversationStream(
         )?.title
 
         if (msgCount <= 3 && ev.sessionId && currentTitle === 'New conversation') {
-          generateTitle(ev.sessionId, conversationId).then((title) => {
+          const titleModel = (
+            getDb()
+              .prepare('SELECT model FROM conversations WHERE id = ?')
+              .get(conversationId) as { model: string | null } | undefined
+          )?.model
+          generateTitle(ev.sessionId, conversationId, titleModel).then((title) => {
             getDb()
               .prepare('UPDATE conversations SET title = ? WHERE id = ?')
               .run(title, conversationId)
@@ -852,6 +857,21 @@ export async function conversationRoutes(app: FastifyInstance) {
     if (model !== undefined) {
       sets.push('model = ?')
       params.push(model)
+
+      // Moving between Anthropic and a gateway invalidates the CLI session:
+      // resuming it makes the CLI cite a message id the new provider never
+      // issued, and the turn fails. The engine handles this for a warm
+      // session; clearing the stored id covers the cold one, where nothing
+      // else knows which provider that transcript belonged to. Jarvis keeps
+      // its own history, so only the CLI's context carry-over is lost.
+      const previous = getDb()
+        .prepare('SELECT model, claude_session_id FROM conversations WHERE id = ?')
+        .get(req.params.id) as { model: string | null; claude_session_id: string | null } | undefined
+      const wasGateway = !!previous?.model?.includes('/')
+      const nowGateway = !!model?.includes('/')
+      if (previous?.claude_session_id && wasGateway !== nowGateway) {
+        sets.push('claude_session_id = NULL')
+      }
     }
     if (effort !== undefined) {
       sets.push('effort = ?')
