@@ -139,6 +139,18 @@ export default function GatewayModelPicker({
         </div>
 
         <div className='px-2 pb-2'>
+          {/* A conversation can hold a model the gateway no longer offers — one
+              that never supported tools, or that was withdrawn. Saying so beats
+              leaving the user in a chat that fails every turn with a message
+              about the model not existing. */}
+          {activeId && !models.some((m) => m.id === activeId) && (
+            <p className='mx-2 mb-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-500'>
+              This conversation is set to <span className='font-mono'>{activeId}</span>,
+              which isn't available — models must support tool calling to run
+              Jarvis. Pick another below.
+            </p>
+          )}
+
           {!query && !filter && (
             <p className='px-2 pb-1 text-[11px] text-text-muted uppercase tracking-wide'>
               Most popular

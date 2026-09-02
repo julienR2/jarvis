@@ -78,6 +78,15 @@ async function gatewayModels(
 
   const body = (await res.json()) as { data?: Array<Record<string, unknown>> }
   const models: ModelOption[] = (body.data ?? [])
+    // Jarvis is an agent: every turn can call tools, so a model that doesn't
+    // support them cannot drive it at all. Offering one means handing the user
+    // a model that fails on its first message with "There's an issue with the
+    // selected model", which reads like a broken instance rather than a model
+    // that was never a candidate. Image-generation models are the common case.
+    .filter((m) => {
+      const params = (m.supported_parameters ?? []) as string[]
+      return Array.isArray(params) && params.includes('tools')
+    })
     .map((m) => {
       const id = String(m.id ?? '')
       const ctx = Number(m.context_length ?? 0)
