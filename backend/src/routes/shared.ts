@@ -46,6 +46,12 @@ function conversationForShareToken(token: string): ConvRow | null {
  * whole point is the thing it built would be strange without it. That is the
  * app's own scoped token, so rotating the app link revokes this too.
  */
+// Deliberately the same variable the frontend build reads, rather than a second
+// server-side one: two names for one origin is a setting that silently drifts
+// out of sync, and the symptom (apps isolated in chat but not in shared views)
+// is invisible until it matters.
+const APPS_ORIGIN = (process.env.VITE_APPS_ORIGIN || '').replace(/\/+$/, '')
+
 function publicConversation(conv: ConvRow) {
   const slug = conv.app_path?.replace(/^apps\//, '') ?? null
   const appToken = slug ? ensureAppToken(conv.id) : null
@@ -54,7 +60,7 @@ function publicConversation(conv: ConvRow) {
     mode: conv.share_mode,
     app_url:
       slug && appToken
-        ? `/api/apps/${slug}/index.html?token=${appToken}`
+        ? `${APPS_ORIGIN}/api/apps/${slug}/index.html?token=${appToken}`
         : null,
     created_at: conv.created_at,
     updated_at: conv.updated_at,
