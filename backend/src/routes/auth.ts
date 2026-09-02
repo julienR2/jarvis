@@ -223,8 +223,13 @@ export async function authRoutes(app: FastifyInstance) {
       hasCredential: !!active,
       // Enough to recognise which key is installed, not enough to use it.
       credentialHint: active ? `${active.slice(0, 12)}…${active.slice(-4)}` : '',
-      // Set in the environment means compose/.env owns it and the UI can't win.
-      envManaged: !!(process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_BASE_URL),
+      // True only when the environment actually overrides what the UI saves,
+      // which depends on the active mode: the OAuth token is read from the
+      // environment first, but gateway settings prefer the stored ones. Warning
+      // about an override that isn't happening is its own kind of wrong.
+      envManaged: baseUrl
+        ? !secrets.providerBaseUrl && !!process.env.ANTHROPIC_BASE_URL
+        : !!process.env.CLAUDE_CODE_OAUTH_TOKEN,
     }
   })
 

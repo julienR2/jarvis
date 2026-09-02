@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2 } from 'lucide-react'
-import { getModels, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, modelSupportsEffort } from './ModelSelector'
+import { useModelCatalogue, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, modelSupportsEffort } from './ModelSelector'
 import ShareDialog from './ShareDialog'
 import type { Effort } from '../api'
 
@@ -64,7 +64,8 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     const btnRef = useRef<HTMLButtonElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
-    const selectedModel = getModels().find(m => m.id === model)
+    const catalogue = useModelCatalogue()
+    const selectedModel = catalogue.find(m => m.id === model)
     const shortName = selectedModel?.name ?? modelName(model ?? DEFAULT_MODEL)
     const supportsEffort = modelSupportsEffort(model ?? DEFAULT_MODEL)
 
@@ -109,7 +110,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                 <div className='px-2 py-1.5'>
                   <span className='text-[11px] text-text-muted font-medium'>Model</span>
                   <div className='flex flex-col gap-0.5 mt-1'>
-                    {getModels().map(m => (
+                    {catalogue.map(m => (
                       <button
                         key={m.id}
                         onClick={() => onModelChange?.(m.id)}

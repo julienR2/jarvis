@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { api, type ConnectionStatus } from '../api'
 import ContentLayout from './ContentLayout'
+import { loadModelCatalogue } from './ModelSelector'
 
 type Mode = 'anthropic' | 'gateway'
 
@@ -68,6 +69,10 @@ export default function ConnectionPage() {
           : 'Saved and verified. Your next message uses it.',
       )
       await load()
+      // The provider decides which models exist, so the picker's options are
+      // stale the moment this succeeds — a gateway serves hundreds where the
+      // Anthropic shortlist has four.
+      await loadModelCatalogue(() => api.getModels())
     } catch (err: any) {
       setError(err.message)
     } finally {

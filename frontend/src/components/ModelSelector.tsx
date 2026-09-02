@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useSyncExternalStore } from 'react'
 import { ChevronDown, Check, Brain } from 'lucide-react'
 import type { Effort } from '../api'
 
@@ -24,15 +24,36 @@ export const MODELS: ModelOption[] = [
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', desc: 'Fastest, near-frontier', effort: false },
 ]
 
-// Populated once per page load from the server, then read synchronously by the
-// pickers (which are rendered in menus that can't easily be async).
+// Fetched from the server, then read synchronously by the pickers (which live
+// in menus that can't easily be async).
+//
+// Reactive, because the catalogue changes during a session: switching provider
+// swaps an Anthropic shortlist for a gateway's hundreds, and a picker still
+// showing the old list would be wrong in a way the user can see.
 let liveModels: ModelOption[] = MODELS
 let liveAllowCustom = false
+let snapshot: ModelOption[] = MODELS
+const listeners = new Set<() => void>()
+
+function subscribe(fn: () => void): () => void {
+  listeners.add(fn)
+  return () => listeners.delete(fn)
+}
 
 export function getModels(): ModelOption[] { return liveModels }
 export function allowsCustomModel(): boolean { return liveAllowCustom }
 
-/** Called once at app start; failures leave the fallback in place. */
+/** Reactive read for components — re-renders when the catalogue changes. */
+export function useModelCatalogue(): ModelOption[] {
+  return useSyncExternalStore(subscribe, () => snapshot)
+}
+
+/**
+ * Load the catalogue for the active provider.
+ *
+ * Called at app start and again whenever the connection changes. Failures
+ * leave whatever is loaded in place — a stale list beats an empty picker.
+ */
 export async function loadModelCatalogue(
   fetcher: () => Promise<{ models: ModelOption[]; allowCustom?: boolean }>,
 ): Promise<void> {
@@ -40,8 +61,10 @@ export async function loadModelCatalogue(
     const cat = await fetcher()
     if (cat.models?.length) liveModels = cat.models
     liveAllowCustom = !!cat.allowCustom
+    snapshot = liveModels
+    listeners.forEach((fn) => fn())
   } catch {
-    // keep the fallback
+    // keep whatever is loaded
   }
 }
 
@@ -86,7 +109,8 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
   const menuRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  const selectedModel = getModels().find(m => m.id === model) || { id: model, name: modelName(model), desc: '' }
+  const catalogue = useModelCatalogue()
+  const selectedModel = catalogue.find(m => m.id === model) || { id: model, name: modelName(model), desc: '' }
   const supportsEffort = modelSupportsEffort(model)
   const effortLabel = EFFORTS.find(e => e.id === effort)?.label ?? effort
 
@@ -142,7 +166,7 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
         >
           {/* Models list */}
           <div className="p-2">
-            {getModels().map((m, i) => (
+            {catalogue.map((m, i) => (
               <button
                 key={m.id}
                 onClick={() => { onModelChange(m.id); setShowMenu(false) }}
