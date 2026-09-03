@@ -2,13 +2,17 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, type Webhook, type WebhookInput } from '../api'
 import ContentLayout from './ContentLayout'
-import ModelSelector, { DEFAULT_MODEL, DEFAULT_EFFORT, modelName } from './ModelSelector'
+import ModelSelector, { getDefaultModel, DEFAULT_EFFORT, modelName } from './ModelSelector'
 
 const EMPTY: WebhookInput = {
   name: '',
   prompt: '',
   enabled: true,
-  model: DEFAULT_MODEL,
+  // Left unset rather than pinned to a concrete id: the server stores that as
+  // null, which means "resolve the instance default at run time" — so a cron
+  // made today follows a later change of default provider instead of being
+  // frozen to whatever was current when it was created.
+  model: undefined,
   effort: DEFAULT_EFFORT,
 }
 
@@ -67,7 +71,7 @@ export default function WebhookManager() {
       name: webhook.name,
       prompt: webhook.prompt,
       enabled: !!webhook.enabled,
-      model: webhook.model ?? DEFAULT_MODEL,
+      model: webhook.model ?? getDefaultModel(),
       effort: webhook.effort ?? DEFAULT_EFFORT,
     })
   }
@@ -152,7 +156,7 @@ export default function WebhookManager() {
             </label>
 
             <ModelSelector
-              model={form.model ?? DEFAULT_MODEL}
+              model={form.model ?? getDefaultModel()}
               effort={form.effort ?? DEFAULT_EFFORT}
               onModelChange={(m) => setForm({ ...form, model: m })}
               onEffortChange={(e) => setForm({ ...form, effort: e })}
@@ -202,7 +206,7 @@ export default function WebhookManager() {
               <div className='flex-1 min-w-0'>
                 <div className='font-medium text-sm'>{webhook.name}</div>
                 <div className='text-xs text-text-muted font-mono'>
-                  {modelName(webhook.model ?? DEFAULT_MODEL)}
+                  {modelName(webhook.model ?? getDefaultModel())}
                   {webhook.effort && webhook.effort !== 'high' ? ` · ${webhook.effort} effort` : ''}
                   {webhook.last_run
                     ? ` \u00B7 last: ${new Date(webhook.last_run * 1000).toLocaleString('fr-FR')}`

@@ -78,6 +78,16 @@ function subscribe(fn: () => void): () => void {
 }
 
 export function getModels(): ModelOption[] { return liveModels }
+/**
+ * The instance's default model, as the server resolves it.
+ *
+ * Read this, never `DEFAULT_MODEL`, wherever "no model chosen" has to become a
+ * concrete id. The constant is a pre-load fallback compiled in at build time;
+ * the real default depends on which providers are configured and which one the
+ * owner marked default, so a hardcoded `claude-opus-5` both misreports the
+ * model a new chat will run on and, in the cron and webhook forms, pins it.
+ */
+export function getDefaultModel(): string { return liveDefault }
 export function allowsCustomModel(): boolean { return liveAllowCustom }
 
 /**

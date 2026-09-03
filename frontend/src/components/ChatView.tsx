@@ -15,7 +15,7 @@ import { useChatStore } from '../stores/chatStore'
 import { useChatEvents } from '../hooks/useChatEvents'
 import MessageBubble, { markdownComponents } from './MessageBubble'
 import ChatInput from './ChatInput'
-import { DEFAULT_MODEL, DEFAULT_EFFORT } from './ModelSelector'
+import { DEFAULT_EFFORT, useModelCatalogue } from './ModelSelector'
 import AppPreview from './AppPreview'
 import ResizeHandle from './ResizeHandle'
 import { useIsDesktop } from '../hooks/useIsDesktop'
@@ -134,7 +134,13 @@ export default function ChatView({
       ? `/api/apps/${conv!.app_path!.replace(/^apps\//, '')}/index.html?token=${appShareToken}`
       : undefined
   const notify: Conversation['notify'] = conv?.notify ?? 'subscribe'
-  const model = conv?.model ?? DEFAULT_MODEL
+  // `null` on the row means "the instance default", which depends on the
+  // configured providers and which one is marked default — so it has to come
+  // from the catalogue, not the compiled-in fallback. Using the constant here
+  // showed Opus 5 on a gateway-default instance while the turn ran on the
+  // gateway's model: the picker disagreed with what actually answered.
+  const catalogueDefault = useModelCatalogue().default
+  const model = conv?.model ?? catalogueDefault
   const effort = conv?.effort ?? DEFAULT_EFFORT
   const hasCron = !!conv?.has_cron
   const hasWebhook = !!conv?.has_webhook
