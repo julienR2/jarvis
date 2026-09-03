@@ -3,7 +3,8 @@ import { Check, Loader2, ChevronDown, KeyRound, Trash2, ExternalLink, Eye, EyeOf
 import ContentLayout from './ContentLayout'
 import { api } from '../api'
 import type { ConnectionStatus, ProviderStatus } from '../api'
-import { loadModelCatalogue } from './ModelSelector'
+import { loadModelCatalogue, useModelCatalogue, modelName } from './ModelSelector'
+import GatewayModelPicker from './GatewayModelPicker'
 
 type Mode = 'anthropic' | 'gateway'
 
@@ -42,8 +43,9 @@ export function ProviderConnections() {
   return (
     <div className='flex flex-col gap-3'>
       <p className='text-sm text-text-muted'>
-        Where Jarvis sends its thinking. Set up either or both — with both, you
-        pick the model per conversation. Changes apply to your next message — no
+        Where Jarvis sends its thinking. Set up either or both — with both, new
+        conversations start on whichever you mark as default, and you can still
+        change model per conversation. Changes apply to your next message — no
         restart, no redeploy.
       </p>
 
@@ -52,6 +54,10 @@ export function ProviderConnections() {
         title='Claude subscription'
         subtitle='OAuth token from your Claude plan'
         status={status!.anthropic}
+        isDefault={status!.defaultProvider === 'anthropic'}
+        // Only a real choice when both are set up; with one it is simply where
+        // everything goes, and a control that can't be changed is noise.
+        canChooseDefault={status!.anthropic.configured && status!.gateway.configured}
         onChanged={load}
       />
       <ProviderCard
@@ -59,6 +65,8 @@ export function ProviderConnections() {
         title='Gateway'
         subtitle='OpenRouter, LiteLLM, or any Anthropic-compatible proxy'
         status={status!.gateway}
+        isDefault={status!.defaultProvider === 'gateway'}
+        canChooseDefault={status!.anthropic.configured && status!.gateway.configured}
         onChanged={load}
       />
     </div>
@@ -76,12 +84,14 @@ export default function ConnectionPage() {
 }
 
 function ProviderCard({
-  mode, title, subtitle, status, onChanged,
+  mode, title, subtitle, status, isDefault, canChooseDefault, onChanged,
 }: {
   mode: Mode
   title: string
   subtitle: string
   status: ProviderStatus
+  isDefault: boolean
+  canChooseDefault: boolean
   onChanged: () => Promise<void>
 }) {
   // Configured providers start collapsed: the common case is checking that it
@@ -154,6 +164,16 @@ function ProviderCard({
           className={`shrink-0 text-text-muted transition-transform ${open ? 'rotate-180' : ''}`}
         />
       </button>
+
+      {status.configured && (
+        <ProviderDefaults
+          mode={mode}
+          isDefault={isDefault}
+          canChooseDefault={canChooseDefault}
+          defaultModel={status.defaultModel}
+          onChanged={onChanged}
+        />
+      )}
 
       {open && (
         <div className='px-4 pb-4 pt-1 flex flex-col gap-3 border-t border-border'>
@@ -260,5 +280,121 @@ function Chip({
     >
       {children}
     </button>
+  )
+}
+
+
+/**
+ * Where new conversations start: which provider, and on which model.
+ *
+ * Deliberately outside the card's disclosure. A credential is set once and
+ * checked rarely, which is why a configured card collapses — but the default
+ * is the thing you come back to change, and burying it behind the same toggle
+ * as the token would hide the setting behind the one you don't need.
+ *
+ * Both write through to the server immediately: there is no Save here, because
+ * a preference with a save button invites the half-applied state where the
+ * radio says one thing and new conversations do another.
+ */
+function ProviderDefaults({
+  mode, isDefault, canChooseDefault, defaultModel, onChanged,
+}: {
+  mode: Mode
+  isDefault: boolean
+  canChooseDefault: boolean
+  defaultModel: string
+  onChanged: () => Promise<void>
+}) {
+  const { anthropic, gateway } = useModelCatalogue()
+  const [picking, setPicking] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  // Only models that can actually run the agent. An image model as the default
+  // would turn every new conversation into an image generator.
+  const choices = (mode === 'gateway' ? gateway : anthropic).filter(
+    (m) => (m.kind ?? 'text') === 'text',
+  )
+
+  async function save(patch: Parameters<typeof api.setConnectionDefaults>[0]) {
+    setSaving(true)
+    setError('')
+    try {
+      await api.setConnectionDefaults(patch)
+      await onChanged()
+      // The instance default moved, so the picker's idea of it is stale.
+      await loadModelCatalogue(() => api.getModels())
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className='px-4 py-2.5 border-t border-border flex flex-wrap items-center gap-x-4 gap-y-2'>
+      {canChooseDefault ? (
+        <label className='flex items-center gap-2 text-xs cursor-pointer select-none'>
+          <input
+            type='radio'
+            name='default-provider'
+            checked={isDefault}
+            disabled={saving}
+            onChange={() => save({ provider: mode })}
+            className='accent-accent'
+          />
+          <span className={isDefault ? 'text-text-primary font-medium' : 'text-text-muted'}>
+            Default for new chats
+          </span>
+        </label>
+      ) : (
+        <span className='text-xs text-text-muted'>Default for new chats</span>
+      )}
+
+      <div className='flex items-center gap-2 text-xs ml-auto min-w-0'>
+        <span className='text-text-muted shrink-0'>Starts on</span>
+        {mode === 'gateway' ? (
+          <button
+            onClick={() => setPicking(true)}
+            disabled={saving}
+            className='max-w-[220px] truncate rounded-lg border border-border bg-bg px-2 py-1 text-text-primary hover:border-accent disabled:opacity-60 transition-colors'
+          >
+            {modelName(defaultModel)}
+          </button>
+        ) : (
+          <select
+            value={defaultModel}
+            disabled={saving}
+            onChange={(e) => save({ anthropicModel: e.target.value })}
+            className='rounded-lg border border-border bg-bg px-2 py-1 text-text-primary outline-none focus:border-accent disabled:opacity-60'
+          >
+            {/* The stored default may not be in the list (a model that has since
+                been retired) — keep it selectable rather than silently showing
+                a different one as current. */}
+            {!choices.some((m) => m.id === defaultModel) && (
+              <option value={defaultModel}>{modelName(defaultModel)}</option>
+            )}
+            {choices.map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+        )}
+        {saving && <Loader2 size={13} className='animate-spin text-text-muted' />}
+      </div>
+
+      {error && <p className='w-full text-danger text-xs'>{error}</p>}
+
+      {picking && (
+        <GatewayModelPicker
+          models={choices}
+          selected={defaultModel}
+          onSelect={(id) => {
+            setPicking(false)
+            save({ gatewayModel: id })
+          }}
+          onClose={() => setPicking(false)}
+        />
+      )}
+    </div>
   )
 }

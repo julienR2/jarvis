@@ -6,6 +6,7 @@ import { getDb } from '../db.js'
 import { config } from '../config.js'
 import { verifyConnection, recycleSessions } from '../engine.js'
 import { secureEquals } from '../security.js'
+import { defaultProvider, defaultModelFor, type Provider } from '../models.js'
 import { extractRequestToken, SESSION_COOKIE } from '../request-auth.js'
 import type { UserRow } from '../types.js'
 
@@ -229,6 +230,7 @@ export async function authRoutes(app: FastifyInstance) {
         // The OAuth token is read from the environment first, so a value there
         // overrides whatever the UI saves.
         envManaged: !!process.env.CLAUDE_CODE_OAUTH_TOKEN,
+        defaultModel: defaultModelFor('anthropic'),
       },
       gateway: {
         configured: !!(baseUrl && gatewayKey),
@@ -237,7 +239,79 @@ export async function authRoutes(app: FastifyInstance) {
         // Gateway settings prefer the stored values, so the environment only
         // wins when nothing is stored.
         envManaged: !secrets.providerBaseUrl && !!process.env.ANTHROPIC_BASE_URL,
+        defaultModel: defaultModelFor('gateway'),
       },
+      // Which provider new conversations start on. Reported even with one
+      // provider configured — it is then forced, and the UI says so rather
+      // than offering a choice that isn't one.
+      defaultProvider: defaultProvider(),
+    }
+  })
+
+  // PUT /connection/defaults — which provider new conversations use, and the
+  // model each one starts on.
+  //
+  // Separate from POST /connection because it changes no credential and needs
+  // no verification round-trip: it is a preference, and saving it should not
+  // depend on the provider being reachable at that moment.
+  app.put('/connection/defaults', { onRequest: [app.authenticate] }, async (req, reply) => {
+    const body = (req.body ?? {}) as {
+      provider?: string
+      anthropicModel?: string
+      gatewayModel?: string
+    }
+    const secrets = readSecrets()
+
+    if (body.provider !== undefined) {
+      if (body.provider !== 'anthropic' && body.provider !== 'gateway') {
+        return reply.code(400).send({ error: 'provider must be "anthropic" or "gateway"' })
+      }
+      secrets.defaultProvider = body.provider
+    }
+
+    // A namespaced id routes to the gateway and a bare one to Anthropic, so a
+    // model saved under the wrong provider would send every new conversation
+    // somewhere it cannot be served. Reject rather than silently re-route: the
+    // picker should never offer such a pairing, and if it does we want to know.
+    const check = (model: string, provider: Provider): string | null => {
+      const namespaced = model.includes('/')
+      if (provider === 'gateway' && !namespaced) {
+        return 'A gateway default must be a namespaced model id (e.g. "google/gemini-3.8-flash")'
+      }
+      if (provider === 'anthropic' && namespaced) {
+        return 'A Claude default must be a bare model id (e.g. "claude-opus-5")'
+      }
+      return null
+    }
+
+    if (body.anthropicModel !== undefined) {
+      const model = body.anthropicModel.trim()
+      if (model) {
+        const err = check(model, 'anthropic')
+        if (err) return reply.code(400).send({ error: err })
+        secrets.defaultModelAnthropic = model
+      } else {
+        delete secrets.defaultModelAnthropic
+      }
+    }
+
+    if (body.gatewayModel !== undefined) {
+      const model = body.gatewayModel.trim()
+      if (model) {
+        const err = check(model, 'gateway')
+        if (err) return reply.code(400).send({ error: err })
+        secrets.defaultModelGateway = model
+      } else {
+        delete secrets.defaultModelGateway
+      }
+    }
+
+    writeSecrets(secrets)
+    return {
+      ok: true,
+      defaultProvider: defaultProvider(),
+      anthropicModel: defaultModelFor('anthropic'),
+      gatewayModel: defaultModelFor('gateway'),
     }
   })
 

@@ -84,6 +84,17 @@ export const api = {
   getConnection: () => request<ConnectionStatus>('GET', '/auth/connection'),
   setConnection: (body: { mode: 'anthropic' | 'gateway'; baseUrl: string; credential: string }) =>
     request<{ ok: boolean; busy: string[] }>('POST', '/auth/connection', body),
+  setConnectionDefaults: (body: {
+    provider?: 'anthropic' | 'gateway'
+    anthropicModel?: string
+    gatewayModel?: string
+  }) =>
+    request<{
+      ok: boolean
+      defaultProvider: 'anthropic' | 'gateway'
+      anthropicModel: string
+      gatewayModel: string
+    }>('PUT', '/auth/connection/defaults', body),
   clearConnection: (provider: 'anthropic' | 'gateway') =>
     request<{ ok: boolean }>('DELETE', `/auth/connection/${provider}`),
   // Mirrors the session into an httpOnly cookie so <img>/<a> inside chat and
@@ -437,12 +448,16 @@ export interface ProviderStatus {
   credentialHint: string
   envManaged: boolean
   baseUrl?: string
+  /** The model this provider starts new conversations on. */
+  defaultModel: string
 }
 
 /** Both providers, independently configurable. */
 export interface ConnectionStatus {
   anthropic: ProviderStatus
   gateway: ProviderStatus
+  /** Which provider new conversations belong to. Forced when only one is set up. */
+  defaultProvider: 'anthropic' | 'gateway'
 }
 
 export interface Conversation {

@@ -10,6 +10,12 @@ import { readFileSync } from 'fs'
 
 export const DEFAULT_MODEL = 'claude-opus-5'
 
+// The gateway's own default, for an instance whose new conversations should
+// start on a gateway model. Not an Anthropic id behind `anthropic/`: someone
+// running through OpenRouter usually wants that catalogue's own economics, and
+// paying Anthropic prices through a middleman by default is a poor greeting.
+export const GATEWAY_DEFAULT_MODEL = 'google/gemini-3.8-flash'
+
 // Model used by subagents (Task tool fan-outs: searches, email triage, …).
 // They do scoped, disposable work, so a cheaper tier than the main loop is
 // fine. Applied via the CLAUDE_CODE_SUBAGENT_MODEL env var at spawn time;
@@ -52,11 +58,44 @@ function hasGateway(): boolean {
   )
 }
 
-/** The default for this instance, given which providers are configured. */
+export type Provider = 'anthropic' | 'gateway'
+
+/** What each provider starts on when the owner hasn't chosen. */
+const BUILTIN_DEFAULT: Record<Provider, string> = {
+  anthropic: DEFAULT_MODEL,
+  gateway: GATEWAY_DEFAULT_MODEL,
+}
+
+/**
+ * Which provider new conversations belong to.
+ *
+ * With one configured there is nothing to decide. With both it is the owner's
+ * call, and until they make it Claude wins: an OAuth subscription is already
+ * paid for, so spending gateway credit by default would be a surprise on the
+ * bill rather than a preference.
+ */
+export function defaultProvider(): Provider {
+  const anthropic = hasAnthropicCredential()
+  const gateway = hasGateway()
+  if (anthropic && gateway) {
+    return secrets().defaultProvider === 'gateway' ? 'gateway' : 'anthropic'
+  }
+  if (gateway && !anthropic) return 'gateway'
+  return 'anthropic'
+}
+
+/** The model one provider starts new conversations on. */
+export function defaultModelFor(provider: Provider): string {
+  const stored = secrets()[
+    provider === 'gateway' ? 'defaultModelGateway' : 'defaultModelAnthropic'
+  ]
+  if (typeof stored === 'string' && stored.trim()) return stored.trim()
+  return BUILTIN_DEFAULT[provider]
+}
+
+/** The default for this instance, given its providers and the owner's choice. */
 export function defaultModel(): string {
-  if (hasAnthropicCredential()) return DEFAULT_MODEL
-  if (hasGateway()) return GATEWAY_PREFIX + DEFAULT_MODEL
-  return DEFAULT_MODEL
+  return defaultModelFor(defaultProvider())
 }
 
 /**
@@ -69,9 +108,10 @@ export function defaultModel(): string {
  */
 export function defaultSubagentModel(model?: string | null): string {
   if (model) return model.includes('/') ? GATEWAY_PREFIX + SUBAGENT_MODEL : SUBAGENT_MODEL
-  if (hasAnthropicCredential()) return SUBAGENT_MODEL
-  if (hasGateway()) return GATEWAY_PREFIX + SUBAGENT_MODEL
-  return SUBAGENT_MODEL
+  // No model on the row means the instance default, so follow the same choice
+  // it would make — otherwise a gateway-by-default instance fans out onto bare
+  // Anthropic ids the gateway has no reason to recognise.
+  return defaultProvider() === 'gateway' ? GATEWAY_PREFIX + SUBAGENT_MODEL : SUBAGENT_MODEL
 }
 
 /** Resolve a stored/optional model id, falling back to the instance default. */
