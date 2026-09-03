@@ -17,11 +17,28 @@ import MessageBubble, { markdownComponents } from './MessageBubble'
 import ChatInput from './ChatInput'
 import { DEFAULT_MODEL, DEFAULT_EFFORT } from './ModelSelector'
 import AppPreview from './AppPreview'
+import ResizeHandle from './ResizeHandle'
+import { useIsDesktop } from '../hooks/useIsDesktop'
 import { ContentTitle } from './ContentLayout'
 
 /** Shared so the jump button can find the divider without threading a ref
  *  through the day-grouping list. */
 const UNREAD_ANCHOR_ID = 'unread-anchor'
+
+/** The app pane's share of the split, and what double-click returns to (w-2/5). */
+const APP_DEFAULT_PCT = 40
+const APP_MIN_PCT = 20
+const APP_MAX_PCT = 75
+const APP_PCT_KEY = 'app-pane-pct'
+
+function readAppPct(): number {
+  try {
+    const raw = Number(localStorage.getItem(APP_PCT_KEY))
+    return raw >= APP_MIN_PCT && raw <= APP_MAX_PCT ? raw : APP_DEFAULT_PCT
+  } catch {
+    return APP_DEFAULT_PCT
+  }
+}
 
 import ConversationMenu from './ConversationMenu'
 import SectionPicker from './SectionPicker'
@@ -129,6 +146,20 @@ export default function ChatView({
 
   const { appRefreshKey, bumpApp } = useChatEvents(conversationId)
   const [showPreview, setShowPreview] = useState(true)
+  const isDesktop = useIsDesktop()
+  // Stored as a percentage, not pixels: the split should hold its proportions
+  // when the window is resized, which a pixel width does not.
+  const [appPct, setAppPct] = useState(readAppPct)
+  const splitRef = useRef<HTMLDivElement>(null)
+  const appDragFrom = useRef(appPct)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(APP_PCT_KEY, String(appPct))
+    } catch {
+      /* private window, or site data blocked — the split just won't persist */
+    }
+  }, [appPct])
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [moving, setMoving] = useState(false)
@@ -422,10 +453,10 @@ export default function ChatView({
       )}
 
       {/* Panes */}
-      <div className='flex flex-1 min-h-0'>
-        {/* Chat pane */}
+      <div ref={splitRef} className='flex flex-1 min-h-0'>
+        {/* Chat pane — takes whatever the app pane leaves on desktop */}
         <div
-          className={`flex flex-col h-full ${hasApp ? 'md:w-3/5 md:border-r md:border-border' : 'w-full'} ${hasApp && showPreview ? 'hidden md:flex' : 'flex w-full'}`}
+          className={`flex flex-col h-full min-w-0 ${hasApp ? 'md:flex-1 md:border-r md:border-border' : 'w-full'} ${hasApp && showPreview ? 'hidden md:flex' : 'flex w-full'}`}
         >
           {/* Desktop title — inside chat pane so preview gets full height */}
           {title && (
@@ -522,9 +553,29 @@ export default function ChatView({
         </div>
 
         {/* Preview pane */}
+        {hasApp && isDesktop && (
+          <ResizeHandle
+            label='Resize app panel'
+            onStart={() => {
+              appDragFrom.current = appPct
+            }}
+            onMove={(dx) => {
+              const total = splitRef.current?.clientWidth ?? 0
+              if (!total) return
+              // Dragging right gives the chat more room, so the app's share falls.
+              const next = appDragFrom.current - (dx / total) * 100
+              setAppPct(Math.min(APP_MAX_PCT, Math.max(APP_MIN_PCT, next)))
+            }}
+            onReset={() => setAppPct(APP_DEFAULT_PCT)}
+          />
+        )}
+
         {hasApp && (
           <div
-            className={`${showPreview ? 'flex' : 'hidden md:flex'} flex-col h-full ${showPreview ? 'w-full' : ''} md:w-2/5`}
+            className={`${showPreview ? 'flex' : 'hidden md:flex'} flex-col h-full min-w-0 ${showPreview ? 'w-full' : ''} ${isDesktop ? 'shrink-0' : ''}`}
+            // Desktop only: on mobile this pane replaces the chat full-width,
+            // so a share of a split it isn't part of would just break it.
+            style={isDesktop ? { width: `${appPct}%` } : undefined}
           >
             <AppPreview
               appSlug={conv!.app_path!.replace(/^apps\//, '')}

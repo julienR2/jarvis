@@ -44,6 +44,8 @@ interface Props {
   onRename: (id: string, title: string) => void
   onMove: (id: string, sectionId: string | null) => void
   onSelect: () => void
+  /** Desktop only — omitted on mobile, where `w-64` applies. */
+  width?: number
 }
 
 /** Collapse state is per-device, so localStorage rather than the DB. */
@@ -77,6 +79,7 @@ export default function Sidebar({
   onRename,
   onMove,
   onSelect,
+  width,
 }: Props) {
   const conversations = useChatStore(
     useShallow((s) => s.order.map((id) => s.conversations[id])),
@@ -143,7 +146,13 @@ export default function Sidebar({
   ]
 
   return (
-    <aside className='w-64 bg-bg-alt flex flex-col h-full shrink-0 border-r border-border safe-area-insets'>
+    <aside
+      // Width comes from the parent on desktop, where the seam is draggable.
+      // Left to `w-64` on mobile: there the sidebar is an overlay, and a width
+      // dragged on a laptop has no business narrowing a phone's.
+      className={`${width ? '' : 'w-64'} bg-bg-alt flex flex-col h-full shrink-0 border-r border-border safe-area-insets`}
+      style={width ? { width } : undefined}
+    >
       {/* Header */}
       <div className='px-3 pt-4 pb-2 space-y-0.5'>
         <button

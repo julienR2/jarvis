@@ -9,6 +9,8 @@ import {
 import { Plus, MessageSquare, FileText, X, AppWindow, Clock, Link2, Sparkles, AudioLines, Mic } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import Sidebar from '../components/Sidebar'
+import ResizeHandle from '../components/ResizeHandle'
+import { useIsDesktop } from '../hooks/useIsDesktop'
 import ChatView from '../components/ChatView'
 import CronManager from '../components/CronManager'
 import WebhookManager from '../components/WebhookManager'
@@ -46,12 +48,25 @@ export default function ChatPage() {
   useServiceWorker()
   useGlobalEvents()
 
-  const SIDEBAR_W = 256 // w-64
+  const isDesktop = useIsDesktop()
+  const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth)
+  const sidebarDragFrom = useRef(sidebarWidth)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_W_KEY, String(sidebarWidth))
+    } catch {
+      /* private window, or site data blocked — the width just won't persist */
+    }
+  }, [sidebarWidth])
+
+  // The swipe-to-open hook drives the mobile overlay, which is always w-64 —
+  // a width dragged on a laptop must not change how far a phone has to swipe.
   const { containerRef, sidebarRef, overlayRef, handlers: swipeHandlers } = useSwipeToOpen({
     onOpen: () => setSidebarOpen(true),
     onClose: () => setSidebarOpen(false),
     isOpen: sidebarOpen,
-    sidebarWidth: SIDEBAR_W,
+    sidebarWidth: SIDEBAR_DEFAULT_W,
   })
 
   const locationRef = useRef(location.pathname)
@@ -133,10 +148,26 @@ export default function ChatPage() {
             useChatStore.getState().patchConversation(id, { section_id: sectionId })
           }
           onSelect={() => setSidebarOpen(false)}
+          width={isDesktop ? sidebarWidth : undefined}
         />
       </div>
 
-      <main className='flex-1 overflow-hidden flex flex-col'>
+      {isDesktop && (
+        <ResizeHandle
+          label='Resize sidebar'
+          onStart={() => {
+            sidebarDragFrom.current = sidebarWidth
+          }}
+          onMove={(dx) =>
+            setSidebarWidth(
+              Math.min(SIDEBAR_MAX_W, Math.max(SIDEBAR_MIN_W, sidebarDragFrom.current + dx)),
+            )
+          }
+          onReset={() => setSidebarWidth(SIDEBAR_DEFAULT_W)}
+        />
+      )}
+
+      <main className='flex-1 min-w-0 overflow-hidden flex flex-col'>
         <SidebarToggleProvider value={{ onToggle: () => setSidebarOpen(true), hasUnread }}>
           <Routes>
             <Route
@@ -210,6 +241,23 @@ function getGreeting(): string {
 }
 
 /** Home's section folds are per-device, and separate from the sidebar's. */
+/** The width the sidebar has always been, and what double-click returns to. */
+export const SIDEBAR_DEFAULT_W = 256 // w-64
+const SIDEBAR_MIN_W = 190
+const SIDEBAR_MAX_W = 460
+const SIDEBAR_W_KEY = 'sidebar-width'
+
+function readSidebarWidth(): number {
+  try {
+    const raw = Number(localStorage.getItem(SIDEBAR_W_KEY))
+    // Anything outside the range is treated as absent rather than clamped: a
+    // stored 4000 is corruption, not a preference.
+    return raw >= SIDEBAR_MIN_W && raw <= SIDEBAR_MAX_W ? raw : SIDEBAR_DEFAULT_W
+  } catch {
+    return SIDEBAR_DEFAULT_W
+  }
+}
+
 const HOME_COLLAPSE_KEY = 'home-sections-collapsed'
 
 function readHomeCollapsed(): string[] {
