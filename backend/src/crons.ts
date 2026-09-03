@@ -19,7 +19,10 @@ function ensureConversation(entry: CronRow): { conversationId: string; conv: Con
   // Create a new conversation for this cron
   const convId = uuid()
   getDb()
-    .prepare('INSERT INTO conversations (id, title) VALUES (?, ?)')
+    .prepare(
+      `INSERT INTO conversations (id, title, last_read_at, notify)
+       VALUES (?, ?, unixepoch(), 'auto')`,
+    )
     .run(convId, `Cron: ${entry.name}`)
 
   // Link the cron to this conversation

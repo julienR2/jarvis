@@ -135,6 +135,19 @@ export function initDb(): void {
     // Column already exists
   }
 
+  // Repair, every boot: a NULL last_read_at silently disables unread counting
+  // for that conversation forever. `m.created_at > NULL` is NULL, not true, so
+  // the COUNT matches nothing and the chat never shows a badge no matter how
+  // many replies land. Conversations created by a webhook or a cron used to
+  // land exactly that way — their INSERTs never set the column, and the
+  // back-fill above only runs on the boot that adds it. Idempotent and cheap,
+  // and worth doing unconditionally because the symptom is silence.
+  db.exec(
+    `UPDATE conversations
+        SET last_read_at = COALESCE(updated_at, unixepoch())
+      WHERE last_read_at IS NULL`,
+  )
+
   // Migration: add notify column to conversations (subscribe | unsubscribe | auto)
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN notify TEXT NOT NULL DEFAULT 'subscribe'`)

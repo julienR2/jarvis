@@ -16,7 +16,7 @@ import { generateTitle } from '../titles.js'
 import { resolveModel } from '../models.js'
 import { modelKind } from '../catalogue.js'
 import { generateMedia } from '../media.js'
-import { sendPushToAll } from '../push.js'
+import { sendPushToAll, sendDismissToAll } from '../push.js'
 import {
   emitConversationEvent,
   subscribeConversation,
@@ -843,7 +843,7 @@ export async function conversationRoutes(app: FastifyInstance) {
          WHERE m.conversation_id = c.id
            AND m.role = 'assistant'
            AND m.type IS NULL
-           AND m.created_at > c.last_read_at
+           AND m.created_at > COALESCE(c.last_read_at, 0)
         ) AS unread_count,
         (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
         (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook
@@ -857,7 +857,10 @@ export async function conversationRoutes(app: FastifyInstance) {
     const { title } = (req.body as { title?: string }) ?? {}
     const id = uuid()
     getDb()
-      .prepare('INSERT INTO conversations (id, title, model, effort) VALUES (?, ?, ?, ?)')
+      .prepare(
+        `INSERT INTO conversations (id, title, model, effort, last_read_at, notify)
+         VALUES (?, ?, ?, ?, unixepoch(), 'auto')`,
+      )
       // model = null → "use the global default" (resolved at invoke time)
       .run(id, title ?? 'New conversation', null, 'high')
     return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id)
@@ -882,7 +885,7 @@ export async function conversationRoutes(app: FastifyInstance) {
            WHERE m.conversation_id = c.id
              AND m.role = 'assistant'
              AND m.type IS NULL
-             AND m.created_at > c.last_read_at
+             AND m.created_at > COALESCE(c.last_read_at, 0)
           ) AS unread_count,
           (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
           (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook
@@ -896,6 +899,13 @@ export async function conversationRoutes(app: FastifyInstance) {
           'UPDATE conversations SET last_read_at = unixepoch() WHERE id = ?',
         )
         .run(req.params.id)
+
+      // Reading it here takes its notifications down everywhere else — see
+      // sendDismissToAll. Fire-and-forget: opening a chat must not wait on
+      // (or fail because of) a push round-trip.
+      sendDismissToAll(`/c/${req.params.id}`).catch((err) =>
+        console.error('[push] sendDismissToAll failed:', err),
+      )
 
       const page = fetchMessagePage(req.params.id, parsePageLimit(req.query.limit))
       return { ...(conv as object), ...page }

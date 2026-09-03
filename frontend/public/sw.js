@@ -1,10 +1,15 @@
 // Service worker — caching for fast PWA loads + share target support.
 
-const CACHE_NAME = 'jarvis-v3'
+const CACHE_NAME = 'jarvis-v4'
 
 // ── Install ──────────────────────────────────────────────────────────────────
 
 self.addEventListener('install', (event) => {
+  // Take over as soon as we're installed. Without this a new worker sits in
+  // "waiting" until every Jarvis tab and PWA window on the device is closed —
+  // so a fix to push handling could take days to reach a phone that never
+  // fully closes the app, with no sign anything was pending.
+  self.skipWaiting()
   // Pre-cache the app shell (just the HTML — JS/CSS have hashed URLs and get cached at runtime)
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(['/']))
@@ -14,6 +19,8 @@ self.addEventListener('install', (event) => {
 // ── Activate ─────────────────────────────────────────────────────────────────
 
 self.addEventListener('activate', (event) => {
+  // Claim open pages too, so they talk to this worker without a reload.
+  self.clients.claim()
   // Clean up old cache versions
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -38,21 +45,45 @@ self.addEventListener('push', (event) => {
     data = { title: 'Jarvis', body: event.data.text() }
   }
 
-  const { title = 'Jarvis', body = '', url } = data
+  const { title = 'Jarvis', body = '', url, type } = data
+  const tagFor = (u) => (u ? `jarvis-${u}` : 'jarvis')
+
+  // A dismissal carries no title: another device read this chat, so take its
+  // notification down here too rather than showing anything.
+  if (type === 'dismiss') {
+    event.waitUntil(
+      self.registration
+        .getNotifications({ tag: tagFor(url) })
+        .then((ns) => ns.forEach((n) => n.close())),
+    )
+    return
+  }
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      // If the user is actively looking at the app, skip — SSE handles real-time updates
-      // Use `focused` instead of `visibilityState` because on macOS, a PWA window
-      // behind other windows still reports 'visible' — only minimized counts as 'hidden'
-      const anyFocused = clients.some((c) => c.focused)
-      if (anyFocused) return
+      // Only the conversation you are actually looking at suppresses its own
+      // notification. Suppressing whenever *any* window was focused meant a
+      // reply in another chat vanished silently while you worked in this one:
+      // no notification, and nothing to bring you back to it.
+      //
+      // `focused` rather than `visibilityState` because on macOS a PWA window
+      // behind other windows still reports 'visible' — only minimised is 'hidden'.
+      const focused = clients.filter((c) => c.focused)
+      const viewingThis = focused.some((c) => {
+        if (!url) return true // no conversation to compare — old blanket behaviour
+        try {
+          return new URL(c.url).pathname === url
+        } catch {
+          return false
+        }
+      })
+      if (viewingThis) return
 
       return self.registration.showNotification(title, {
         body,
         icon: new URL('/icons/icon-192.png', self.location.origin).href,
         badge: new URL('/icons/badge-96.png', self.location.origin).href,
-        tag: url ? `jarvis-${url}` : 'jarvis',
+        tag: tagFor(url),
         renotify: true,
         data: { url: url || '/' },
       })

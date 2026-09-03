@@ -16,7 +16,9 @@ function ensureConversation(entry: WebhookRow): { conversationId: string; conv: 
   const notify = entry.notify ?? 'auto'
   const convNotify = notify === 'auto' ? 'auto' : notify === 'never' ? 'unsubscribe' : 'subscribe'
   getDb()
-    .prepare('INSERT INTO conversations (id, title, notify) VALUES (?, ?, ?)')
+    .prepare(
+      'INSERT INTO conversations (id, title, notify, last_read_at) VALUES (?, ?, ?, unixepoch())',
+    )
     .run(convId, `Webhook: ${entry.name}`, convNotify)
 
   getDb()
