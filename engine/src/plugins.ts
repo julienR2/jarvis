@@ -175,9 +175,9 @@ function manifestIndex(
 // ── Always-on ────────────────────────────────────────────────────────────────
 //
 // Some plugins ship a SessionStart hook that injects their whole ruleset into
-// every session, but keep it behind an opt-in flag file in CLAUDE_CONFIG_DIR —
-// `.example-plugin-always` for example-plugin. Installing such a plugin therefore
-// does nothing visible until the file exists, which is invisible from the CLI.
+// every session, but keep it behind an opt-in flag file in CLAUDE_CONFIG_DIR,
+// named `.<plugin-name>-always`. Installing such a plugin therefore does
+// nothing visible until that file exists, which is invisible from the CLI.
 //
 // The flag name is derived from the plugin name, so we can drive it. We only
 // offer the switch when the plugin's own files actually mention that path —

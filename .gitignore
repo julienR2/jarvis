@@ -19,7 +19,7 @@ docker-compose.override.yml
 # --- Agent config dir (mounted as /jarvis/agent in the container) ---
 # Opt-in, not opt-out: everything under agent/ is ignored, and we re-allow only
 # what the forkable repo should ship. Runtime state (sessions/, projects/, data/),
-# the user's workspace, and personal prefs (CLAUDE.local.md, .example-plugin-always)
+# the user's workspace, and personal prefs (CLAUDE.local.md, plugin opt-in flags)
 # are therefore ignored by default — no need to list them one by one.
 # Adding a new default config file? Add a `!agent/<name>` line here.
 agent/*
