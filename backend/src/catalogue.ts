@@ -86,27 +86,36 @@ async function gatewayModels(
   // OpenRouter-compatible catalogue endpoint. The base URL is the Anthropic
   // -compatible root (…/api), and the catalogue lives one level down at /v1.
   //
-  // Two query parameters, both load-bearing:
+  // Two requests, because one ordering doesn't fit both halves of the catalogue.
   //
-  // sort=most-popular is real usage data from the gateway, which beats any
-  // ordering guessed here.
+  // output_modalities is an opt-in rather than a filter: the default listing
+  // returns only part of what the gateway serves — every video model and most
+  // image ones are missing without it.
   //
-  // output_modalities is not a filter but an opt-in: the default listing
-  // returns only some of what the gateway serves. Asking for all four surfaces
-  // 492 models where the default gives 425 — every video model and most of the
-  // image ones are missing otherwise.
-  //
-  // A gateway that understands neither ignores them and returns its default.
-  const url =
-    `${cfg.baseUrl.replace(/\/+$/, '')}/v1/models` +
-    `?output_modalities=text,image,audio,video&sort=most-popular`
-  const res = await fetch(url, {
-    headers: cfg.authToken ? { Authorization: `Bearer ${cfg.authToken}` } : {},
-    signal: AbortSignal.timeout(10_000),
-  })
-  if (!res.ok) throw new Error(`gateway returned ${res.status}`)
+  // sort=most-popular is real usage data, and worth having for the models it
+  // covers. It doesn't cover video: there, most-popular, top-weekly and
+  // pricing-low-to-high all return the same alphabetical list, so the sort is
+  // being ignored. Sending it anyway would lead with "alibaba/happyhorse-1.0"
+  // purely because of the letter a; the gateway's own unsorted order leads with
+  // its flagships instead. So video is fetched separately, unsorted.
+  const root = cfg.baseUrl.replace(/\/+$/, '')
+  const fetchList = async (query: string) => {
+    const r = await fetch(`${root}/v1/models?${query}`, {
+      headers: cfg.authToken ? { Authorization: `Bearer ${cfg.authToken}` } : {},
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!r.ok) throw new Error(`gateway returned ${r.status}`)
+    return ((await r.json()) as { data?: Array<Record<string, unknown>> }).data ?? []
+  }
 
-  const body = (await res.json()) as { data?: Array<Record<string, unknown>> }
+  const [ranked, video] = await Promise.all([
+    fetchList('output_modalities=text,image,audio&sort=most-popular'),
+    fetchList('output_modalities=video').catch(() => []),
+  ])
+  // Ranked first, so the picker's default view leads with the models most
+  // people actually use; video keeps its own order behind them.
+  const body = { data: [...ranked, ...video] }
+
   const models: ModelOption[] = (body.data ?? [])
     // Two kinds of model, with different requirements.
     //
