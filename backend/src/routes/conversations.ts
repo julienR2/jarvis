@@ -26,7 +26,7 @@ import { config } from '../config.js'
 import { getConnectorValues } from '../connectors.js'
 import type { ConvRow, MessageRow, EffortLevel } from '../types.js'
 
-interface Attachment {
+export interface Attachment {
   id: string
   filename: string
   originalName: string
@@ -835,6 +835,11 @@ export async function conversationRoutes(app: FastifyInstance) {
 
   // ── CRUD ────────────────────────────────────────────────────────────────────
 
+  // `result IS NOT NULL` is what makes a reply count only once it is *finished*.
+  // The assistant row is INSERTed on the turn's first tool/chunk event and only
+  // given its result on `done`, so without this the badge appeared the instant
+  // Claude started thinking — any list refresh mid-turn (a tab regaining focus
+  // is enough) counted a turn that had not said anything yet.
   app.get('/', auth, async () => {
     return getDb()
       .prepare(
@@ -843,6 +848,7 @@ export async function conversationRoutes(app: FastifyInstance) {
          WHERE m.conversation_id = c.id
            AND m.role = 'assistant'
            AND m.type IS NULL
+           AND m.result IS NOT NULL
            AND m.created_at > COALESCE(c.last_read_at, 0)
         ) AS unread_count,
         (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
@@ -885,6 +891,7 @@ export async function conversationRoutes(app: FastifyInstance) {
            WHERE m.conversation_id = c.id
              AND m.role = 'assistant'
              AND m.type IS NULL
+             AND m.result IS NOT NULL
              AND m.created_at > COALESCE(c.last_read_at, 0)
           ) AS unread_count,
           (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
@@ -1210,8 +1217,22 @@ export async function conversationRoutes(app: FastifyInstance) {
               .run(id)
             return
           }
-          // COALESCE: the turn may not have written its first line yet, in which
-          // case there is no row to park below and the mark stays put.
+          // Park below the newest assistant row *only if that row is the one
+          // being written* — `result IS NULL` is what makes a turn unfinished,
+          // since the result is only set on `done`.
+          //
+          // Leaving in the seconds between sending and the reply's first line
+          // is the case this guards. There is no in-flight row yet, and simply
+          // taking the newest assistant row hands back the *previous* turn's —
+          // one already read — dragging the mark behind it and re-flagging a
+          // reply the user had seen. That was an off-by-one (or more) marker on
+          // every quick send-then-leave.
+          //
+          // With no row for this turn, now is the mark — minus a second, because
+          // created_at has only second granularity and the comparison is a
+          // strict `>`. A first line landing in the same second as the
+          // disconnect would otherwise be read on arrival, losing the badge for
+          // the whole reply, which is the failure this branch exists to prevent.
           getDb()
             .prepare(
               `UPDATE conversations SET last_read_at = COALESCE(
@@ -1219,11 +1240,17 @@ export async function conversationRoutes(app: FastifyInstance) {
                    WHERE m.conversation_id = ?
                      AND m.role = 'assistant'
                      AND m.type IS NULL
-                   ORDER BY m.rowid DESC LIMIT 1),
-                 last_read_at
+                     AND m.result IS NULL
+                     AND m.rowid = (
+                       SELECT MAX(m2.rowid) FROM messages m2
+                        WHERE m2.conversation_id = ?
+                          AND m2.role = 'assistant'
+                          AND m2.type IS NULL
+                     )),
+                 unixepoch() - 1
                ) WHERE id = ?`,
             )
-            .run(id, id)
+            .run(id, id, id)
         })
       })
     },

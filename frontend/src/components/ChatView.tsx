@@ -230,9 +230,18 @@ export default function ChatView({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isProcessing])
 
+  // Watch the divider so the jump button only appears when it is off screen —
+  // and so that looking at it dismisses it. Re-created on message changes
+  // because the divider is remounted as the list grows, and an observer bound
+  // to a detached node reports nothing.
+  //
   // Watch the divider so the jump button only appears when it is off screen.
   // Re-created on message changes because the divider is remounted as the list
   // grows, and an observer bound to a detached node reports nothing.
+  //
+  // Seeing the divider deliberately does NOT dismiss it: it marks where reading
+  // left off, and scrolling past should not erase that. Dismissing is the
+  // click, or leaving the conversation.
   useEffect(() => {
     setUnreadOffscreen(false)
     if (!unreadAnchor) return
@@ -253,13 +262,20 @@ export default function ChatView({
     if (!unreadAnchor) return 0
     const i = messages.findIndex((m) => m.id === unreadAnchor)
     if (i < 0) return 0
-    return messages.slice(i).filter((m) => m.role === 'assistant' && !m.type).length
+    return messages
+      .slice(i)
+      .filter((m) => m.role === 'assistant' && !m.type && m.result != null).length
   }, [messages, unreadAnchor])
 
   function jumpToFirstUnread() {
     document
       .getElementById(UNREAD_ANCHOR_ID)
       ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  function dismissUnread() {
+    if (!conversationId) return
+    useChatStore.getState().dismissUnreadAnchor(conversationId)
   }
 
   // Load the previous page as the top of the list approaches the viewport.
@@ -521,7 +537,7 @@ export default function ChatView({
                       item.type === 'separator' ? (
                         <DateSeparator key={item.key} label={item.label} />
                       ) : item.type === 'unread' ? (
-                        <UnreadSeparator key={item.key} />
+                        <UnreadSeparator key={item.key} onDismiss={dismissUnread} />
                       ) : (
                         <MessageBubble
                           key={item.msg.id}
@@ -754,19 +770,32 @@ function DateSeparator({ label }: { label: string }) {
   )
 }
 
-// Where reading left off. Same shape as the date separator so the two stack
-// without fighting, in the accent colour so it reads as a state and not as
-// another date.
-function UnreadSeparator() {
+// Where reading left off. Same shape as the date separator — a label between
+// two rules — so the two stack without fighting, but in accent rather than
+// grey so it reads as a state and not as another date.
+//
+// Dimmed accent, not solid: this marker now persists for the whole visit, and
+// at full strength it read as an error the entire time it was on screen. The
+// subtle fill carries the same colour at a weight you can sit next to.
+//
+// Clicking it is the way to put it away without leaving the conversation, so
+// the whole row is the button and the rules brighten with it on hover.
+function UnreadSeparator({ onDismiss }: { onDismiss: () => void }) {
   return (
     // scroll-mt keeps the label clear of the floating pills when jumped to.
-    <div id={UNREAD_ANCHOR_ID} className='flex items-center gap-3 my-5 scroll-mt-24'>
-      <div className='flex-1 h-px bg-accent' />
-      <span className='shrink-0 rounded-full bg-accent px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white shadow-sm'>
-        New
+    <button
+      id={UNREAD_ANCHOR_ID}
+      type='button'
+      onClick={onDismiss}
+      title='Dismiss'
+      className='group flex w-full items-center gap-3 my-5 scroll-mt-24'
+    >
+      <div className='flex-1 h-px bg-accent/25 transition-colors group-hover:bg-accent/40' />
+      <span className='shrink-0 rounded-full bg-accent-subtle px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-accent/80 transition-colors group-hover:text-accent'>
+        Unread
       </span>
-      <div className='flex-1 h-px bg-accent' />
-    </div>
+      <div className='flex-1 h-px bg-accent/25 transition-colors group-hover:bg-accent/40' />
+    </button>
   )
 }
 

@@ -6,7 +6,8 @@ import type { FastifyInstance } from 'fastify'
 import cron from 'node-cron'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
-import { getDb, uuid } from '../db.js'
+import { getDb, uuid, normalizeEffort } from '../db.js'
+import { processMessage, type Attachment } from './conversations.js'
 import { getAllConnectors, getConnector } from '../connectors.js'
 import { archiveAppDir } from '../app-archive.js'
 import { schedule, rescheduleAll } from '../crons.js'
@@ -164,6 +165,44 @@ export async function internalRoutes(app: FastifyInstance) {
       })
 
       return { conversation_id: conv.id, title: conv.title, count: messages.length, messages }
+    },
+  )
+
+  // Post into a conversation the agent is not currently running in.
+  //
+  // The owner-facing POST /api/conversations/:id/messages needs a JWT, which the
+  // agent has no way to obtain — so relaying something into another chat used to
+  // mean a one-shot cron pinned a few minutes out. This is the same call behind
+  // the shared secret: the message lands as a user turn and the target
+  // conversation answers it, immediately and with no cron row left behind.
+  app.post<{ Params: { id: string } }>(
+    '/conversations/:id/messages',
+    async (req, reply) => {
+      if (!checkSecret(req, reply)) return
+
+      const { content, attachments } = req.body as {
+        content?: string
+        attachments?: Attachment[]
+      }
+
+      const conv = getDb()
+        .prepare('SELECT * FROM conversations WHERE id = ?')
+        .get(req.params.id) as ConvRow | undefined
+      if (!conv) return reply.code(404).send({ error: 'Conversation not found' })
+
+      if (!content?.trim() && !attachments?.length) {
+        return reply.code(400).send({ error: 'Empty message' })
+      }
+
+      const id = processMessage(
+        req.params.id,
+        conv,
+        content?.trim() || '',
+        attachments || [],
+        { model: conv.model ?? undefined, effort: normalizeEffort(conv.effort) },
+      )
+
+      return { id, conversation_id: conv.id, title: conv.title }
     },
   )
 

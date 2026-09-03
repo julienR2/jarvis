@@ -87,6 +87,7 @@ interface ChatState {
   markRead: (convId: string) => void
   /** Drop the unread divider — the user is leaving the conversation. */
   clearUnreadAnchor: (convId: string) => void
+  dismissUnreadAnchor: (convId: string) => void
   reconcileConversation: (full: ConversationWithMessages) => void
 }
 
@@ -152,8 +153,9 @@ function mergeMessages(prev: Message[], next: Message[]): Message[] {
  * The message the "unread messages" divider belongs above: the `count`-th
  * answer from the end.
  *
- * Counts what the server counts — an assistant row with no `type`, i.e. a real
- * answer, not an activity or error line — so the divider lands on the same
+ * Counts what the server counts — an assistant row with no `type` and a
+ * `result`, i.e. a real answer that has finished, not an activity line, an
+ * error, or the turn currently streaming — so the divider lands on the same
  * message the badge was counting. Returns the oldest loaded message when the
  * unread run reaches past the loaded page: the divider then reads "everything
  * from here", which is true, instead of not showing at all.
@@ -163,7 +165,7 @@ function findUnreadAnchor(messages: Message[], count: number): string | null {
   let seen = 0
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
-    if (msg.role !== 'assistant' || msg.type) continue
+    if (msg.role !== 'assistant' || msg.type || msg.result == null) continue
     if (++seen === count) return msg.id
   }
   return messages[0].id
@@ -525,6 +527,16 @@ export const useChatStore = create<ChatState>()(
         // Back to "not computed", not to `null`: the next visit has to be free
         // to draw a fresh divider for whatever arrived in the meantime.
         delete s.unreadAnchor[convId]
+      })
+    },
+
+    dismissUnreadAnchor(convId) {
+      set((s) => {
+        // `null`, not `delete`: the divider has been read, and this visit is
+        // over for it. `undefined` would mean "not computed yet" and the next
+        // resync would draw it straight back — which is the whole reason it
+        // used to be undismissable without leaving the conversation.
+        if (s.unreadAnchor[convId] !== null) s.unreadAnchor[convId] = null
       })
     },
 
