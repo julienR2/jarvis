@@ -264,10 +264,17 @@ export function processMessage(
   // clip, so it goes straight to the gateway's media endpoint instead of the
   // CLI. Choosing an image model chooses the pipeline.
   const chosenModel = resolveModel(options?.model)
-  modelKind(chosenModel).then((kind) => {
-    if (kind === 'text') return dispatchToAgent()
-    return runMediaGeneration(conversationId, chosenModel, kind, userContent, options?.onDone)
-  })
+  modelKind(chosenModel)
+    .then((kind) => {
+      if (kind === 'text') return dispatchToAgent()
+      return runMediaGeneration(conversationId, chosenModel, kind, userContent, options?.onDone)
+    })
+    // An unhandled rejection here takes the whole backend down with it, and
+    // this branch runs detached from the request that started it.
+    .catch((err) => {
+      console.error('[msg] dispatch failed:', err)
+      emitConversationError(conversationId, err?.message ?? String(err))
+    })
 
   return userMsgId
 
@@ -324,6 +331,11 @@ async function runMediaGeneration(
   onDone?: (text: string) => void,
 ): Promise<void> {
   try {
+    const stillThere = getDb()
+      .prepare('SELECT 1 FROM conversations WHERE id = ?')
+      .get(conversationId)
+    if (!stillThere) return
+
     const media = await generateMedia({
       kind,
       conversationId,
@@ -353,12 +365,24 @@ async function runMediaGeneration(
     })
     onDone?.(text)
   } catch (err: any) {
-    emitConversationError(conversationId, err?.message ?? String(err))
+    // Reporting a failure must not itself fail. A conversation deleted while
+    // its generation was still running leaves nothing to attach an error to,
+    // and the foreign key violation used to escape as an unhandled rejection
+    // and stop the server.
+    try {
+      emitConversationError(conversationId, err?.message ?? String(err))
+    } catch (reportErr) {
+      console.error('[media] could not report failure:', reportErr)
+    }
   } finally {
-    emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
-    getDb()
-      .prepare('UPDATE conversations SET updated_at = unixepoch() WHERE id = ?')
-      .run(conversationId)
+    try {
+      emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
+      getDb()
+        .prepare('UPDATE conversations SET updated_at = unixepoch() WHERE id = ?')
+        .run(conversationId)
+    } catch {
+      /* conversation is gone; nothing left to update */
+    }
   }
 }
 

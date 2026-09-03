@@ -110,14 +110,11 @@ async function generateVideo(
   const submit = await fetch(`${base}/v1/videos`, {
     method: 'POST',
     headers: { ...auth, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      prompt,
-      // Sensible defaults; the endpoint accepts these optionally and providers
-      // vary in what they honour.
-      aspect_ratio: '16:9',
-      resolution: '720p',
-    }),
+    // Model and prompt only. Every other parameter is optional and provider-
+    // specific: a "sensible default" of 720p is rejected outright by Hailuo,
+    // which takes 768p or 480p. Sending nothing lets each provider use the
+    // resolution and aspect ratio it actually supports.
+    body: JSON.stringify({ model, prompt }),
     signal: AbortSignal.timeout(60_000),
   })
   if (!submit.ok) {
@@ -140,7 +137,17 @@ async function generateVideo(
     if (state.status === 'completed') {
       const url = state.unsigned_urls?.[0]
       if (!url) throw new Error('The job completed but returned no video.')
-      const file = await fetch(url, { signal: AbortSignal.timeout(180_000) })
+      // "unsigned" describes the URL, not the access: it points back at the
+      // gateway's own API and answers 401 without the key. Fetching it bare
+      // would have failed every video at the final step.
+      const file = await fetch(url, {
+        headers: auth,
+        redirect: 'follow',
+        signal: AbortSignal.timeout(180_000),
+      })
+      if (!file.ok) {
+        throw new Error(`The video finished but couldn't be downloaded (${file.status}).`)
+      }
       const buf = Buffer.from(await file.arrayBuffer())
       return save(conversationId, buf, 'video/mp4', prompt.slice(0, 60))
     }
@@ -158,11 +165,22 @@ async function generateVideo(
 
 /** Errors worth reading. A 402 is not a transient failure to retry. */
 function describeFailure(status: number, detail: string): string {
-  const trimmed = detail.slice(0, 300)
   if (status === 402) return 'The OpenRouter account is out of credit.'
   if (status === 401) return 'The OpenRouter key was rejected.'
   if (status === 429) return 'Rate limited by the gateway — try again shortly.'
-  return `The gateway returned ${status}${trimmed ? `: ${trimmed}` : ''}`
+
+  // Providers explain themselves well ("Resolution 720p is not supported for
+  // this model. Supported resolutions: 768p, 480p"); surfacing that sentence
+  // beats surfacing the JSON wrapper it arrived in.
+  let message = detail.slice(0, 300)
+  try {
+    const parsed = JSON.parse(detail) as { error?: { message?: string } | string }
+    const inner = typeof parsed.error === 'string' ? parsed.error : parsed.error?.message
+    if (inner) message = inner
+  } catch {
+    /* not JSON — show what came back */
+  }
+  return message || `The gateway returned ${status}.`
 }
 
 export async function generateMedia(opts: {
