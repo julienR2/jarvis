@@ -86,10 +86,20 @@ async function gatewayModels(
   // OpenRouter-compatible catalogue endpoint. The base URL is the Anthropic
   // -compatible root (…/api), and the catalogue lives one level down at /v1.
   //
+  // Two query parameters, both load-bearing:
+  //
   // sort=most-popular is real usage data from the gateway, which beats any
-  // ordering guessed here. Gateways that don't understand it ignore it and
-  // return their default order, so it is safe to send unconditionally.
-  const url = `${cfg.baseUrl.replace(/\/+$/, '')}/v1/models?sort=most-popular`
+  // ordering guessed here.
+  //
+  // output_modalities is not a filter but an opt-in: the default listing
+  // returns only some of what the gateway serves. Asking for all four surfaces
+  // 492 models where the default gives 425 — every video model and most of the
+  // image ones are missing otherwise.
+  //
+  // A gateway that understands neither ignores them and returns its default.
+  const url =
+    `${cfg.baseUrl.replace(/\/+$/, '')}/v1/models` +
+    `?output_modalities=text,image,audio,video&sort=most-popular`
   const res = await fetch(url, {
     headers: cfg.authToken ? { Authorization: `Bearer ${cfg.authToken}` } : {},
     signal: AbortSignal.timeout(10_000),

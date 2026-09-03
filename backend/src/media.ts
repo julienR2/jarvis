@@ -110,7 +110,14 @@ async function generateVideo(
   const submit = await fetch(`${base}/v1/videos`, {
     method: 'POST',
     headers: { ...auth, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, prompt }),
+    body: JSON.stringify({
+      model,
+      prompt,
+      // Sensible defaults; the endpoint accepts these optionally and providers
+      // vary in what they honour.
+      aspect_ratio: '16:9',
+      resolution: '720p',
+    }),
     signal: AbortSignal.timeout(60_000),
   })
   if (!submit.ok) {
@@ -140,7 +147,11 @@ async function generateVideo(
     if (['failed', 'cancelled', 'expired'].includes(state.status ?? '')) {
       throw new Error(`The video job ${state.status}${state.error ? `: ${state.error}` : ''}.`)
     }
-    if (i === 2) onProgress?.('Still rendering — video takes a few minutes.')
+    // A long silence is indistinguishable from a hang, so say something early
+    // and then at a slow cadence rather than every poll.
+    if (i === 1 || i === 11 || i === 41) {
+      onProgress?.(`Still rendering (${Math.round(((i + 1) * 10) / 60)} min so far) — video takes a few minutes.`)
+    }
   }
   throw new Error('The video job is still running after 15 minutes; giving up on it.')
 }
