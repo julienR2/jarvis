@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom'
 import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2, ChevronRight } from 'lucide-react'
 import { useModelCatalogue, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, modelSupportsEffort } from './ModelSelector'
 import GatewayModelPicker from './GatewayModelPicker'
-import { isGatewayModel } from './ModelSelector'
+import { isGatewayModel, modalityLabel } from './ModelSelector'
 import ShareDialog from './ShareDialog'
 import type { Effort } from '../api'
 
@@ -161,6 +161,11 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                             ? (selectedModel?.name ?? model)
                             : `OpenRouter · ${gateway.length} models`}
                         </span>
+                        {isGatewayModel(activeModel) && selectedModel && modalityLabel(selectedModel) && (
+                          <span className='shrink-0 rounded border border-border px-1 py-px text-[10px] text-text-muted'>
+                            {modalityLabel(selectedModel)}
+                          </span>
+                        )}
                         <ChevronRight size={13} className='shrink-0 opacity-60' />
                       </button>
                     )}

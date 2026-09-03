@@ -144,6 +144,31 @@ const GATEWAY_ROLE_MODELS: Record<string, string> = {
   ANTHROPIC_DEFAULT_HAIKU_MODEL: '~anthropic/claude-haiku-latest',
 }
 
+/**
+ * Credentials the agent's own tools need, as opposed to the CLI's.
+ *
+ * The gateway key is useful to skills regardless of which model the
+ * conversation runs on: generating an image is an HTTP call to OpenRouter's
+ * /v1/images, and wanting one while chatting to Claude is entirely normal. So
+ * this is set whenever a key exists, not only on gateway turns.
+ */
+function agentCredentials(): Record<string, string> {
+  const { baseUrl, authToken } = providerConfig()
+  // Match the host, not the whole URL: an anchored pattern never fires against
+  // "https://openrouter.ai/api", because the character before the host is a
+  // slash from the scheme.
+  let host = ''
+  try {
+    host = baseUrl ? new URL(baseUrl).hostname : ''
+  } catch {
+    host = ''
+  }
+  const isOpenRouter = host === 'openrouter.ai' || host.endsWith('.openrouter.ai')
+  return isOpenRouter && authToken
+    ? { OPENROUTER_API_KEY: authToken }
+    : { OPENROUTER_API_KEY: '' }
+}
+
 export function providerEnv(model?: string | null): Record<string, string> {
   const { baseUrl, authToken } = providerConfig()
   if (baseUrl && isGatewayModel(model)) {
@@ -156,6 +181,7 @@ export function providerEnv(model?: string | null): Record<string, string> {
       ANTHROPIC_API_KEY: '',
       CLAUDE_CODE_OAUTH_TOKEN: '',
       ...GATEWAY_ROLE_MODELS,
+      ...agentCredentials(),
     }
   }
   const oauth = claudeOauthToken()
@@ -167,6 +193,7 @@ export function providerEnv(model?: string | null): Record<string, string> {
     // Cleared so a gateway's role pins can't follow a conversation back to the
     // Anthropic route, where those ids mean nothing.
     ...Object.fromEntries(Object.keys(GATEWAY_ROLE_MODELS).map((k) => [k, ''])),
+    ...agentCredentials(),
   }
 }
 

@@ -44,6 +44,7 @@ agent/skills/*
 !agent/skills/whisper/
 !agent/skills/pocketbase/
 !agent/skills/browser/
+!agent/skills/media/
 
 # Whitelist default rules — anything else under agent/rules/ is gitignored
 agent/rules/*

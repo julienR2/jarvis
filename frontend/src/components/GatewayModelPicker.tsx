@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Check, Search } from 'lucide-react'
+import { modalityLabel } from './ModelSelector'
 import type { ModelOption } from './ModelSelector'
 
 /**
@@ -179,6 +180,11 @@ export default function GatewayModelPicker({
                   {m.desc ? ` · ${m.desc}` : ''}
                 </span>
               </span>
+              {modalityLabel(m) && (
+                <span className='shrink-0 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-text-muted'>
+                  {modalityLabel(m)}
+                </span>
+              )}
               {activeId === m.id && <Check size={16} className='text-accent shrink-0' />}
             </button>
           ))}

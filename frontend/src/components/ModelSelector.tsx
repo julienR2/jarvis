@@ -137,6 +137,29 @@ export async function loadModelCatalogue(
  * Search appears only when there is enough to search — with four Anthropic
  * models a search box is noise.
  */
+/**
+ * A short label for what a model can take in, or null for a plain text model.
+ *
+ * Every offered model emits text — that's a requirement for running the agent —
+ * so what actually distinguishes them is what they can read. A model that sees
+ * images is worth knowing about when you're about to paste a screenshot; one
+ * that only reads text is the unremarkable case and gets no chip, because a
+ * label on everything is a label on nothing.
+ */
+// Fixed order, so the same capability always reads the same way. The catalogue
+// lists them inconsistently, which otherwise shows up as "image · file" on one
+// row and "file · image" on the next for models that do the same thing.
+const MODALITY_ORDER = ['image', 'file', 'video', 'audio']
+
+export function modalityLabel(m: ModelOption): string | null {
+  const extra = (m.inputs ?? []).filter((i) => i !== 'text')
+  if (extra.length === 0) return null
+  if (extra.length > 2) return 'multimodal'
+  return [...extra]
+    .sort((a, b) => MODALITY_ORDER.indexOf(a) - MODALITY_ORDER.indexOf(b))
+    .join(' · ')
+}
+
 /** Effort levels exposed in the UI (the CLI also accepts `xhigh`). */
 export const EFFORTS: { id: Effort; label: string; hint: string }[] = [
   { id: 'low', label: 'Low', hint: 'Fastest, minimal reasoning' },
