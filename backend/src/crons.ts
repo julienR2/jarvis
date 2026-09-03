@@ -20,8 +20,15 @@ function ensureConversation(entry: CronRow): { conversationId: string; conv: Con
   const convId = uuid()
   getDb()
     .prepare(
-      `INSERT INTO conversations (id, title, last_read_at, notify)
-       VALUES (?, ?, unixepoch(), 'auto')`,
+      // model is set explicitly, not left to the column default: that default
+      // is a hardcoded `claude-sonnet-4-6` the picker no longer even offers, so
+      // a cron's conversation was pinned to a stale model — and on an instance
+      // with no Claude credentials, to a bare id it cannot reach. NULL means
+      // "resolve the instance default", which is what talking in that
+      // conversation should use. The cron's own pinned model is separate and
+      // passed per turn, so the schedule keeps running on what it was set up with.
+      `INSERT INTO conversations (id, title, model, last_read_at, notify)
+       VALUES (?, ?, NULL, unixepoch(), 'auto')`,
     )
     .run(convId, `Cron: ${entry.name}`)
 

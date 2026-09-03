@@ -4,21 +4,24 @@ import { api, type Webhook, type WebhookInput } from '../api'
 import ContentLayout from './ContentLayout'
 import ModelSelector, { getDefaultModel, DEFAULT_EFFORT, modelName } from './ModelSelector'
 
-const EMPTY: WebhookInput = {
-  name: '',
-  prompt: '',
-  enabled: true,
-  // Left unset rather than pinned to a concrete id: the server stores that as
-  // null, which means "resolve the instance default at run time" — so a cron
-  // made today follows a later change of default provider instead of being
-  // frozen to whatever was current when it was created.
-  model: undefined,
-  effort: DEFAULT_EFFORT,
+/** A blank form. A function, not a constant: the model default is only known
+ *  once the catalogue has loaded, which is after this module is evaluated. */
+function emptyForm(): WebhookInput {
+  return {
+    name: '',
+    prompt: '',
+    enabled: true,
+    // Pinned to a concrete id, deliberately — see CronManager. A webhook should
+    // keep firing on the model it was set up with, while the conversation it
+    // posts into stays on whatever you talk to it with.
+    model: getDefaultModel(),
+    effort: DEFAULT_EFFORT,
+  }
 }
 
 export default function WebhookManager() {
   const [webhooks, setWebhooks] = useState<Webhook[]>([])
-  const [form, setForm] = useState<WebhookInput>(EMPTY)
+  const [form, setForm] = useState<WebhookInput>(emptyForm)
   const [editing, setEditing] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
@@ -42,7 +45,7 @@ export default function WebhookManager() {
       } else {
         await api.createWebhook(form)
       }
-      setForm(EMPTY)
+      setForm(emptyForm())
       setEditing(null)
       load()
     } catch (err: any) {
@@ -169,7 +172,7 @@ export default function WebhookManager() {
               <button
                 onClick={() => {
                   setEditing(null)
-                  setForm(EMPTY)
+                  setForm(emptyForm())
                 }}
                 className='text-text-muted px-3 py-2 hover:text-text-primary transition-colors'
               >

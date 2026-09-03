@@ -4,23 +4,28 @@ import { api, type Cron, type CronInput } from '../api'
 import ContentLayout from './ContentLayout'
 import ModelSelector, { getDefaultModel, DEFAULT_EFFORT, modelName } from './ModelSelector'
 
-const EMPTY: CronInput = {
-  name: '',
-  schedule: '',
-  prompt: '',
-  enabled: true,
-  once: false,
-  // Left unset rather than pinned to a concrete id: the server stores that as
-  // null, which means "resolve the instance default at run time" — so a cron
-  // made today follows a later change of default provider instead of being
-  // frozen to whatever was current when it was created.
-  model: undefined,
-  effort: DEFAULT_EFFORT,
+/** A blank form. A function, not a constant: the model default is only known
+ *  once the catalogue has loaded, which is after this module is evaluated. */
+function emptyForm(): CronInput {
+  return {
+    name: '',
+    schedule: '',
+    prompt: '',
+    enabled: true,
+    once: false,
+    // Pinned to a concrete id, deliberately. A schedule should keep running on
+    // the model it was set up with — a cheap one for a routine task — while the
+    // conversation it posts into stays on whatever you talk to it with. Saving
+    // the default *as an id* is what freezes it; leaving it null would make it
+    // drift with the instance default instead.
+    model: getDefaultModel(),
+    effort: DEFAULT_EFFORT,
+  }
 }
 
 export default function CronManager() {
   const [crons, setCrons] = useState<Cron[]>([])
-  const [form, setForm] = useState<CronInput>(EMPTY)
+  const [form, setForm] = useState<CronInput>(emptyForm)
   const [editing, setEditing] = useState<string | null>(null)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -43,7 +48,7 @@ export default function CronManager() {
       } else {
         await api.createCron(form)
       }
-      setForm(EMPTY)
+      setForm(emptyForm())
       setEditing(null)
       load()
     } catch (err: any) {
@@ -162,7 +167,7 @@ export default function CronManager() {
               <button
                 onClick={() => {
                   setEditing(null)
-                  setForm(EMPTY)
+                  setForm(emptyForm())
                 }}
                 className='text-text-muted px-3 py-2 hover:text-text-primary transition-colors'
               >

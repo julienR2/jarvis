@@ -17,7 +17,9 @@ function ensureConversation(entry: WebhookRow): { conversationId: string; conv: 
   const convNotify = notify === 'auto' ? 'auto' : notify === 'never' ? 'unsubscribe' : 'subscribe'
   getDb()
     .prepare(
-      'INSERT INTO conversations (id, title, notify, last_read_at) VALUES (?, ?, ?, unixepoch())',
+      // Explicit NULL model — see the note in crons.ts.
+      `INSERT INTO conversations (id, title, notify, model, last_read_at)
+       VALUES (?, ?, ?, NULL, unixepoch())`,
     )
     .run(convId, `Webhook: ${entry.name}`, convNotify)
 
