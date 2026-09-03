@@ -190,7 +190,10 @@ export default function Sidebar({
       </div>
 
       {/* Scrollable list */}
-      <div className='flex-1 overflow-y-auto px-2 pb-2 flex flex-col gap-4'>
+      {/* Groups sit tight against each other; the breathing room lives *inside* an
+          expanded group (see SectionGroup) so a run of collapsed headers reads as
+          a compact list rather than a widely spaced one. */}
+      <div className='flex-1 overflow-y-auto px-2 pb-2 flex flex-col'>
         {conversations.length === 0 && (
           <div className='px-3 py-6 text-text-muted text-xs text-center'>
             No conversations yet
@@ -413,7 +416,13 @@ function SectionGroup({
     : convs
 
   return (
-    <div className='gap-0.5 flex flex-col mt-1'>
+    // Top padding stays put whether open or closed, so toggling doesn't nudge the
+    // header down; only the bottom grows, which is what sets an expanded group apart.
+    <div
+      className={`gap-0.5 flex flex-col ${
+        collapsed ? 'py-1.5' : 'pt-1.5 pb-4'
+      }`}
+    >
       <div className='flex items-center group/section pr-1'>
         <button
           onClick={onToggle}
