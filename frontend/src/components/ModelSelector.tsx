@@ -13,6 +13,8 @@ export interface ModelOption {
   outputs?: string[]
   /** Input modalities accepted (text, file, image, video, audio). */
   inputs?: string[]
+  /** What it produces: 'text' runs the agent, otherwise it generates media. */
+  kind?: 'text' | 'image' | 'video' | 'audio'
 }
 
 /**
@@ -138,26 +140,16 @@ export async function loadModelCatalogue(
  * models a search box is noise.
  */
 /**
- * A short label for what a model can take in, or null for a plain text model.
+ * What a model produces, for the picker chip.
  *
- * Every offered model emits text — that's a requirement for running the agent —
- * so what actually distinguishes them is what they can read. A model that sees
- * images is worth knowing about when you're about to paste a screenshot; one
- * that only reads text is the unremarkable case and gets no chip, because a
- * label on everything is a label on nothing.
+ * The catalogue holds two kinds: text models, which run the agent, and media
+ * models, whose messages are prompts for a picture or a clip. That difference
+ * changes what a conversation does, so it is what the chip says. Text models
+ * get no chip — they are the unremarkable case, and a label on everything is a
+ * label on nothing.
  */
-// Fixed order, so the same capability always reads the same way. The catalogue
-// lists them inconsistently, which otherwise shows up as "image · file" on one
-// row and "file · image" on the next for models that do the same thing.
-const MODALITY_ORDER = ['image', 'file', 'video', 'audio']
-
 export function modalityLabel(m: ModelOption): string | null {
-  const extra = (m.inputs ?? []).filter((i) => i !== 'text')
-  if (extra.length === 0) return null
-  if (extra.length > 2) return 'multimodal'
-  return [...extra]
-    .sort((a, b) => MODALITY_ORDER.indexOf(a) - MODALITY_ORDER.indexOf(b))
-    .join(' · ')
+  return m.kind && m.kind !== 'text' ? m.kind : null
 }
 
 /** Effort levels exposed in the UI (the CLI also accepts `xhigh`). */

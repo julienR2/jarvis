@@ -27,7 +27,7 @@ export default function GatewayModelPicker({
   onClose: () => void
 }) {
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState<{ kind: 'in' | 'out'; name: string } | null>(null)
+  const [filter, setFilter] = useState<string | null>(null)
 
   // Only a gateway model can be the selection here. `claude-opus-5` on the
   // Claude subscription and `anthropic/claude-opus-5` through a gateway are
@@ -35,33 +35,19 @@ export default function GatewayModelPicker({
   // other's selection would be quietly wrong.
   const activeId = selected && selected.includes('/') ? selected : undefined
 
-  // Filters come from the catalogue rather than a fixed list, so a gateway that
-  // starts serving a new modality gets a chip for free. Modalities every model
-  // has are dropped — they filter nothing.
+  // What a model makes is the distinction that matters: an image model turns
+  // the conversation into an image generator. Derived from the catalogue, so a
+  // gateway that adds a kind gets a chip without a code change.
   const chips = useMemo(() => {
-    const tally = (pick: (m: ModelOption) => string[] | undefined) => {
-      const counts = new Map<string, number>()
-      for (const m of models) {
-        for (const o of pick(m) ?? []) counts.set(o, (counts.get(o) ?? 0) + 1)
-      }
-      return [...counts.entries()]
-        .filter(([, n]) => n < models.length)
-        .sort((a, b) => b[1] - a[1])
-        .map(([name]) => name)
-    }
-    return {
-      out: tally((m) => m.outputs),
-      in: tally((m) => m.inputs),
-    }
+    const kinds = new Set<string>()
+    for (const m of models) if (m.kind && m.kind !== 'text') kinds.add(m.kind)
+    return [...kinds].sort()
   }, [models])
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
     return models.filter((m) => {
-      if (filter) {
-        const has = filter.kind === 'out' ? m.outputs : m.inputs
-        if (!has?.includes(filter.name)) return false
-      }
+      if (filter && (m.kind ?? 'text') !== filter) return false
       if (!q) return true
       return m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)
     })
@@ -110,30 +96,16 @@ export default function GatewayModelPicker({
             <FilterChip active={!filter} onClick={() => setFilter(null)}>
               All
             </FilterChip>
-            {chips.in.map((m) => (
+            <FilterChip active={filter === 'text'} onClick={() => setFilter(filter === 'text' ? null : 'text')}>
+              Chat
+            </FilterChip>
+            {chips.map((k) => (
               <FilterChip
-                key={`in-${m}`}
-                active={filter?.kind === 'in' && filter.name === m}
-                onClick={() =>
-                  setFilter(
-                    filter?.kind === 'in' && filter.name === m ? null : { kind: 'in', name: m },
-                  )
-                }
+                key={k}
+                active={filter === k}
+                onClick={() => setFilter(filter === k ? null : k)}
               >
-                Reads {m}
-              </FilterChip>
-            ))}
-            {chips.out.map((m) => (
-              <FilterChip
-                key={`out-${m}`}
-                active={filter?.kind === 'out' && filter.name === m}
-                onClick={() =>
-                  setFilter(
-                    filter?.kind === 'out' && filter.name === m ? null : { kind: 'out', name: m },
-                  )
-                }
-              >
-                Makes {m}
+                Makes {k}
               </FilterChip>
             ))}
           </div>

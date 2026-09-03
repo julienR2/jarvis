@@ -14,6 +14,8 @@ import {
 } from '../engine.js'
 import { generateTitle } from '../titles.js'
 import { resolveModel } from '../models.js'
+import { modelKind } from '../catalogue.js'
+import { generateMedia } from '../media.js'
 import { sendPushToAll } from '../push.js'
 import {
   emitConversationEvent,
@@ -258,6 +260,18 @@ export function processMessage(
   console.log(`[msg] emit thinking: true`)
   emitConversationEvent(conversationId, { type: 'thinking', thinking: true })
 
+  // A media model isn't an agent: the message is a prompt for a picture or a
+  // clip, so it goes straight to the gateway's media endpoint instead of the
+  // CLI. Choosing an image model chooses the pipeline.
+  const chosenModel = resolveModel(options?.model)
+  modelKind(chosenModel).then((kind) => {
+    if (kind === 'text') return dispatchToAgent()
+    return runMediaGeneration(conversationId, chosenModel, kind, userContent, options?.onDone)
+  })
+
+  return userMsgId
+
+  function dispatchToAgent() {
   // Feed the message into the conversation's persistent session. If a turn is
   // already running the CLI steers/queues it — never refused. The engine owns
   // the process lifecycle; we just stream its events back into an event
@@ -292,8 +306,60 @@ export function processMessage(
       )
       emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
     })
+  }
+}
 
-  return userMsgId
+/**
+ * Run a media model and land the result as an assistant message.
+ *
+ * Written as an attachment rather than markdown so it renders through the same
+ * path an uploaded file does — the UI already knows how to show those, and the
+ * bytes are served with the same per-conversation access rules.
+ */
+async function runMediaGeneration(
+  conversationId: string,
+  model: string,
+  kind: 'image' | 'video' | 'audio',
+  prompt: string,
+  onDone?: (text: string) => void,
+): Promise<void> {
+  try {
+    const media = await generateMedia({
+      kind,
+      conversationId,
+      model,
+      prompt,
+      onProgress: (note) =>
+        emitConversationEvent(conversationId, { type: 'note', text: note } as never),
+    })
+
+    const id = uuid()
+    const text = `Generated with \`${model}\`.`
+    getDb()
+      .prepare(
+        'INSERT INTO messages (id, conversation_id, role, content, result, metadata) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        id,
+        conversationId,
+        'assistant',
+        text,
+        text,
+        JSON.stringify({ attachments: [media] }),
+      )
+    emitConversationEvent(conversationId, {
+      type: 'message',
+      message: getMessageRow(id),
+    })
+    onDone?.(text)
+  } catch (err: any) {
+    emitConversationError(conversationId, err?.message ?? String(err))
+  } finally {
+    emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
+    getDb()
+      .prepare('UPDATE conversations SET updated_at = unixepoch() WHERE id = ?')
+      .run(conversationId)
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
