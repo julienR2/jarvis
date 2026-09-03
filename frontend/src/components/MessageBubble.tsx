@@ -578,6 +578,13 @@ export const markdownComponents: Components = {
   pre: CodeBlockWrapper,
   img: ({ src, alt, node: _node, ...props }) => {
     const translated = translateSrc(src)
+    // The media skill tells the agent to reference generated files with image
+    // markdown, so a clip arrives as ![desc](….mp4) and rendered as an <img>
+    // it was simply a broken image.
+    const playable = mediaKindFromSrc(translated)
+    if (playable) {
+      return <MediaPlayer src={translated} kind={playable} title={alt || undefined} />
+    }
     return (
       <a
         href={translated}
@@ -634,8 +641,81 @@ function CodeBlockWrapper({
   )
 }
 
+/**
+ * What kind of player a URL wants, by extension. Used where there is no
+ * mimetype to go on — the agent references generated files as markdown, so an
+ * mp4 arrives looking exactly like an image.
+ */
+function mediaKindFromSrc(src?: string): 'video' | 'audio' | null {
+  const path = (src ?? '').split('?')[0]
+  if (/\.(mp4|webm|mov|m4v)$/i.test(path)) return 'video'
+  if (/\.(mp3|wav|ogg|opus|m4a|aac)$/i.test(path)) return 'audio'
+  return null
+}
+
+/**
+ * Video and audio play in place.
+ *
+ * Before this they fell through to the generic file link, so a generated clip
+ * arrived as something to download rather than something to watch. Deliberately
+ * `controls` + `preload='metadata'`: no autoplay, and no poster frame to fetch,
+ * so scrolling a long transcript doesn't pull megabytes of video it may never
+ * show. The uploads route answers Range requests, so seeking works.
+ *
+ * Not wrapped in a link, unlike the image preview — clicking the player has to
+ * mean play, not navigate.
+ */
+function MediaPlayer({
+  src,
+  kind,
+  title,
+}: {
+  src: string
+  kind: 'video' | 'audio'
+  title?: string
+}) {
+  if (kind === 'video') {
+    return (
+      <video
+        src={src}
+        controls
+        preload='metadata'
+        title={title}
+        className='block my-2 w-full max-w-[360px] rounded-lg border border-border bg-black'
+      />
+    )
+  }
+  return (
+    <audio
+      src={src}
+      controls
+      preload='metadata'
+      title={title}
+      className='block my-2 w-full max-w-[320px]'
+    />
+  )
+}
+
 function AttachmentPreview({ attachment }: { attachment: Attachment }) {
   const isImage = attachment.mimetype.startsWith('image/')
+
+  // mimetype is authoritative here; fall back to the extension for older rows
+  // written before the type was recorded.
+  const playable = attachment.mimetype.startsWith('video/')
+    ? 'video'
+    : attachment.mimetype.startsWith('audio/')
+      ? 'audio'
+      : mediaKindFromSrc(attachment.url)
+
+  if (playable) {
+    return (
+      <MediaPlayer
+        src={withMediaToken(attachment.url)}
+        kind={playable}
+        title={attachment.originalName}
+      />
+    )
+  }
 
   if (isImage) {
     return (
