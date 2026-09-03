@@ -256,8 +256,8 @@ function MainView({
               : 'Recent commits to the Jarvis repo.'}
       </p>
 
-      {tab === 'changed' && changedCount > 0 && (
-        <RecoveryActions onDone={onReload} />
+      {tab === 'changed' && (
+        <RecoveryActions onDone={onReload} hasChanges={changedCount > 0} />
       )}
 
       {tab === 'commits' ? (
@@ -1144,7 +1144,13 @@ function DiffBlock({ diff, emptyLabel }: { diff: string; emptyLabel: string }) {
  * that would normally fix it may be exactly what is broken. Discard first;
  * revert the last commit if the tree is already clean and still wrong.
  */
-function RecoveryActions({ onDone }: { onDone: () => void }) {
+function RecoveryActions({
+  onDone,
+  hasChanges,
+}: {
+  onDone: () => void
+  hasChanges: boolean
+}) {
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -1169,12 +1175,12 @@ function RecoveryActions({ onDone }: { onDone: () => void }) {
         <input
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          placeholder='Commit message'
+          placeholder={hasChanges ? 'Commit message' : 'Nothing to commit'}
           className='flex-1 bg-bg border border-border text-text-primary rounded-lg px-3 py-1.5 text-sm outline-none focus:border-accent'
         />
         <button
           onClick={() => run('commit', () => api.commitChanges(message.trim()))}
-          disabled={!message.trim() || busy !== null}
+          disabled={!message.trim() || !hasChanges || busy !== null}
           className='bg-accent text-white text-sm px-3 py-1.5 rounded-lg hover:bg-accent-hover disabled:opacity-60 transition-colors'
         >
           {busy === 'commit' ? 'Committing…' : 'Commit'}
@@ -1186,7 +1192,7 @@ function RecoveryActions({ onDone }: { onDone: () => void }) {
             if (!confirm('Throw away every uncommitted change?\n\nThis cannot be undone.')) return
             run('discard', () => api.discardChanges())
           }}
-          disabled={busy !== null}
+          disabled={!hasChanges || busy !== null}
           className='text-danger hover:underline disabled:opacity-60'
         >
           {busy === 'discard' ? 'Discarding…' : 'Discard all changes'}
