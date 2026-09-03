@@ -52,7 +52,7 @@ curl -s "${POCKETBASE_URL}/api/collections/COLLECTION/records?perPage=100" \
 ```bash
 curl -s -G "${POCKETBASE_URL}/api/collections/transactions/records" \
   -H "Authorization: ${TOKEN}" \
-  --data-urlencode 'filter=date >= "2026-02-01" && account = "bankinter"' \
+  --data-urlencode 'filter=date >= "2026-02-01" && account = "checking"' \
   --data-urlencode 'sort=-date' \
   --data-urlencode 'perPage=200'
 ```

@@ -1,6 +1,6 @@
 ---
 name: connectors
-description: How Jarvis's connectors work — where credentials live, how to list what's configured, and how to read a connector's values on demand. Use when you need an API key / login for an external service (Gmail, Notion, Immich, a "papa" mailbox, etc.), when the user asks what connectors exist, or when a skill needs credentials it doesn't already have.
+description: How Jarvis's connectors work — where credentials live, how to list what's configured, and how to read a connector's values on demand. Use when you need an API key / login for an external service (Gmail, GitHub, Slack, a second mailbox, etc.), when the user asks what connectors exist, or when a skill needs credentials it doesn't already have.
 allowed-tools: Bash, Read
 ---
 
@@ -9,7 +9,7 @@ allowed-tools: Bash, Read
 A **connector** is a set of named credentials for one external service, stored in
 the `connectors` table of the Jarvis DB. Each connector has:
 
-- an **id** (slug, e.g. `gmail`, `gmail-papa`, `notion`)
+- an **id** (slug, e.g. `gmail`, `gmail-work`, `notion`)
 - a **name**, **description**, **icon**
 - a list of **fields** — each a `{ label, value }` pair with a stable machine
   **key** (e.g. `GMAIL_APP_PASSWORD`)
@@ -27,7 +27,8 @@ curl -s -H "X-Internal-Secret: $INTERNAL_SECRET" "$BACKEND_URL/internal/connecto
 
 Returns every connector with its `id`, `name`, `description`, `hasProxy`, and
 field **labels + keys** (no values). Use this to discover what exists — for
-example to find that there's a `gmail-papa` **and** an `aol-papa` mailbox.
+example to find that the same person has a `gmail-work` **and** an `aol-personal`
+mailbox configured.
 
 ## Read one connector's values
 
@@ -53,8 +54,8 @@ echo "$GMAIL_ADDRESS"
 ```
 
 Each connector's own skill (gmail, github, linear, …) starts with this snippet
-for its id. Skills without a dedicated page (notion, immich, fathom, the papa
-mailboxes) are used the same way — list the inventory, then read the connector.
+for its id. Connectors you added yourself, with no dedicated skill page, are
+used the same way — list the inventory, then read the connector.
 
 ## Proxy
 
