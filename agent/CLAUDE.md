@@ -28,6 +28,36 @@ For **large** documents that would bloat memory (multi-chat handoffs, long refer
 dumps), write the document under `$WORKSPACE_DIR/memory/` and add a one-line auto-memory
 entry pointing at it — the memory entry stays short, the document holds the detail.
 
+## Reading back this conversation
+
+You are told which conversation you are in: `$JARVIS_CONVERSATION_ID`.
+
+Your own transcript is usually enough — but not always. It is lost whenever the
+CLI session restarts without resuming, and switching **provider** mid-conversation
+does exactly that (a bare model id like `claude-opus-5` goes to Anthropic, a
+namespaced one like `google/gemini-3.8-flash` to a gateway; crossing between them
+cannot resume). The most common way this happens: a cron pinned to a cheap model
+posts into a conversation the user then continues on a different one. The messages
+are still on screen for them, and you cannot see them.
+
+So when the user refers to something you have no memory of — "what did the cron
+find?", "check what was shared above", anything implying earlier context you are
+missing — read it rather than inferring it from the question:
+
+```bash
+curl -s -H "X-Internal-Secret: $INTERNAL_SECRET" \
+  "$BACKEND_URL/internal/conversations/$JARVIS_CONVERSATION_ID/messages?limit=20"
+```
+
+Oldest-first, `limit` 1–100 (default 20). Each message carries `role`, `at`,
+`content`, a `truncated` flag (content is capped at 2000 characters, so a long
+turn comes back clipped) and `attachments` when it produced files.
+
+**Say when you had to look.** If you have just read history you did not remember,
+answer from it normally — but never present a reconstruction as recollection. And
+if the history does not contain what they are asking about, say so instead of
+filling the gap.
+
 ## Web access
 
 You have `WebSearch` and `WebFetch` built in — use them freely.

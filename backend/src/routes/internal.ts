@@ -95,6 +95,78 @@ export async function internalRoutes(app: FastifyInstance) {
     return getDb().prepare('SELECT * FROM crons ORDER BY created_at ASC').all()
   })
 
+  // ── Conversation history ───────────────────────────────────────────────
+  //
+  // Read back what was said in a conversation.
+  //
+  // The CLI carries its own transcript, but it is gone whenever the session is
+  // replaced without a resume — crossing between Anthropic and a gateway does
+  // exactly that, and a cron pinned to a cheap model on one provider posting
+  // into a chat you continue on the other is the ordinary way to hit it. The
+  // messages are still in Jarvis's database either way, so this is how the
+  // agent reads what it can no longer remember, rather than answering from the
+  // shape of the question.
+  //
+  // Newest-first in SQL so LIMIT takes the recent end, returned oldest-first
+  // because that is the order it reads in.
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
+    '/conversations/:id/messages',
+    async (req, reply) => {
+      if (!checkSecret(req, reply)) return
+
+      const conv = getDb()
+        .prepare('SELECT id, title FROM conversations WHERE id = ?')
+        .get(req.params.id) as { id: string; title: string } | undefined
+      if (!conv) return reply.code(404).send({ error: 'Conversation not found' })
+
+      const asked = Number(req.query.limit)
+      const limit = Math.min(Math.max(Number.isFinite(asked) ? asked : 20, 1), 100)
+
+      const rows = getDb()
+        .prepare(
+          `SELECT role, content, metadata, created_at
+             FROM messages
+            WHERE conversation_id = ?
+              AND type IS NULL
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT ?`,
+        )
+        .all(req.params.id, limit) as {
+        role: string
+        content: string
+        metadata: string | null
+        created_at: number
+      }[]
+
+      // A single turn can run to tens of kilobytes once its reasoning is
+      // included. Capped per message so asking for history can't blow up the
+      // context it was meant to restore.
+      const MAX_CHARS = 2000
+
+      const messages = rows.reverse().map((r) => {
+        const full = r.content ?? ''
+        let attachments: string[] = []
+        try {
+          const meta = r.metadata ? JSON.parse(r.metadata) : null
+          attachments = (meta?.attachments ?? []).map(
+            (a: { originalName?: string; url?: string }) => a.originalName || a.url || 'file',
+          )
+        } catch {
+          /* metadata that won't parse simply has no attachments to report */
+        }
+        return {
+          role: r.role,
+          at: new Date(r.created_at * 1000).toISOString(),
+          content: full.length > MAX_CHARS ? full.slice(0, MAX_CHARS) : full,
+          truncated: full.length > MAX_CHARS,
+          ...(attachments.length ? { attachments } : {}),
+        }
+      })
+
+      return { conversation_id: conv.id, title: conv.title, count: messages.length, messages }
+    },
+  )
+
   // ── Webhooks ───────────────────────────────────────────────────────────
 
   app.get('/webhooks', async (req, reply) => {
