@@ -339,7 +339,15 @@ export const useChatStore = create<ChatState>()(
         const conv = await api.getConversation(id, loadedWindow(get(), id))
         set((s) => {
           const { messages, has_more, ...meta } = conv
-          s.conversations[id] = meta
+          // Loading a conversation *is* reading it: the server hands back the
+          // count as it was a moment before, then marks the chat read. Filing
+          // that number as the sidebar's count resurrected the badge the moment
+          // the chat stopped being the active one — the optimistic markRead had
+          // already zeroed it, and this overwrote the zero. It only settled on
+          // the *second* visit, when the server finally reported 0.
+          //
+          // So keep the number for the divider below, and store nothing.
+          s.conversations[id] = { ...meta, unread_count: 0 }
           if (!s.order.includes(id)) s.order.unshift(id)
           s.messages[id] = mergeMessages(s.messages[id] ?? [], messages)
           s.hasMore[id] = has_more
@@ -523,7 +531,11 @@ export const useChatStore = create<ChatState>()(
     reconcileConversation(full) {
       set((s) => {
         const { messages, has_more, ...meta } = full
-        s.conversations[full.id] = meta
+        // Same reason as loadConversation: a resync only ever runs for the
+        // conversation on screen, and the server marked it read as it answered.
+        // Writing its count back would badge the chat you are looking at, and
+        // that badge would then appear the moment you navigated away.
+        s.conversations[full.id] = { ...meta, unread_count: 0 }
         if (!s.order.includes(full.id)) s.order.unshift(full.id)
         s.messages[full.id] = mergeMessages(s.messages[full.id] ?? [], messages)
         s.hasMore[full.id] = has_more
