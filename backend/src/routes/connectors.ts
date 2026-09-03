@@ -88,7 +88,21 @@ export async function connectorRoutes(app: FastifyInstance) {
       if (ct) headers['Content-Type'] = ct
       const body = req.body
       if (body !== undefined && body !== null) {
-        fetchInit.body = typeof body === 'string' ? body : Buffer.isBuffer(body) ? body : JSON.stringify(body)
+        if (typeof body === 'string') {
+          fetchInit.body = body
+        } else if (Buffer.isBuffer(body)) {
+          // `BodyInit` wants an ArrayBuffer-backed view, but a Node Buffer is typed
+          // over the wider `ArrayBufferLike`. Re-wrap as a zero-copy view instead of
+          // copying the whole payload through `new Uint8Array(body)` — this proxy
+          // carries uploads.
+          fetchInit.body = new Uint8Array(
+            body.buffer as ArrayBuffer,
+            body.byteOffset,
+            body.byteLength,
+          )
+        } else {
+          fetchInit.body = JSON.stringify(body)
+        }
       }
     }
 

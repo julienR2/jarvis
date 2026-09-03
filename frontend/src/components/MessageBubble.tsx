@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { FileText, ChevronRight, Copy, Check } from 'lucide-react'
 import { withMediaToken } from '../api'
 import type { Message, Attachment } from '../api'
+import type { Components, ExtraProps } from 'react-markdown'
 
 interface Props {
   msg: Message
@@ -562,20 +563,20 @@ function translateSrc(src?: string): string {
 // same renderer. Matching them matters: if streamed text rendered differently
 // from the persisted message, the handoff at the end of a block would visibly
 // re-layout instead of just... continuing.
-export const markdownComponents = {
-  article: ({ children, ...props }: React.HTMLAttributes<HTMLElement> & Record<string, unknown>) => {
+export const markdownComponents: Components = {
+  article: ({ children, node: _node, ...props }) => {
     if ('data-details' in props || 'dataDetails' in props) {
       return <CollapsibleArticle label='Details'>{children}</CollapsibleArticle>
     }
     return <article {...props}>{children}</article>
   },
-  table: ({ children, ...props }: React.HTMLAttributes<HTMLTableElement>) => (
+  table: ({ children, node: _node, ...props }) => (
     <div className='overflow-x-auto mb-3'>
       <table {...props}>{children}</table>
     </div>
   ),
   pre: CodeBlockWrapper,
-  img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => {
+  img: ({ src, alt, node: _node, ...props }) => {
     const translated = translateSrc(src)
     return (
       <a
@@ -593,11 +594,7 @@ export const markdownComponents = {
       </a>
     )
   },
-  a: ({
-    href,
-    children,
-    ...props
-  }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
+  a: ({ href, children, node: _node, ...props }) => {
     const translated = translateSrc(href)
     return (
       <a href={translated} target='_blank' rel='noopener noreferrer' {...props}>
@@ -607,7 +604,11 @@ export const markdownComponents = {
   },
 }
 
-function CodeBlockWrapper({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) {
+function CodeBlockWrapper({
+  children,
+  node: _node,
+  ...props
+}: React.ComponentPropsWithoutRef<'pre'> & ExtraProps) {
   const [copied, setCopied] = useState(false)
   const preRef = useRef<HTMLPreElement>(null)
 

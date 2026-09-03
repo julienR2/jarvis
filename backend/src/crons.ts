@@ -1,10 +1,10 @@
-import cron from 'node-cron'
+import cron, { type ScheduledTask } from 'node-cron'
 import { getDb, uuid } from './db.js'
 import { config } from './config.js'
 import { processMessage } from './routes/conversations.js'
 import type { CronRow, ConvRow } from './types.js'
 
-const tasks = new Map<string, cron.ScheduledTask>()
+const tasks = new Map<string, ScheduledTask>()
 
 function ensureConversation(entry: CronRow): { conversationId: string; conv: ConvRow } {
   if (entry.conversation_id) {
