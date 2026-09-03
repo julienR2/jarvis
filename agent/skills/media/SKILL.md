@@ -1,6 +1,6 @@
 ---
 name: media
-description: Generate images and video with OpenRouter's media endpoints, and save them into the conversation. Use when the user asks for a picture, illustration, logo, diagram-as-image, pixel art, or a short video clip.
+description: Generate images and video with OpenRouter's media endpoints, and save them into the conversation. Use when the user asks for a picture, illustration, logo, diagram-as-image, pixel art, or for a video, animation, animated clip, moving image, or GIF. A request for motion means the video endpoint — never a screenshot of a CSS animation, which is one frame.
 allowed-tools: Bash, Read
 ---
 
@@ -62,8 +62,14 @@ Video is asynchronous: submit, then poll.
 curl -s https://openrouter.ai/api/v1/videos \
   -H "Authorization: Bearer $OPENROUTER_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"google/veo-3.1","prompt":"a serene mountain lake at dawn","aspect_ratio":"16:9","resolution":"720p","duration":8}'
+  -d '{"model":"google/veo-3.1","prompt":"a serene mountain lake at dawn"}'
 ```
+
+**Send model and prompt only.** Every other parameter is provider-specific, and a
+plausible-looking default is worse than nothing: `"resolution":"720p"` is rejected
+outright by some models (Hailuo takes 768p or 480p) with a `400`. Omit them and each
+provider uses what it actually supports. Add one only when the user asks for it and
+you know that model accepts it.
 
 That returns `202` with `{ "id": "...", "status": "pending" }`. Poll
 `GET https://openrouter.ai/api/v1/videos/<id>` until `status` is `completed`

@@ -72,7 +72,16 @@ can trace back to anything.
 Long-lived artefacts that outlive the chat that made them (a reference PDF, an
 archive) belong in `$WORKSPACE_DIR/memory/` or on the drive — not in `uploads/`.
 
-**Playwright screenshots**: the Playwright MCP server writes files into `/uploads` from its own container — that's the **same directory** as `$WORKSPACE_DIR/uploads/` in yours (shared mount). It cannot write to a subfolder, so pass a filename and reference the result as `![desc](/jarvis/agent/workspace/uploads/<filename>)`, not `/uploads/<filename>`. It also drops `page-*.yml` / `console-*.log` debris there — delete those when you're done.
+**Playwright screenshots**: the Playwright MCP server runs in its own container, where `/uploads` is the **same directory** as `$WORKSPACE_DIR/uploads/` in yours (shared mount). Where a file lands depends on which tool you use:
+
+- `browser_take_screenshot` is configured with `--output-dir /uploads`, so pass a bare `filename` and it goes to the shared mount. It cannot write to a subfolder.
+- `browser_run_code` (and `browser_evaluate`) execute inside the server's own process, which does **not** use `--output-dir`. A relative path in `page.screenshot({ path })` resolves against the server's working directory (`/home/node`) — outside the shared mount, so the file is invisible from here and any link to it 404s. The tool still reports success, so this fails silently. **Pass an absolute `/uploads/<filename>`.**
+
+Either way, reference the result as `![desc](/jarvis/agent/workspace/uploads/<filename>)`, not `/uploads/<filename>`. Confirm the file is really there (`ls $WORKSPACE_DIR/uploads/<filename>`) before telling the user it worked.
+
+A screenshot is one frame. It cannot capture a CSS or JS animation as an animation — don't offer a screenshot of a moving scene as an "animation". For real motion, use the `media` skill's video endpoint.
+
+It also drops `page-*.yml` / `console-*.log` debris in `/uploads` — delete those when you're done.
 
 ## Git
 
