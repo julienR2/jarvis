@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { Clock, Link2, BellOff, BellRing, Loader2 } from 'lucide-react'
+import { Clock, Link2, BellOff, BellRing, Loader2, ArrowUp } from 'lucide-react'
 import {
   api,
   type Message,
@@ -18,6 +18,11 @@ import ChatInput from './ChatInput'
 import { DEFAULT_MODEL, DEFAULT_EFFORT } from './ModelSelector'
 import AppPreview from './AppPreview'
 import { ContentTitle } from './ContentLayout'
+
+/** Shared so the jump button can find the divider without threading a ref
+ *  through the day-grouping list. */
+const UNREAD_ANCHOR_ID = 'unread-anchor'
+
 import ConversationMenu from './ConversationMenu'
 import SectionPicker from './SectionPicker'
 
@@ -133,6 +138,11 @@ export default function ChatView({
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [floatingLabel, setFloatingLabel] = useState<string | null>(null)
   const [showFloating, setShowFloating] = useState(false)
+  // Whether the unread divider has scrolled out of view. Drives the jump
+  // button: with nothing to jump *to* on screen, the divider alone is easy to
+  // miss, and on a long backlog you land at the newest message with no idea
+  // where reading should start.
+  const [unreadOffscreen, setUnreadOffscreen] = useState(false)
 
   useEffect(() => {
     setShowPreview(true)
@@ -182,6 +192,38 @@ export default function ChatView({
     if (!ownMessageLast && container && Math.abs(container.scrollTop) > 100) return
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isProcessing])
+
+  // Watch the divider so the jump button only appears when it is off screen.
+  // Re-created on message changes because the divider is remounted as the list
+  // grows, and an observer bound to a detached node reports nothing.
+  useEffect(() => {
+    setUnreadOffscreen(false)
+    if (!unreadAnchor) return
+    const root = scrollContainerRef.current
+    const el = document.getElementById(UNREAD_ANCHOR_ID)
+    if (!root || !el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => setUnreadOffscreen(!entry.isIntersecting),
+      { root },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [unreadAnchor, messages.length])
+
+  // How many replies arrived since you last looked — counted from the divider,
+  // so it matches exactly what sits below it.
+  const unreadCount = useMemo(() => {
+    if (!unreadAnchor) return 0
+    const i = messages.findIndex((m) => m.id === unreadAnchor)
+    if (i < 0) return 0
+    return messages.slice(i).filter((m) => m.role === 'assistant' && !m.type).length
+  }, [messages, unreadAnchor])
+
+  function jumpToFirstUnread() {
+    document
+      .getElementById(UNREAD_ANCHOR_ID)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
 
   // Load the previous page as the top of the list approaches the viewport.
   // Re-created on every length change so that a page which lands entirely
@@ -404,9 +446,23 @@ export default function ChatView({
 
           {/* Messages */}
           <div className='relative flex-1 min-h-0'>
-            {/* Floating date pill */}
+            {/* Jump to where reading left off. Only while the divider is out
+                of sight — on screen it speaks for itself. */}
+            {unreadAnchor && unreadOffscreen && (
+              <button
+                onClick={jumpToFirstUnread}
+                className='absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-white shadow-md hover:bg-accent-hover transition-colors'
+              >
+                <ArrowUp size={13} />
+                {unreadCount > 0
+                  ? `${unreadCount} new message${unreadCount > 1 ? 's' : ''}`
+                  : 'First unread'}
+              </button>
+            )}
+
+            {/* Floating date pill — shifts down so the jump button keeps the top slot */}
             <div
-              className={`absolute top-3 left-1/2 -translate-x-1/2 z-10 pointer-events-none transition-opacity duration-300 ${showFloating && floatingLabel ? 'opacity-100' : 'opacity-0'}`}
+              className={`absolute left-1/2 -translate-x-1/2 z-10 pointer-events-none transition-all duration-300 ${unreadAnchor && unreadOffscreen ? 'top-14' : 'top-3'} ${showFloating && floatingLabel ? 'opacity-100' : 'opacity-0'}`}
             >
               <span className='px-3 py-1 rounded-full bg-bg-alt text-[11px] text-text-muted font-medium border border-border shadow-sm'>
                 {floatingLabel}
@@ -646,10 +702,13 @@ function DateSeparator({ label }: { label: string }) {
 // another date.
 function UnreadSeparator() {
   return (
-    <div className='flex items-center gap-3 my-4'>
-      <div className='flex-1 h-px bg-accent/40' />
-      <span className='text-[11px] text-accent font-medium shrink-0'>Unread messages</span>
-      <div className='flex-1 h-px bg-accent/40' />
+    // scroll-mt keeps the label clear of the floating pills when jumped to.
+    <div id={UNREAD_ANCHOR_ID} className='flex items-center gap-3 my-5 scroll-mt-24'>
+      <div className='flex-1 h-px bg-accent' />
+      <span className='shrink-0 rounded-full bg-accent px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white shadow-sm'>
+        New
+      </span>
+      <div className='flex-1 h-px bg-accent' />
     </div>
   )
 }
