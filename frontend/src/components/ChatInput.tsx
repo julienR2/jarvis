@@ -241,11 +241,17 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
             />
           </div>
 
+          {/*
+            No `accept` — the picker takes anything. Drag-drop and paste always
+            did (both hand `addFiles` whatever they're given) and the backend has
+            no type allowlist either, so the whitelist here only made the attach
+            button the one route that refused a file the rest of the stack would
+            have accepted. Size is the real limit: 20MB, reported per file.
+          */}
           <input
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*,application/pdf,text/*,.doc,.docx,.xls,.xlsx,.csv,.json,.xml,.yaml,.yml"
             className="hidden"
             onChange={(e) => {
               const selected = Array.from(e.target.files || [])
