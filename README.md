@@ -30,6 +30,7 @@ The idea is less "deploy and use" and more "deploy and shape." You start with a 
 - **Plugins** -- Add Claude Code plugin marketplaces from Settings, install plugins, toggle them on or off. Enabled plugins load in every conversation, cron and webhook.
 - **Browser** -- A real Chromium the agent drives through Playwright, for sites that need clicking rather than fetching.
 - **Sharing** -- Send someone a link to a conversation, read-only or with replies. No account needed on their side.
+- **Any model** -- Claude by default, or any OpenRouter model that can run the agent. Both providers are live at once; the model id decides where each conversation goes.
 - **Mobile PWA** -- Installable, responsive, with push notifications and share target support.
 
 ### Apps
@@ -77,6 +78,25 @@ Share a conversation with a link. Read-only shows the transcript as it continues
 
 Generated apps have their own links, separate from conversation shares and separately revocable.
 
+### Models and providers
+
+Both providers are configured at once, and the **shape of the model id decides where a message goes**: a namespaced id (`openai/gpt-5.6`) goes to the gateway, a bare one (`claude-opus-5`) to Anthropic. That is per-conversation, so a chat on GPT and a chat on Claude can run side by side. The engine and the model picker apply the same rule, so they cannot disagree.
+
+If you point Jarvis at OpenRouter, the model list is filtered, and **the interesting-looking model you wanted may not be there**. To run the agent, a text model must:
+
+- **support tool calling** -- every turn may reach for Bash, Read or Edit, so a model without tools cannot complete a single turn;
+- **accept `max_tokens`** -- the Messages API requires it;
+- **have a context window of at least 32k** -- the smallest real Jarvis turn measured here is around 36k once the system prompt and skills are counted, so a 4k or 8k window cannot hold one.
+
+Image and video models are exempt from all three. They are never asked to run the agent -- they are called directly at `/v1/images` or `/v1/videos` with your message as the prompt -- so filtering them on tool support would hide every image model there is.
+
+**Audio generation is not wired up yet.** Audio models are listed and selectable, but picking one and asking for a sound fails with "audio generation isn't supported yet" -- the generation path handles image and video only. Listed because the catalogue reports them honestly; unimplemented because the endpoint shape hasn't been confirmed.
+
+Two further caveats worth setting expectations on:
+
+- OpenRouter's own Claude Code guide warns that it "may not work correctly with other providers". Jarvis does not change that. Non-Anthropic models work, but treat tool-heavy and subagent-heavy work as the part to check first on a model you have not tried.
+- **Switching provider mid-conversation loses the CLI's context carry-over.** Jarvis keeps its own transcript, so nothing disappears from the screen, but the underlying CLI starts fresh -- a transcript belongs to the provider that produced it.
+
 ## Guardrails
 
 Giving an AI write access to its own code sounds reckless. Here is what makes it workable:
@@ -119,7 +139,7 @@ docker compose logs backend | grep setup
 
 It's there so that an instance reachable from the internet before you've finished setting it up can't be claimed by someone else. Set `SETUP_CODE` in `.env` to pin your own instead.
 
-Your Claude credentials aren't frozen at setup: Settings → Connection changes them at any time, and can point Jarvis at OpenRouter or any Anthropic-compatible gateway instead. Both are verified before they're saved, and take effect on your next message without a restart.
+Your Claude credentials aren't frozen at setup: Settings → Connection changes them at any time, and can point Jarvis at OpenRouter or any Anthropic-compatible gateway instead. Both are verified before they're saved, and take effect on your next message without a restart. If you go the gateway route, read [Models and providers](#models-and-providers) first -- not every model can run the agent.
 
 No `.env` file is needed. To pre-seed values instead -- a headless install, or handing off a pre-configured instance -- copy `.env.example` to `.env` and fill in what you want (OAuth token, admin credentials, timezone).
 
