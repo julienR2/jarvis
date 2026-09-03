@@ -1,5 +1,5 @@
-import { watch, readFileSync, existsSync } from 'fs'
-import { join } from 'path'
+import { watch, readFileSync, existsSync, type FSWatcher } from 'fs'
+import { dirname, join } from 'path'
 import { emitGlobalEvent } from './sse.js'
 
 // Watch the built frontend and tell open tabs when a new build lands.
@@ -17,28 +17,29 @@ const DIST_INDEX = join(
   process.env.JARVIS_REPO_DIR || '/jarvis',
   'frontend/dist/index.html',
 )
+const DIST_DIR = dirname(DIST_INDEX)
 
 // A build rewrites the file in several steps; wait for it to settle so tabs are
 // told once, and only once the new assets are actually on disk.
 const SETTLE_MS = 1500
 
-export function startFrontendWatch(): void {
-  if (!existsSync(DIST_INDEX)) {
-    console.log(`[frontend-watch] ${DIST_INDEX} not found, skipping`)
-    return
-  }
+// How long to wait before looking for dist again, when it isn't there yet or
+// the watch dropped out from under us.
+const REARM_MS = 5000
 
+export function startFrontendWatch(): void {
   let lastContent = ''
-  try { lastContent = readFileSync(DIST_INDEX, 'utf8') } catch { /* read on next tick */ }
+  try { lastContent = readFileSync(DIST_INDEX, 'utf8') } catch { /* read on first event */ }
 
   let timer: NodeJS.Timeout | null = null
+  let watcher: FSWatcher | null = null
 
   const check = () => {
     let content: string
     try {
       content = readFileSync(DIST_INDEX, 'utf8')
     } catch {
-      return // mid-write; the next event brings us back
+      return // mid-write, or dist is being replaced; the next event brings us back
     }
     if (!content || content === lastContent) return
     lastContent = content
@@ -46,13 +47,42 @@ export function startFrontendWatch(): void {
     emitGlobalEvent({ type: 'frontend_updated' })
   }
 
-  try {
-    watch(DIST_INDEX, () => {
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(check, SETTLE_MS)
-    })
-    console.log(`[frontend-watch] watching ${DIST_INDEX}`)
-  } catch (err) {
-    console.error('[frontend-watch] could not watch:', err)
+  // Watch the *directory*, not index.html itself. A file watch is bound to the
+  // inode it was opened on, so anything that replaces index.html rather than
+  // rewriting it in place — `vite build` emptying outDir, most notably — leaves
+  // a live watcher attached to a file nobody will ever write again. It fails
+  // silently: no error, no events, and the reload banner simply stops working
+  // until the backend restarts.
+  const arm = () => {
+    if (!existsSync(DIST_DIR)) {
+      // No dist yet (a fresh checkout that hasn't built). Keep looking instead
+      // of giving up for the lifetime of the process.
+      setTimeout(arm, REARM_MS)
+      return
+    }
+
+    try {
+      watcher = watch(DIST_DIR, (_event, filename) => {
+        // Every asset write lands here; index.html is the only one that matters.
+        // filename can be null on some platforms — fall through and check.
+        if (filename && filename !== 'index.html') return
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(check, SETTLE_MS)
+      })
+
+      // If the directory itself goes away, re-establish rather than going deaf.
+      watcher.on('error', () => {
+        watcher?.close()
+        watcher = null
+        setTimeout(arm, REARM_MS)
+      })
+
+      console.log(`[frontend-watch] watching ${DIST_DIR}`)
+    } catch (err) {
+      console.error('[frontend-watch] could not watch, retrying:', err)
+      setTimeout(arm, REARM_MS)
+    }
   }
+
+  arm()
 }
