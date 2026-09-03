@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Copy, Check, Loader2, Eye, MessageSquare, Link2Off } from 'lucide-react'
 import { api } from '../api'
+import { useChatStore } from '../stores/chatStore'
 
 type Mode = 'read' | 'write' | null
 
@@ -28,7 +29,11 @@ export default function ShareDialog({
 
   useEffect(() => {
     api.getShare(conversationId)
-      .then((s) => { setMode(s.mode); setToken(s.token) })
+      .then((s) => {
+        setMode(s.mode)
+        setToken(s.token)
+        useChatStore.getState().setShareMode(conversationId, s.mode)
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [conversationId])
@@ -42,6 +47,7 @@ export default function ShareDialog({
       const s = await api.setShare(conversationId, next, rotate)
       setMode(s.mode)
       setToken(s.token)
+      useChatStore.getState().setShareMode(conversationId, s.mode)
     } catch (e: any) {
       setError(e.message)
     } finally {

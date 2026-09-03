@@ -16,7 +16,7 @@ import {
   Home,
   Link2,
   RefreshCw,
-  BellRing,
+  Earth,
   ChevronUp,
   ChevronDown,
   MoreHorizontal,
@@ -684,14 +684,9 @@ function ConvItem({
               <Link2 size={11} className='text-text-muted hover:text-accent' />
             </span>
           )}
-          {conv.notify === 'unsubscribe' && (
-            <span title='Notifications off'>
-              <BellOff size={11} className='text-text-muted' />
-            </span>
-          )}
-          {conv.notify === 'auto' && (
-            <span title='Auto notifications'>
-              <BellRing size={11} className='text-text-muted' />
+          {!!conv.share_mode && (
+            <span title={conv.share_mode === 'write' ? 'Shared — can reply' : 'Shared — read-only'}>
+              <Earth size={11} className='text-text-muted' />
             </span>
           )}
         </span>

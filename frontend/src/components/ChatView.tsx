@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { Clock, Link2, BellOff, BellRing, Loader2, ArrowUp } from 'lucide-react'
+import { Clock, Link2, Earth, Loader2, ArrowUp } from 'lucide-react'
 import {
   api,
   type Message,
@@ -144,6 +144,7 @@ export default function ChatView({
   const effort = conv?.effort ?? DEFAULT_EFFORT
   const hasCron = !!conv?.has_cron
   const hasWebhook = !!conv?.has_webhook
+  const shareMode = conv?.share_mode ?? null
   const sectionId = conv?.section_id ?? null
   const contextTokens = conv?.context_tokens ?? null
   const contextWindow = conv?.context_window ?? null
@@ -445,7 +446,7 @@ export default function ChatView({
           <ContentTitle
             action={conversationId && !shared ? (
               <span className='flex items-center gap-2'>
-                <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
+                <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} shareMode={shareMode} />
                 <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
                 <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShareToken(token) } : undefined} />
               </span>
@@ -486,7 +487,7 @@ export default function ChatView({
               <ContentTitle
                 action={conversationId && !shared ? (
                   <span className='flex items-center gap-2'>
-                    <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} notify={notify} />
+                    <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} shareMode={shareMode} />
                     <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
                     <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} />
                   </span>
@@ -839,9 +840,9 @@ function ContextGauge({ tokens, windowTokens }: { tokens?: number | null; window
   )
 }
 
-function ConvStatusIcons({ conversationId, hasCron, hasWebhook, notify }: { conversationId?: string; hasCron: boolean; hasWebhook: boolean; notify: string }) {
+function ConvStatusIcons({ conversationId, hasCron, hasWebhook, shareMode }: { conversationId?: string; hasCron: boolean; hasWebhook: boolean; shareMode: Conversation['share_mode'] }) {
   const navigate = useNavigate()
-  const any = hasCron || hasWebhook || notify === 'unsubscribe' || notify === 'auto'
+  const any = hasCron || hasWebhook || !!shareMode
   if (!any) return null
   return (
     <span className='flex items-center gap-3 shrink-0'>
@@ -859,8 +860,11 @@ function ConvStatusIcons({ conversationId, hasCron, hasWebhook, notify }: { conv
           onClick={() => conversationId && navigate(`/webhooks?conversation_id=${conversationId}`)}
         />
       )}
-      {notify === 'unsubscribe' && <BellOff size={14} className='text-text-muted' />}
-      {notify === 'auto' && <BellRing size={14} className='text-text-muted' />}
+      {!!shareMode && (
+        <span title={shareMode === 'write' ? 'Shared — can reply' : 'Shared — read-only'}>
+          <Earth size={14} className='text-text-muted' />
+        </span>
+      )}
     </span>
   )
 }

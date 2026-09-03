@@ -83,6 +83,9 @@ interface ChatState {
   touchConversation: (convId: string) => void
   setTitleFromEvent: (convId: string, title: string) => void
   setContextUsage: (convId: string, tokens: number, windowTokens: number | null) => void
+  /** Keeps the shared indicator in step with the share dialog, which talks to
+   * its own endpoint rather than the conversation patch route. */
+  setShareMode: (convId: string, mode: Conversation['share_mode']) => void
   incrementUnread: (convId: string) => void
   markRead: (convId: string) => void
   /** Drop the unread divider — the user is leaving the conversation. */
@@ -490,6 +493,13 @@ export const useChatStore = create<ChatState>()(
         // gauge rather than keep the previous model's window — mirrors what the
         // backend persists, so a reload shows the same thing.
         c.context_window = windowTokens
+      })
+    },
+
+    setShareMode(convId, mode) {
+      set((s) => {
+        const c = s.conversations[convId]
+        if (c) c.share_mode = mode
       })
     },
 

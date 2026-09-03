@@ -473,6 +473,8 @@ export interface Conversation {
   context_tokens: number | null
   context_window: number | null
   unread_count: number
+  /** Non-null while a share link is live — 'read' or 'write'. */
+  share_mode: 'read' | 'write' | null
   has_cron?: number
   has_webhook?: number
   created_at: number
