@@ -51,3 +51,6 @@ agent/rules/*
 !agent/rules/safety.md
 !agent/rules/formatting.md
 !agent/rules/emails.md
+
+# landing page build output
+site/_site/
