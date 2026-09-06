@@ -191,6 +191,12 @@ export function processMessage(
     onDone?: (text: string) => void
     model?: string
     effort?: EffortLevel
+    // Run under a throwaway engine session instead of the conversation's own.
+    // The messages still persist and stream into `conversationId`; what the run
+    // does NOT get is the conversation's history, and what the conversation does
+    // NOT get is this run's session. Used by crons and webhooks whose prompt is
+    // self-contained (see inherit_context).
+    runKey?: string
   },
 ): string | null {
   // Slash commands pass through untouched — no notify prefix, no attachment refs.
@@ -283,16 +289,24 @@ export function processMessage(
   // already running the CLI steers/queues it — never refused. The engine owns
   // the process lifecycle; we just stream its events back into an event
   // handler that persists everything to the DB.
+  // An isolated run talks to the engine under its own key and starts with no
+  // session to resume, which is what makes it cheap: a fresh spawn carries the
+  // system prompt and skills only, not the conversation's accumulated history.
+  const runKey = options?.runKey
+  const isolated = !!runKey
+
   sendMessage({
     prompt: claudePrompt,
-    sessionId: conv.claude_session_id,
-    conversationId,
+    sessionId: isolated ? null : conv.claude_session_id,
+    conversationId: runKey ?? conversationId,
     model: resolveModel(options?.model),
     effort: options?.effort,
   })
     .then(({ queued }) => {
       attachConversationStream(conversationId, conv, {
         onDone: options?.onDone,
+        runKey,
+        isolated,
       })
       if (queued) {
         console.log(`[msg] steered into the running turn of ${conversationId}`)
@@ -302,7 +316,7 @@ export function processMessage(
         // *after* the user bubble — otherwise the reply keeps appending above
         // it and the message reads as if it were never taken into account.
         // Attach first: it creates the entry this flag lives on.
-        markSteerPending(conversationId)
+        markSteerPending(runKey ?? conversationId)
       }
     })
     .catch((err) => {
@@ -433,9 +447,22 @@ function markSteerPending(conversationId: string): void {
 export function attachConversationStream(
   conversationId: string,
   conv: ConvRow,
-  options?: { onDone?: (text: string) => void },
+  options?: { onDone?: (text: string) => void; runKey?: string; isolated?: boolean },
 ): void {
-  const existing = attachedConversations.get(conversationId)
+  // `conversationId` names two things that are usually the same and, for an
+  // isolated run, deliberately are not:
+  //
+  //   streamKey      — which engine session we subscribe to and assemble from
+  //   conversationId — where the resulting messages are persisted and shown
+  //
+  // A cron firing with inherit_context = 0 runs under a throwaway streamKey, so
+  // it gets a clean session, while its output still lands in the conversation
+  // it is linked to. Everything below that touches the DB or the UI keeps using
+  // conversationId; only the engine-facing bookkeeping uses streamKey.
+  const streamKey = options?.runKey ?? conversationId
+  const isolated = options?.isolated ?? false
+
+  const existing = attachedConversations.get(streamKey)
   if (existing) {
     if (options?.onDone) existing.onDoneQueue.push(options.onDone)
     return
@@ -444,7 +471,7 @@ export function attachConversationStream(
     onDoneQueue: options?.onDone ? [options.onDone] : [],
     steerPending: false,
   }
-  attachedConversations.set(conversationId, attached)
+  attachedConversations.set(streamKey, attached)
 
   // Per-turn assembly state — one assistant message, progressively updated,
   // reset at every done/error so the next turn starts a fresh message.
@@ -635,8 +662,14 @@ export function attachConversationStream(
         console.log(`[msg] emit message (done) ${msgId}`)
         emitConversationEvent(conversationId, { type: 'message', message: row })
 
-        // Update session ID if new
-        if (ev.sessionId && ev.sessionId !== conv.claude_session_id) {
+        // Update session ID if new.
+        //
+        // Skipped for an isolated run: that session is a throwaway created for
+        // this fire alone, and writing it here would replace the conversation's
+        // real session — destroying exactly the continuity the isolation is
+        // meant to protect, and leaving the next human message to resume a
+        // session that only ever saw a cron prompt.
+        if (!isolated && ev.sessionId && ev.sessionId !== conv.claude_session_id) {
           console.log(`[msg] db UPDATE conversation session: ${ev.sessionId}`)
           getDb()
             .prepare(
@@ -710,7 +743,7 @@ export function attachConversationStream(
             .get(conversationId) as { title: string } | undefined
         )?.title
 
-        if (msgCount <= 3 && ev.sessionId && currentTitle === 'New conversation') {
+        if (!isolated && msgCount <= 3 && ev.sessionId && currentTitle === 'New conversation') {
           const titleModel = (
             getDb()
               .prepare('SELECT model FROM conversations WHERE id = ?')
@@ -776,13 +809,13 @@ export function attachConversationStream(
       }
   }
 
-  streamConversation(conversationId, onEvent, () => {
+  streamConversation(streamKey, onEvent, () => {
     // Stream ended server-side (session closed / legacy turn finished) —
     // drop the guard so the next message re-attaches. If a pending done kept
     // the spinner on and the session died before its wake-up turn, this is
     // the safety net that turns it off.
     dropLive()
-    attachedConversations.delete(conversationId)
+    attachedConversations.delete(streamKey)
     emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
   })
 }

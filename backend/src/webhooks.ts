@@ -69,6 +69,12 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
     userMessageOverride: displayMessage,
     model: entry.model ?? undefined,
     effort: entry.effort,
+    // See crons.ts — a webhook fires on someone else's schedule, so by default
+    // it gets a clean session and reports into the linked conversation rather
+    // than inheriting (and paying for) everything said there.
+    runKey: entry.inherit_context
+      ? undefined
+      : `hook-${entry.id}-${Date.now()}`,
   }
 
   const donePromise = sync

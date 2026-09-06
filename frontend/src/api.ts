@@ -517,6 +517,8 @@ export interface Cron {
   conversation_id: string | null
   enabled: number
   once: number
+  /** 0 = each fire runs in its own session, only posting into the conversation. */
+  inherit_context: number
   model: string | null
   effort: Effort
   last_run: number | null
@@ -530,6 +532,7 @@ export interface CronInput {
   prompt: string
   enabled?: boolean
   once?: boolean
+  inherit_context?: boolean
   model?: string
   effort?: Effort
 }

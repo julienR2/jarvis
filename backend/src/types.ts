@@ -50,6 +50,8 @@ export interface CronRow {
   once: number
   model: string | null
   effort: EffortLevel
+  /** 0 = run in a throwaway session, reporting into the linked conversation. */
+  inherit_context: number
   last_run: number | null
   last_result: string | null
   created_at: number
@@ -66,6 +68,8 @@ export interface WebhookRow {
   effort: EffortLevel
   notify: 'auto' | 'never' | 'always'
   user_message_key: string | null
+  /** 0 = run in a throwaway session, reporting into the linked conversation. */
+  inherit_context: number
   last_run: number | null
   last_result: string | null
   created_at: number

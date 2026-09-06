@@ -20,6 +20,7 @@ export async function webhookRoutes(app: FastifyInstance) {
       effort?: string
       notify?: 'auto' | 'never' | 'always'
       user_message_key?: string
+      inherit_context?: boolean
     }
 
     if (!body.name || !body.prompt) {
@@ -33,10 +34,13 @@ export async function webhookRoutes(app: FastifyInstance) {
     const effort = normalizeEffort(body.effort)
     const notify = body.notify ?? 'auto'
     const user_message_key = body.user_message_key ?? null
+    // Off by default — see crons: an inherited conversation is re-read on every
+    // trigger, which for a hot webhook is the most expensive thing it does.
+    const inheritContext = body.inherit_context ? 1 : 0
 
     getDb()
-      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, model, effort, notify, user_message_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, token, body.prompt, enabled, model, effort, notify, user_message_key)
+      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, model, effort, notify, user_message_key, inherit_context) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, token, body.prompt, enabled, model, effort, notify, user_message_key, inheritContext)
 
     return getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(id)
   })
@@ -50,6 +54,7 @@ export async function webhookRoutes(app: FastifyInstance) {
       effort: string
       notify: 'auto' | 'never' | 'always'
       user_message_key: string | null
+      inherit_context: boolean
     }>
 
     const existing = getDb()
@@ -66,11 +71,15 @@ export async function webhookRoutes(app: FastifyInstance) {
       effort: body.effort !== undefined ? normalizeEffort(body.effort) : existing.effort,
       notify: body.notify ?? existing.notify ?? 'auto',
       user_message_key: body.user_message_key !== undefined ? (body.user_message_key || null) : existing.user_message_key,
+      inherit_context:
+        body.inherit_context !== undefined
+          ? (body.inherit_context ? 1 : 0)
+          : existing.inherit_context,
     }
 
     getDb()
-      .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=?, model=?, effort=?, notify=?, user_message_key=? WHERE id=?')
-      .run(updated.name, updated.prompt, updated.enabled, updated.model, updated.effort, updated.notify, updated.user_message_key, req.params.id)
+      .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=?, model=?, effort=?, notify=?, user_message_key=?, inherit_context=? WHERE id=?')
+      .run(updated.name, updated.prompt, updated.enabled, updated.model, updated.effort, updated.notify, updated.user_message_key, updated.inherit_context, req.params.id)
 
     return getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(req.params.id)
   })

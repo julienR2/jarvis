@@ -254,7 +254,12 @@ async function reconnectActiveSessions(): Promise<void> {
         .prepare('SELECT * FROM conversations WHERE id = ?')
         .get(conversationId) as ConvRow | undefined
       if (!conv) {
-        // Synthetic ids (title generation, probes) have no conversation row.
+        // Synthetic ids have no conversation row: title generation, probes,
+        // and the `cron-*` / `hook-*` keys of isolated runs. Skipping an
+        // isolated run costs its output — the engine finishes the turn, but
+        // nothing is left to persist it into the linked conversation. That is
+        // the accepted trade for the restart being rare and the alternative
+        // being a runKey->conversation mapping to keep alive across restarts.
         console.warn(
           `[reconnect] conversation ${conversationId} not found, skipping`,
         )

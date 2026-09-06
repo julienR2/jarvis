@@ -60,6 +60,13 @@ export function fireCron(entry: CronRow): void {
     skipUserMessage: true,
     model: entry.model ?? undefined,
     effort: entry.effort,
+    // Unless the cron opts into the conversation's history, each fire runs in
+    // its own session and only reports into the linked conversation. The key is
+    // unique per fire so two runs never share a session, and the conversation's
+    // own session is never touched.
+    runKey: entry.inherit_context
+      ? undefined
+      : `cron-${entry.id}-${Date.now()}`,
     onDone: (text) => {
       getDb()
         .prepare('UPDATE crons SET last_result = ? WHERE id = ?')

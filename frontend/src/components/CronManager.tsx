@@ -13,6 +13,10 @@ function emptyForm(): CronInput {
     prompt: '',
     enabled: true,
     once: false,
+    // Off by default: a schedule's prompt is normally self-contained, so
+    // inheriting the conversation just means re-reading its whole history —
+    // and paying for it — on every single fire.
+    inherit_context: false,
     // Pinned to a concrete id, deliberately. A schedule should keep running on
     // the model it was set up with — a cheap one for a routine task — while the
     // conversation it posts into stays on whatever you talk to it with. Saving
@@ -79,6 +83,7 @@ export default function CronManager() {
       prompt: cron.prompt,
       enabled: !!cron.enabled,
       once: !!cron.once,
+      inherit_context: !!cron.inherit_context,
       model: cron.model ?? getDefaultModel(),
       effort: cron.effort ?? DEFAULT_EFFORT,
     })
@@ -152,6 +157,18 @@ export default function CronManager() {
               />
               Run once
             </label>
+            <label
+              className='flex gap-1.5 items-center cursor-pointer text-text-muted'
+              title='Off: each run starts fresh and only posts its result here — cheaper, and it leaves the conversation&apos;s own session untouched. On: the run inherits everything said in the conversation.'
+            >
+              <input
+                type='checkbox'
+                checked={form.inherit_context ?? false}
+                onChange={(e) => setForm({ ...form, inherit_context: e.target.checked })}
+                className='accent-accent'
+              />
+              Use conversation context
+            </label>
 
             <ModelSelector
               model={form.model ?? getDefaultModel()}
@@ -205,6 +222,7 @@ export default function CronManager() {
               <div className='text-xs text-text-muted font-mono'>
                 {cron.schedule}
                 {cron.once ? ' \u00B7 once' : ''}
+                {cron.inherit_context ? ' \u00B7 shares context' : ''}
                 {' \u00B7 '}{modelName(cron.model ?? getDefaultModel())}
                 {cron.effort && cron.effort !== 'high' ? ` \u00B7 ${cron.effort} effort` : ''}
                 {cron.last_run

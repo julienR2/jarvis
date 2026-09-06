@@ -20,6 +20,7 @@ export async function cronRoutes(app: FastifyInstance) {
       once?: boolean
       model?: string
       effort?: string
+      inherit_context?: boolean
     }
 
     if (!body.name || !body.schedule || !body.prompt) {
@@ -34,10 +35,14 @@ export async function cronRoutes(app: FastifyInstance) {
     const once = body.once ? 1 : 0
     const model = body.model ?? null // null → global default (resolved at fire time)
     const effort = normalizeEffort(body.effort)
+    // Off by default: a scheduled prompt is normally self-contained, and
+    // inheriting the conversation means re-reading (and paying for) its whole
+    // history on every fire.
+    const inheritContext = body.inherit_context ? 1 : 0
 
     getDb()
-      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, body.schedule, body.prompt, enabled, once, model, effort)
+      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, model, effort, inherit_context) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, body.schedule, body.prompt, enabled, once, model, effort, inheritContext)
 
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(id) as CronRow
     schedule(row)
@@ -53,6 +58,7 @@ export async function cronRoutes(app: FastifyInstance) {
       once: boolean
       model: string
       effort: string
+      inherit_context: boolean
     }>
 
     if (body.schedule && !cron.validate(body.schedule)) {
@@ -73,11 +79,15 @@ export async function cronRoutes(app: FastifyInstance) {
       once: body.once !== undefined ? (body.once ? 1 : 0) : existing.once,
       model: body.model ?? existing.model ?? null,
       effort: body.effort !== undefined ? normalizeEffort(body.effort) : existing.effort,
+      inherit_context:
+        body.inherit_context !== undefined
+          ? (body.inherit_context ? 1 : 0)
+          : existing.inherit_context,
     }
 
     getDb()
-      .prepare('UPDATE crons SET name=?, schedule=?, prompt=?, enabled=?, once=?, model=?, effort=? WHERE id=?')
-      .run(updated.name, updated.schedule, updated.prompt, updated.enabled, updated.once, updated.model, updated.effort, req.params.id)
+      .prepare('UPDATE crons SET name=?, schedule=?, prompt=?, enabled=?, once=?, model=?, effort=?, inherit_context=? WHERE id=?')
+      .run(updated.name, updated.schedule, updated.prompt, updated.enabled, updated.once, updated.model, updated.effort, updated.inherit_context, req.params.id)
 
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(req.params.id) as CronRow
     schedule(row)

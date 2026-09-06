@@ -283,6 +283,23 @@ export function initDb(): void {
     )
   } catch { /* already exists */ }
 
+  // Migration: isolated runs for crons and webhooks.
+  //
+  // A scheduled run doesn't need — and shouldn't pay for — the whole history of
+  // the conversation it reports into. With inherit_context = 0 (the default) a
+  // run gets its own throwaway Claude session and only its *output* lands in the
+  // linked conversation. That conversation's own session is left untouched, so
+  // chatting there afterwards still resumes the context the human built.
+  //
+  // Existing rows default to 0 too, deliberately: these prompts are already
+  // self-contained, and the ones that had grown a 500k-token history were
+  // re-reading (and paying for) all of it on every single fire.
+  for (const table of ['crons', 'webhooks']) {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN inherit_context INTEGER NOT NULL DEFAULT 0`)
+    } catch { /* already exists */ }
+  }
+
   // Connectors — one row per connector holding its definition AND its values.
   // Unified from the former three-way split (hardcoded catalog + custom_connectors
   // definitions + connectors secrets). See connectors.ts.

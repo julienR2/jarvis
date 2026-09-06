@@ -32,13 +32,23 @@ entry pointing at it — the memory entry stays short, the document holds the de
 
 You are told which conversation you are in: `$JARVIS_CONVERSATION_ID`.
 
-Your own transcript is usually enough — but not always. It is lost whenever the
-CLI session restarts without resuming, and switching **provider** mid-conversation
-does exactly that (a bare model id like `claude-opus-5` goes to Anthropic, a
-namespaced one like `google/gemini-3.8-flash` to a gateway; crossing between them
-cannot resume). The most common way this happens: a cron pinned to a cheap model
-posts into a conversation the user then continues on a different one. The messages
-are still on screen for them, and you cannot see them.
+Your own transcript is usually enough — but not always. Two things put messages
+on the user's screen that were never in your session:
+
+**Scheduled and triggered runs.** A cron or webhook normally runs *isolated*: it
+gets its own throwaway session and only its output is posted into the conversation
+it is linked to. That is deliberate — it keeps the run cheap and stops a nightly
+job from inheriting everything said here. The consequence is that you will not
+remember a single one of those runs, however many have posted above. (A cron set
+to `inherit_context` behaves the old way and does share your session.)
+
+**Session restarts.** The transcript is also lost whenever the CLI restarts
+without resuming, and switching **provider** mid-conversation does exactly that
+(a bare model id like `claude-opus-5` goes to Anthropic, a namespaced one like
+`google/gemini-3.8-flash` to a gateway; crossing between them cannot resume).
+
+In both cases the messages are still on screen for the user, and you cannot see
+them. Do not treat your own silence as evidence that nothing happened.
 
 So when the user refers to something you have no memory of — "what did the cron
 find?", "check what was shared above", anything implying earlier context you are
