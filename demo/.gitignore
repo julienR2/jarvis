@@ -1,0 +1,4 @@
+# The demo instance's entire state and its generated env. Everything the demo
+# owns stays in this folder, and none of it is ever committed.
+instance/
+.env

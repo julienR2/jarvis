@@ -1,0 +1,89 @@
+# A second, throwaway Jarvis on the same checkout — for screenshots and demos.
+#
+#   bash demo/demo.sh seed     # once — build a clean agent dir + demo/.env
+#   bash demo/demo.sh up       # http://localhost:5273
+#
+# NB: paths below are relative to the REPO ROOT, not to this file. Compose
+# resolves them against the project directory, which is the directory of the
+# first -f (docker-compose.yml at the root). demo.sh always invokes it that way.
+#
+# The source tree is shared — same code, no second clone, no drift between what
+# you screenshot and what you ship — but mounted READ-ONLY. Everything that
+# could carry your data, or let a demo conversation touch your repo, is not:
+#
+#   • source     → read-only; the demo can browse and diff it, never write it
+#   • agent dir  → demo/instance/agent (DB, conversations, connectors, memory,
+#                  uploads — all fresh, all writable)
+#   • env        → demo/.env, with its own JWT and internal secrets
+#   • ports      → 5273 / 3105
+#   • network    → its own; no DNS collision with the instance you're using
+#   • whisper    → off; a second ASR model in RAM buys nothing for screenshots
+#
+# What read-only costs: the demo cannot commit, and cannot demo self-editing.
+# Screenshot that flow on your own instance, where you'd review the diff anyway.
+# If npm ever refuses to install against it, DEMO_SOURCE_MODE=rw is the escape
+# hatch — and then the caveat above becomes real again.
+
+services:
+  setup:
+    volumes:
+      - ./demo/instance/agent:/agent
+
+  backend:
+    volumes:
+      - ./:/jarvis:${DEMO_SOURCE_MODE:-ro}
+      - ./demo/instance/agent:/jarvis/agent
+      - /jarvis/backend/node_modules
+    env_file:
+      - path: demo/.env
+        required: false
+    environment:
+      # Blanked explicitly rather than trusted to env_file precedence: whether
+      # Compose replaces or appends env_file lists has varied between versions,
+      # and a demo must not come up holding real connector credentials.
+      COPYPARTY_PASSWORD: ''
+      HOMELAB_API_TOKEN: ''
+      BROWSER_URL: ''
+      BROWSER_USER: ''
+      BROWSER_PASSWORD: ''
+    ports:
+      # Set DEMO_BIND_ADDR=0.0.0.0 if you want Jarvis (running in a container)
+      # to reach this instance to drive it and take the screenshots itself.
+      - '${DEMO_BIND_ADDR:-127.0.0.1}:${DEMO_BACKEND_PORT:-3105}:3005'
+
+  engine:
+    volumes:
+      - ./:/jarvis:${DEMO_SOURCE_MODE:-ro}
+      - ./demo/instance/agent:/jarvis/agent
+      - /jarvis/engine/node_modules
+    env_file:
+      - path: demo/.env
+        required: false
+    environment:
+      COPYPARTY_PASSWORD: ''
+      HOMELAB_API_TOKEN: ''
+      BROWSER_URL: ''
+      BROWSER_USER: ''
+      BROWSER_PASSWORD: ''
+
+  frontend:
+    volumes:
+      - ./frontend:/app:${DEMO_SOURCE_MODE:-ro}
+      - /app/node_modules
+      # Container-local build output — writable even when the source isn't, and
+      # separate from the other stack's. Without it both `vite build --watch`
+      # processes write the same host ./frontend/dist and can serve each other
+      # a torn build.
+      - /app/dist
+    ports:
+      - '${DEMO_BIND_ADDR:-127.0.0.1}:${DEMO_FRONTEND_PORT:-5273}:5173'
+
+  playwright:
+    volumes:
+      - ./demo/instance/agent/workspace/uploads:/uploads
+
+  # Not started: `profiles` keeps a service out of `up` unless the profile is
+  # asked for, and nothing depends_on whisper. Voice input is a button in the
+  # UI — screenshotting it doesn't need the model loaded a second time.
+  whisper:
+    profiles: [ voice ]
