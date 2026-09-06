@@ -48,14 +48,23 @@ self.addEventListener('push', (event) => {
   const { title = 'Jarvis', body = '', url, type } = data
   const tagFor = (u) => (u ? `jarvis-${u}` : 'jarvis')
 
+  // Chrome insists every push ends in a visible notification. A handler that
+  // deliberately shows none — a dismissal, or a chat you are already reading —
+  // gets the browser's own "This site has been updated in the background." in
+  // its place, which is precisely the noise we were trying to avoid. So show a
+  // silent placeholder on the tag we want empty and take it straight back down:
+  // same tag means it replaces any notification already there, so this clears
+  // and satisfies Chrome in one move.
+  const clearTag = async (tag) => {
+    await self.registration.showNotification('', { tag, silent: true })
+    const shown = await self.registration.getNotifications({ tag })
+    shown.forEach((n) => n.close())
+  }
+
   // A dismissal carries no title: another device read this chat, so take its
   // notification down here too rather than showing anything.
   if (type === 'dismiss') {
-    event.waitUntil(
-      self.registration
-        .getNotifications({ tag: tagFor(url) })
-        .then((ns) => ns.forEach((n) => n.close())),
-    )
+    event.waitUntil(clearTag(tagFor(url)))
     return
   }
 
@@ -77,7 +86,7 @@ self.addEventListener('push', (event) => {
           return false
         }
       })
-      if (viewingThis) return
+      if (viewingThis) return clearTag(tagFor(url))
 
       return self.registration.showNotification(title, {
         body,

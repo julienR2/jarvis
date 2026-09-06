@@ -941,11 +941,16 @@ export async function conversationRoutes(app: FastifyInstance) {
         .run(req.params.id)
 
       // Reading it here takes its notifications down everywhere else — see
-      // sendDismissToAll. Fire-and-forget: opening a chat must not wait on
-      // (or fail because of) a push round-trip.
-      sendDismissToAll(`/c/${req.params.id}`).catch((err) =>
-        console.error('[push] sendDismissToAll failed:', err),
-      )
+      // sendDismissToAll. Only worth a push when there was actually something
+      // unread: otherwise simply opening a chat woke every registered device,
+      // dozens of times a day, to clear a notification none of them had.
+      // Fire-and-forget: opening a chat must not wait on (or fail because of)
+      // a push round-trip.
+      if ((conv as { unread_count: number }).unread_count > 0) {
+        sendDismissToAll(`/c/${req.params.id}`).catch((err) =>
+          console.error('[push] sendDismissToAll failed:', err),
+        )
+      }
 
       const page = fetchMessagePage(req.params.id, parsePageLimit(req.query.limit))
       return { ...(conv as object), ...page }
