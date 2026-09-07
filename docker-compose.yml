@@ -29,7 +29,12 @@ services:
     command: sh -c "npm install && npx tsx watch src/index.ts"
     volumes:
       - ./:/jarvis
-      - /jarvis/backend/node_modules
+      # Named, not anonymous, so the engine can mount the same tree read-only
+      # and typecheck backend code the agent edits. Still a volume rather than
+      # the host's ./backend/node_modules: better-sqlite3 and bcrypt are native
+      # modules compiled for this container's OS and arch, and a host-built
+      # binary bind-mounted in here crashes on load.
+      - backend-node-modules:/jarvis/backend/node_modules
     # Optional — secrets are auto-generated on first boot and the Claude OAuth
     # token is entered through the setup wizard, so a fresh clone runs with no
     # .env at all. (`required: false` needs Compose v2.24+.)
@@ -65,7 +70,14 @@ services:
     command: sh -c "npm install && npx tsx src/index.ts"
     volumes:
       - ./:/jarvis
-      - /jarvis/engine/node_modules
+      - engine-node-modules:/jarvis/engine/node_modules
+      # The agent edits backend and frontend source from in here, so it needs
+      # their dependencies to typecheck what it wrote — without these it sees
+      # every import as "cannot find module" and can only guess. Read-only:
+      # each tree belongs to the service that installs it, and the agent has
+      # no business writing to either.
+      - backend-node-modules:/jarvis/backend/node_modules:ro
+      - frontend-node-modules:/jarvis/frontend/node_modules:ro
     env_file:
       - path: .env
         required: false
@@ -94,7 +106,8 @@ services:
     command: sh -c "npm install && npx vite build && { npx vite build --watch & exec npm run preview -- --host; }"
     volumes:
       - ./frontend:/app
-      - /app/node_modules
+      # Named so the engine can mount it read-only for typechecking; see backend.
+      - frontend-node-modules:/app/node_modules
     ports:
       # Loopback only — served to the LAN through a reverse proxy, not this
       # port. See backend. Override the host port with FRONTEND_PORT.
@@ -187,3 +200,9 @@ services:
 
 volumes:
   whisper-cache:
+  # One per service, each populated by that service's own `npm install` on boot.
+  # Named rather than anonymous so the engine can mount the backend's and the
+  # frontend's read-only — that is what lets the agent typecheck its own edits.
+  backend-node-modules:
+  frontend-node-modules:
+  engine-node-modules:
