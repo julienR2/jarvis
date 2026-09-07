@@ -53,7 +53,9 @@ export interface Session {
   // Pass the live-streaming CLI flags on spawn. Cleared and retried once if the
   // CLI rejects them — see the unknown-option branch in the close handler.
   streamingFlags: boolean
-  // One-shot sessions (title generation) close stdin after the first result.
+  // One-shot sessions (title generation, isolated cron/webhook runs) close
+  // stdin after the first result — or after the wake-up turn, when background
+  // subagents were still running.
   oneShot: boolean
   // A graceful close was initiated (reap, eviction, model change) — the close
   // handler must not report it as an error.
@@ -746,7 +748,10 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
           // subagent wake-ups) never pass through sendUserMessage, and their
           // replay must not drag the previous turn along.
           sess.events.length = 0
-          if (sess.oneShot) {
+          // Background subagents mean a wake-up turn is still coming: closing
+          // stdin now would strand it. Stay open and close at the result that
+          // finally lands with nothing running.
+          if (sess.oneShot && runningTasks.size === 0) {
             sess.closing = true
             sess.proc.stdin?.end()
             armKillTimer(sess)

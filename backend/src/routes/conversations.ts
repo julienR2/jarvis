@@ -306,6 +306,12 @@ export function processMessage(
     // conversation: skills write uploads and apps under that id and read the
     // conversation back through it, and none of that resolves for `cron-…`.
     envVars: isolated ? { JARVIS_CONVERSATION_ID: conversationId } : undefined,
+    // The run is a single turn under a key nothing else will ever address, so
+    // the session has no second use: close it at the result rather than let it
+    // sit idle for the reaper's 15 minutes. Sessions are capped (8), and a
+    // handful of schedules firing together would otherwise spend that window
+    // evicting the conversations someone is actually talking to.
+    oneShot: isolated,
   })
     .then(({ queued }) => {
       attachConversationStream(conversationId, conv, {
