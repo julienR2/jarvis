@@ -25,7 +25,7 @@ export interface ModelOption {
  * before that resolves, and if it fails.
  */
 export const MODELS: ModelOption[] = [
-  { id: 'claude-fable-5', name: 'Fable 5', desc: 'Most capable, for long-running agents' },
+  { id: 'claude-fable-5-1', name: 'Fable 5.1', desc: 'Most capable, for long-running agents' },
   { id: 'claude-opus-5', name: 'Opus 5', desc: 'Most capable — complex agentic coding & enterprise work' },
   { id: 'claude-sonnet-5', name: 'Sonnet 5', desc: 'Best mix of speed and intelligence' },
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', desc: 'Fastest, near-frontier', effort: false },
