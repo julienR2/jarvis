@@ -544,6 +544,8 @@ export interface Webhook {
   prompt: string
   conversation_id: string | null
   enabled: number
+  /** 0 = each trigger runs in its own session, only posting into the conversation. */
+  inherit_context: number
   model: string | null
   effort: Effort
   last_run: number | null
@@ -555,6 +557,7 @@ export interface WebhookInput {
   name: string
   prompt: string
   enabled?: boolean
+  inherit_context?: boolean
   model?: string
   effort?: Effort
 }

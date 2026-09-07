@@ -11,6 +11,10 @@ function emptyForm(): WebhookInput {
     name: '',
     prompt: '',
     enabled: true,
+    // Off by default — see CronManager. A webhook's prompt is self-contained
+    // (whatever the caller POSTed), so inheriting the conversation only means
+    // re-reading its whole history, and paying for it, on every trigger.
+    inherit_context: false,
     // Pinned to a concrete id, deliberately — see CronManager. A webhook should
     // keep firing on the model it was set up with, while the conversation it
     // posts into stays on whatever you talk to it with.
@@ -74,6 +78,7 @@ export default function WebhookManager() {
       name: webhook.name,
       prompt: webhook.prompt,
       enabled: !!webhook.enabled,
+      inherit_context: !!webhook.inherit_context,
       model: webhook.model ?? getDefaultModel(),
       effort: webhook.effort ?? DEFAULT_EFFORT,
     })
@@ -158,6 +163,19 @@ export default function WebhookManager() {
               Enabled
             </label>
 
+            <label
+              className='flex gap-1.5 items-center cursor-pointer text-text-muted'
+              title='Off: each trigger starts fresh and only posts its result here — cheaper, and it leaves the conversation&apos;s own session untouched. On: the run inherits everything said in the conversation.'
+            >
+              <input
+                type='checkbox'
+                checked={form.inherit_context ?? false}
+                onChange={(e) => setForm({ ...form, inherit_context: e.target.checked })}
+                className='accent-accent'
+              />
+              Use conversation context
+            </label>
+
             <ModelSelector
               model={form.model ?? getDefaultModel()}
               effort={form.effort ?? DEFAULT_EFFORT}
@@ -210,6 +228,7 @@ export default function WebhookManager() {
                 <div className='font-medium text-sm'>{webhook.name}</div>
                 <div className='text-xs text-text-muted font-mono'>
                   {modelName(webhook.model ?? getDefaultModel())}
+                  {webhook.inherit_context ? ' \u00B7 shares context' : ''}
                   {webhook.effort && webhook.effort !== 'high' ? ` · ${webhook.effort} effort` : ''}
                   {webhook.last_run
                     ? ` \u00B7 last: ${new Date(webhook.last_run * 1000).toLocaleString('fr-FR')}`

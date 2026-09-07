@@ -301,6 +301,11 @@ export function processMessage(
     conversationId: runKey ?? conversationId,
     model: resolveModel(options?.model),
     effort: options?.effort,
+    // The engine derives JARVIS_CONVERSATION_ID from the session key, which for
+    // an isolated run is the throwaway runKey. Point it back at the real
+    // conversation: skills write uploads and apps under that id and read the
+    // conversation back through it, and none of that resolves for `cron-…`.
+    envVars: isolated ? { JARVIS_CONVERSATION_ID: conversationId } : undefined,
   })
     .then(({ queued }) => {
       attachConversationStream(conversationId, conv, {

@@ -317,8 +317,14 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
         // the model: a namespaced id (openai/gpt-…) goes to the gateway, a bare
         // one to Anthropic. See shared.ts.
         ...providerEnv(sess.model),
-        ...sess.envVars,
+        // Before sess.envVars, so a caller can override it. An isolated run
+        // (cron/webhook with inherit_context = 0) keys its session by a
+        // throwaway `cron-*`/`hook-*` id, but its output lands in a real
+        // conversation — and skills build paths and API calls out of this
+        // variable (uploads/, apps/, reading the conversation back). Left as
+        // the session key it would point at a conversation that never existed.
         JARVIS_CONVERSATION_ID: sess.conversationId,
+        ...sess.envVars,
       },
       cwd: WORKSPACE_DIR,
       stdio: ['pipe', 'pipe', 'pipe'],
