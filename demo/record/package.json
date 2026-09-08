@@ -1,0 +1,9 @@
+{
+  "name": "jarvis-demo-record",
+  "private": true,
+  "type": "module",
+  "description": "Scripted browser takes against the demo instance, recorded to GIF.",
+  "dependencies": {
+    "playwright": "^1.50.0"
+  }
+}

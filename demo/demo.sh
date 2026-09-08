@@ -16,7 +16,16 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 AGENT_DIR='demo/instance/agent'
 ENV_FILE='demo/.env'
-compose() { docker compose -p jarvis-demo -f docker-compose.yml -f demo/docker-compose.yml "$@"; }
+# DEMO_BROWSER=1 adds the headful Chromium (Settings → Browser). It costs a
+# gigabyte of RAM and is only needed when you are filming that page, so it is
+# opt-in; DEMO_BROWSER_URL is what actually switches the page on in the backend.
+if [ "${DEMO_BROWSER:-}" = '1' ]; then
+  export DEMO_BROWSER_URL="${DEMO_BROWSER_URL:-http://chromium:3000}"
+  profile=(--profile browser)
+else
+  profile=()
+fi
+compose() { docker compose -p jarvis-demo "${profile[@]}" -f docker-compose.yml -f demo/docker-compose.yml "$@"; }
 
 rand() { head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
 

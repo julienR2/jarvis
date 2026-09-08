@@ -77,7 +77,12 @@
   <div class="wrap">
     <figure class="window">
       <div class="window-bar"><span></span><span></span><span></span></div>
-      <img src="assets/demo.gif" alt="A tour of Jarvis: home, chat, generated apps, the git diff view, connectors and crons" loading="lazy">
+      <!-- The same take as the README's GIF, as video: 1920x1200 for about a
+           tenth of the bytes. Sources are set by app.js so the light and dark
+           recordings can swap with the theme — <source media> is not honoured
+           on <video>, so it has to be scripted. -->
+      <video id="demo" autoplay loop muted playsinline preload="metadata"
+             aria-label="A tour of Jarvis: home, chat, generated apps, the git diff view, connectors, crons, models and plugins"></video>
     </figure>
   </div>
 </section>
@@ -184,20 +189,39 @@
 
     <div class="shots">
       <figure>
-        <img src="assets/screenshot-app.png" alt="Split view: the chat on the left, a generated app on the right" loading="lazy">
+        <img class="shot-dark" src="assets/screenshot-app.png" alt="Split view: the chat on the left, a weather app the agent built on the right" loading="lazy">
+        <img class="shot-light" src="assets/screenshot-app-light.png" alt="Split view: the chat on the left, a weather app the agent built on the right" loading="lazy">
         <figcaption><strong>Apps.</strong> Ask for a tool, a chart or a game — it renders next to the chat.</figcaption>
       </figure>
       <figure>
-        <img src="assets/screenshot-git.png" alt="Changed files view with a diff" loading="lazy">
+        <img class="shot-dark" src="assets/screenshot-image.png" alt="A generated pixel art image in the conversation" loading="lazy">
+        <img class="shot-light" src="assets/screenshot-image-light.png" alt="A generated pixel art image in the conversation" loading="lazy">
+        <figcaption><strong>Images.</strong> Ask for a picture or a video — it lands in the conversation.</figcaption>
+      </figure>
+      <figure>
+        <img class="shot-dark" src="assets/screenshot-git.png" alt="Changed files view with a diff" loading="lazy">
+        <img class="shot-light" src="assets/screenshot-git-light.png" alt="Changed files view with a diff" loading="lazy">
         <figcaption><strong>Git.</strong> Every edit the agent makes is a diff you approve or throw away.</figcaption>
       </figure>
       <figure>
-        <img src="assets/screenshot-connectors.png" alt="Connectors settings page" loading="lazy">
+        <img class="shot-dark" src="assets/screenshot-connectors.png" alt="Connectors settings page" loading="lazy">
+        <img class="shot-light" src="assets/screenshot-connectors-light.png" alt="Connectors settings page" loading="lazy">
         <figcaption><strong>Connectors.</strong> Credentials live in the database, injected at runtime.</figcaption>
       </figure>
       <figure>
-        <img src="assets/screenshot-crons.png" alt="Cron jobs page" loading="lazy">
+        <img class="shot-dark" src="assets/screenshot-crons.png" alt="Cron jobs page" loading="lazy">
+        <img class="shot-light" src="assets/screenshot-crons-light.png" alt="Cron jobs page" loading="lazy">
         <figcaption><strong>Crons.</strong> Schedules the agent can read, write, and edit for itself.</figcaption>
+      </figure>
+      <figure>
+        <img class="shot-dark" src="assets/screenshot-connection.png" alt="Connection settings with a Claude subscription and a gateway, each with its own default model" loading="lazy">
+        <img class="shot-light" src="assets/screenshot-connection-light.png" alt="Connection settings with a Claude subscription and a gateway, each with its own default model" loading="lazy">
+        <figcaption><strong>Models.</strong> Claude, or any Anthropic-compatible gateway — switched per conversation.</figcaption>
+      </figure>
+      <figure>
+        <img class="shot-dark" src="assets/screenshot-plugins.png" alt="Plugins settings page with marketplaces and a catalogue" loading="lazy">
+        <img class="shot-light" src="assets/screenshot-plugins-light.png" alt="Plugins settings page with marketplaces and a catalogue" loading="lazy">
+        <figcaption><strong>Plugins.</strong> Skills, agents and hooks installed from a marketplace, no rebuild.</figcaption>
       </figure>
     </div>
   </div>

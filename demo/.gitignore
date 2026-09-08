@@ -2,3 +2,7 @@
 # owns stays in this folder, and none of it is ever committed.
 instance/
 .env
+
+# Recording working directory — raw video and every experimental take. Copy the
+# one you want out of here and commit that, rather than the whole scratch pile.
+record/out/

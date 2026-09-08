@@ -355,3 +355,19 @@ h1 em { font-style: normal; color: var(--accent); }
   .pulse { display: none; }
   .btn:hover { transform: none; }
 }
+
+/* ── Theme-matched screenshots ──────────────────────────────
+   Every shot exists twice, dark and light. Only one is displayed, and a
+   display:none image is not fetched, so the other costs nothing. Published at
+   2x and laid out at their CSS width, which is what keeps them sharp on a
+   high-DPI screen.
+
+   Qualified with `.shots img` on purpose: the plain `.shots img` rule above is
+   more specific than a bare `.shot-light`, so an unqualified `display: none`
+   loses to it and both copies render, stacked. */
+.shots img.shot-light { display: none; }
+:root:not(.dark) .shots img.shot-light { display: block; }
+:root:not(.dark) .shots img.shot-dark { display: none; }
+
+/* The hero video fills the window frame the GIF used to. */
+.demo .window video { display: block; width: 100%; height: auto; }

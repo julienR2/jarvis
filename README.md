@@ -14,7 +14,10 @@
 </p>
 
 <p align="center">
-  <img src="docs/demo.gif" alt="A tour of Jarvis: home, chat, generated apps, the git diff view, connectors and crons" width="760">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/demo-light.gif">
+    <img src="docs/demo.gif" alt="A tour of Jarvis: home, chat, generated apps, the git diff view, connectors, crons, models and plugins" width="760">
+  </picture>
 </p>
 
 Jarvis is a web chat interface backed by the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code). What separates it from other chat wrappers: **the assistant has full read/write access to its own source code.** Ask it to add a feature, fix a bug, or build an integration — it edits the frontend and backend directly, and you review, commit, or revert every change through git.
@@ -51,7 +54,10 @@ The idea is less "deploy and use" and more "deploy and shape." You start with a 
 Ask Jarvis to build a tool, game, or visualization — it writes the HTML/CSS/JS and renders it in a split pane next to the chat.
 
 <p align="center">
-  <img src="docs/screenshot-app.png" alt="App split view — neural network explainer" width="700">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-app-light.png">
+    <img src="docs/screenshot-app.png" alt="App split view — a weather app the agent built, next to the chat" width="700">
+  </picture>
 </p>
 
 ### Git integration
@@ -59,7 +65,10 @@ Ask Jarvis to build a tool, game, or visualization — it writes the HTML/CSS/JS
 Browse the codebase, review diffs, and commit — all from the web UI. Every change Claude makes is a file change you can diff, commit, or throw away.
 
 <p align="center">
-  <img src="docs/screenshot-git.png" alt="Changed files view" width="700">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-git-light.png">
+    <img src="docs/screenshot-git.png" alt="Changed files view" width="700">
+  </picture>
 </p>
 
 ### Connectors
@@ -67,7 +76,10 @@ Browse the codebase, review diffs, and commit — all from the web UI. Every cha
 Plug in third-party services from the UI. Built-in connectors for Gmail, GitHub, Slack, Linear, and ElevenLabs. Create custom ones with just a name and a set of env var fields — no code, no restart.
 
 <p align="center">
-  <img src="docs/screenshot-connectors.png" alt="Connectors settings page" width="700">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-connectors-light.png">
+    <img src="docs/screenshot-connectors.png" alt="Connectors settings page" width="700">
+  </picture>
 </p>
 
 ### Cron jobs & webhooks
@@ -75,8 +87,14 @@ Plug in third-party services from the UI. Built-in connectors for Gmail, GitHub,
 Schedule prompts on any cron expression. Expose HTTP endpoints that trigger the agent with arbitrary payloads.
 
 <p align="center">
-  <img src="docs/screenshot-crons.png" alt="Cron jobs page" width="340">
-  <img src="docs/screenshot-webhooks.png" alt="Webhooks page" width="340">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-crons-light.png">
+    <img src="docs/screenshot-crons.png" alt="Cron jobs page" width="340">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-webhooks-light.png">
+    <img src="docs/screenshot-webhooks.png" alt="Webhooks page" width="340">
+  </picture>
 </p>
 
 ### Browser
@@ -84,6 +102,34 @@ Schedule prompts on any cron expression. Expose HTTP endpoints that trigger the 
 Some things can't be fetched, they have to be clicked — a site behind a login, a flow with no API. Jarvis ships a headless Chromium the agent drives over the Playwright MCP server, available to every conversation with no setup.
 
 Headless has a limit: it can't solve a captcha or take a login you'd rather type yourself. For that there is an optional headful browser you can watch and take over, handing control back when you're done.
+
+### Images and video
+
+Ask for a picture and you get one: the `media` skill calls the gateway's image
+endpoint and drops the result into the conversation. Video works the same way.
+Both need an OpenRouter key in Settings → Connection — the chat model itself
+cannot draw.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-image-light.png">
+    <img src="docs/screenshot-image.png" alt="A generated pixel art image in the conversation" width="700">
+  </picture>
+</p>
+
+### Plugins
+
+Claude Code plugins — skills, agents, commands and hooks packaged together —
+installed from a marketplace without touching the container. Everything installs
+at user scope, so an enabled plugin is available to every conversation, cron and
+webhook.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-plugins-light.png">
+    <img src="docs/screenshot-plugins.png" alt="Plugins settings page — marketplaces, installed plugins, and the catalogue" width="700">
+  </picture>
+</p>
 
 ### Sharing
 
@@ -138,6 +184,17 @@ Worth being plain about, because Jarvis is unusual: it is an agent with a shell,
 Found a vulnerability? See [SECURITY.md](SECURITY.md).
 
 ## Models and providers
+
+Settings → Connection holds both providers. Either can be the default for new
+chats, each carries its own starting model, and a key is verified with a real
+test message before it is saved.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-connection-light.png">
+    <img src="docs/screenshot-connection.png" alt="Connection settings — Claude subscription and gateway, each with its own default model" width="700">
+  </picture>
+</p>
 
 Both providers are configured at once, and the **shape of the model id decides where a message goes**: a namespaced id (`openai/gpt-5.6`) goes to the gateway, a bare one (`claude-opus-5`) to Anthropic. That is per-conversation, so a chat on GPT and a chat on Claude can run side by side. The engine and the model picker apply the same rule, so they cannot disagree.
 

@@ -6,9 +6,32 @@
   document.documentElement.classList.toggle('dark', saved !== 'light');
 })();
 
+// ── Demo video ─────────────────────────────────────────────
+// Two recordings of the same take, one per theme. <source media> is ignored on
+// <video>, so the swap is scripted: set the sources, load(), play. Screenshots
+// do the same thing in CSS, which video cannot.
+const demo = document.getElementById('demo');
+
+function setDemoSource() {
+  if (!demo) return;
+  const dark = document.documentElement.classList.contains('dark');
+  const base = dark ? 'assets/demo' : 'assets/demo-light';
+  if (demo.dataset.base === base) return;
+  demo.dataset.base = base;
+  demo.innerHTML =
+    `<source src="${base}.webm" type="video/webm">` +
+    `<source src="${base}.mp4" type="video/mp4">`;
+  demo.load();
+  // Autoplay can be refused (data saver, reduced motion); the poster frame is
+  // then what shows, which is still the first page of the tour.
+  demo.play().catch(() => {});
+}
+setDemoSource();
+
 document.getElementById('theme-toggle').addEventListener('click', () => {
   const dark = document.documentElement.classList.toggle('dark');
   localStorage.setItem('jarvis-site-theme', dark ? 'dark' : 'light');
+  setDemoSource();
 });
 
 // ── Sticky nav border ──────────────────────────────────────

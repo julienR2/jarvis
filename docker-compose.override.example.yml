@@ -14,17 +14,33 @@
 # no purpose — drop them and several instances coexist with no .env at all.
 # Point the proxy at <name>:5173 (frontend) and <name>:3005 (backend).
 #
+# On a SHARED network, repin the inter-service URLs too. Every Jarvis clone
+# joins it with the same generic aliases (`backend`, `engine`) and Docker DNS
+# round-robins across them, so `http://backend:3005` lands on a random
+# instance — which rejects your INTERNAL_SECRET (403) and gets handed it in
+# the process. BACKEND_URL belongs on the backend as well as the engine: the
+# backend embeds it in the prompts the agent runs (the auto-notify curl), and
+# those run in the engine container.
+#
 # services:
 #   backend:
 #     container_name: myjarvis-backend
 #     ports: !override []
 #     networks: [my-proxy-network, default]
+#     environment:
+#       ENGINE_URL: http://myjarvis-engine:3010
+#       BACKEND_URL: http://myjarvis-backend:3005
 #   frontend:
 #     container_name: myjarvis-frontend
 #     ports: !override []
 #     networks: [my-proxy-network, default]
+#     environment:
+#       BACKEND_URL: http://myjarvis-backend:3005
 #   engine:
+#     container_name: myjarvis-engine
 #     networks: [my-proxy-network, default]
+#     environment:
+#       BACKEND_URL: http://myjarvis-backend:3005
 #
 # networks:
 #   my-proxy-network:

@@ -21,8 +21,10 @@
 #
 # What read-only costs: the demo cannot commit, and cannot demo self-editing.
 # Screenshot that flow on your own instance, where you'd review the diff anyway.
-# If npm ever refuses to install against it, DEMO_SOURCE_MODE=rw is the escape
-# hatch — and then the caveat above becomes real again.
+# Each service overrides its command to `npm ci` (see below) so the install
+# itself doesn't need to write. If something else ever refuses to run against
+# the mount, DEMO_SOURCE_MODE=rw is the escape hatch — and then the caveat
+# above becomes real again.
 
 services:
   setup:
@@ -30,6 +32,11 @@ services:
       - ./demo/instance/agent:/agent
 
   backend:
+    # `npm ci`, not the base `npm install`: install wants to rewrite
+    # package-lock.json and dies with EROFS on the read-only source mount.
+    # ci installs the locked versions and never writes the lockfile — which
+    # also pins the demo to exactly the dependencies that ship.
+    command: sh -c "npm ci && npx tsx watch src/index.ts"
     volumes:
       - ./:/jarvis:${DEMO_SOURCE_MODE:-ro}
       - ./demo/instance/agent:/jarvis/agent
@@ -43,15 +50,22 @@ services:
       # and a demo must not come up holding real connector credentials.
       COPYPARTY_PASSWORD: ''
       HOMELAB_API_TOKEN: ''
-      BROWSER_URL: ''
-      BROWSER_USER: ''
-      BROWSER_PASSWORD: ''
-    ports:
+      # Empty unless the demo's own browser is up (DEMO_BROWSER=1) — never the
+      # host instance's, which is a different container on a different network.
+      BROWSER_URL: ${DEMO_BROWSER_URL:-}
+      BROWSER_USER: jarvis
+      BROWSER_PASSWORD: jarvis
+    # !override, not a plain list: Compose APPENDS port lists across files, so
+    # without it the demo inherits the base 3005/5173 bindings too and fails to
+    # start against the instance already holding them.
+    ports: !override
       # Set DEMO_BIND_ADDR=0.0.0.0 if you want Jarvis (running in a container)
       # to reach this instance to drive it and take the screenshots itself.
       - '${DEMO_BIND_ADDR:-127.0.0.1}:${DEMO_BACKEND_PORT:-3105}:3005'
 
   engine:
+    # See backend — `npm ci` so the read-only source mount stays read-only.
+    command: sh -c "npm ci && npx tsx src/index.ts"
     volumes:
       - ./:/jarvis:${DEMO_SOURCE_MODE:-ro}
       - ./demo/instance/agent:/jarvis/agent
@@ -62,11 +76,35 @@ services:
     environment:
       COPYPARTY_PASSWORD: ''
       HOMELAB_API_TOKEN: ''
-      BROWSER_URL: ''
-      BROWSER_USER: ''
-      BROWSER_PASSWORD: ''
+      # Empty unless the demo's own browser is up (DEMO_BROWSER=1) — never the
+      # host instance's, which is a different container on a different network.
+      BROWSER_URL: ${DEMO_BROWSER_URL:-}
+      BROWSER_USER: jarvis
+      BROWSER_PASSWORD: jarvis
+
+  # ── Optional headful browser ────────────────────────────────────────────────
+  # Off unless DEMO_BROWSER=1, which makes demo.sh ask for the `browser`
+  # profile. Without it the Browser page in a shot is only its empty state,
+  # which sells the feature short; with it, a real Chromium is on screen.
+  # Its own profile directory and uploads, like everything else the demo owns.
+  chromium:
+    environment:
+      # Pinned, not inherited: the base compose reads PASSWORD from the root
+      # .env, while the demo backend proxies with jarvis/jarvis (its own env
+      # above). Left to drift apart the proxy gets a 401 from the browser's
+      # nginx and the page renders an error instead of a browser.
+      CUSTOM_USER: jarvis
+      PASSWORD: jarvis
+    volumes:
+      - ./demo/instance/agent/data/browser-profile:/config
+
+  browser-mcp:
+    volumes:
+      - ./demo/instance/agent/workspace/uploads:/uploads
 
   frontend:
+    # See backend — `npm ci` so the read-only source mount stays read-only.
+    command: sh -c "npm ci && npx vite build && { npx vite build --watch & exec npm run preview -- --host; }"
     volumes:
       - ./frontend:/app:${DEMO_SOURCE_MODE:-ro}
       - /app/node_modules
@@ -75,7 +113,7 @@ services:
       # processes write the same host ./frontend/dist and can serve each other
       # a torn build.
       - /app/dist
-    ports:
+    ports: !override
       - '${DEMO_BIND_ADDR:-127.0.0.1}:${DEMO_FRONTEND_PORT:-5273}:5173'
 
   playwright:
