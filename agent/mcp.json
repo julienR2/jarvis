@@ -3,6 +3,10 @@
     "playwright": {
       "type": "http",
       "url": "http://playwright:8931/mcp"
+    },
+    "browser": {
+      "type": "http",
+      "url": "http://chromium:8931/mcp"
     }
   }
 }

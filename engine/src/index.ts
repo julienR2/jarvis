@@ -107,7 +107,10 @@ function failInvocation(inv: Invocation, message: string): void {
 
 function spawnClaudeProcess(inv: Invocation, sessionId: string | null): void {
   const BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill']
-  const MCP_TOOLS = ['mcp__playwright']
+  // `browser` is the headful Chromium with the persistent, logged-in profile.
+  // Isolated runs (crons, webhooks) need it to act on sites that require a
+  // session — the playwright server is headless and its profile is wiped.
+  const MCP_TOOLS = ['mcp__playwright', 'mcp__browser']
 
   // NB: the prompt is fed over stdin (see below), NOT passed as an argv entry.
   // A large prompt (e.g. a full HTML email payload) exceeds the OS single-arg

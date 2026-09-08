@@ -17,7 +17,7 @@
 
 import { spawn, type ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import {
   type ClaudeEvent,
   WORKSPACE_DIR,
@@ -252,6 +252,69 @@ function createSession(opts: EnsureOptions): Session {
   return sess
 }
 
+/**
+ * The provider id of the last real answer in a transcript, or null.
+ *
+ * Skips the CLI's `<synthetic>` entries — its own "API Error …" / "No response
+ * requested" placeholders, which carry a plain uuid and say nothing about who
+ * answered. They are also exactly what a wedged conversation accumulates, so
+ * reading them would hide the very crossing this looks for.
+ */
+function lastAnswerId(sessionId: string): string | null {
+  const projects = `${process.env.CLAUDE_CONFIG_DIR || '/jarvis/agent'}/projects`
+  // The CLI keys a project dir by its cwd with the separators flattened:
+  // /jarvis/agent/workspace → -jarvis-agent-workspace.
+  const path = `${projects}/${WORKSPACE_DIR.replace(/\//g, '-')}/${sessionId}.jsonl`
+  if (!existsSync(path)) return null
+  let lines: string[]
+  try {
+    lines = readFileSync(path, 'utf8').split('\n')
+  } catch (err) {
+    console.error(`[session] could not read transcript ${path}:`, err)
+    return null
+  }
+  // From the end: the first real assistant message wins, so the scan stops
+  // within a few lines on a healthy transcript.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes('"assistant"')) continue
+    let entry: any
+    try {
+      entry = JSON.parse(lines[i])
+    } catch {
+      continue
+    }
+    const msg = entry?.message
+    if (msg?.role !== 'assistant' || !msg.id || msg.model === '<synthetic>') continue
+    return String(msg.id)
+  }
+  return null
+}
+
+/**
+ * Whether a transcript can be handed to `--resume` while running `model`.
+ *
+ * The CLI cites the previous answer's message id on the next request
+ * (`diagnostics.previous_message_id`), and a provider only accepts ids it
+ * issued itself: Anthropic wants `msg_…`, a gateway issues its own shape
+ * (`gen-…` on OpenRouter). A transcript whose last answer came from the other
+ * side is therefore unresumable — every turn dies with "previous_message_id
+ * must be the `id` from a prior /v1/messages response".
+ *
+ * ensureSession already refuses to resume across a live model switch, but the
+ * crossing outlives the process: it is baked into the file on disk. A cold
+ * session rebuilt from the backend's stored id resumes it again and wedges the
+ * conversation for good — which is what happened to a conversation whose cron
+ * ran it on a gateway model back when crons shared the conversation's session.
+ * The conversation's own model never changed, so no switch guard could see it.
+ * Reading the transcript is the only way to know.
+ */
+function resumableUnder(sessionId: string, model?: string): boolean {
+  const id = lastAnswerId(sessionId)
+  // Nothing to cite (fresh or unreadable transcript): let the CLI decide.
+  if (!id) return true
+  return id.startsWith('msg_') !== isGatewayModel(model)
+}
+
 function spawnProcess(sess: Session, resumeSessionId: string | null): void {
   const BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill']
   const MCP_TOOLS = ['mcp__playwright']
@@ -275,6 +338,17 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
 
   const mcpConfig = `${process.env.CLAUDE_CONFIG_DIR || '/jarvis/agent'}/mcp.json`
   if (existsSync(mcpConfig)) args.push('--mcp-config', mcpConfig)
+
+  // Drop a resume the current provider would reject (see resumableUnder). The
+  // reassignment matters: the retry branches in the `close` handler below close
+  // over this parameter, and they must not re-resume it either.
+  if (resumeSessionId && !resumableUnder(resumeSessionId, sess.model)) {
+    console.warn(
+      `[session] ${sess.conversationId}: transcript ${resumeSessionId} was last written by another provider — starting fresh`,
+    )
+    sess.claudeSessionId = null
+    resumeSessionId = null
+  }
 
   if (resumeSessionId) args.push('--resume', resumeSessionId)
   if (sess.model) args.push('--model', sess.model)
