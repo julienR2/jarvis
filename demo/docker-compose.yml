@@ -41,15 +41,15 @@ services:
       - ./:/jarvis:${DEMO_SOURCE_MODE:-ro}
       - ./demo/instance/agent:/jarvis/agent
       - /jarvis/backend/node_modules
-    env_file:
+    # !override, not a plain list: Compose APPENDS env_file across files, so
+    # without it the demo loads the root .env too and comes up holding whatever
+    # real connector credentials live there. Overriding means the demo reads
+    # only its own env — which stays true for credentials added later, where a
+    # hardcoded list of names to blank would silently fall behind.
+    env_file: !override
       - path: demo/.env
         required: false
     environment:
-      # Blanked explicitly rather than trusted to env_file precedence: whether
-      # Compose replaces or appends env_file lists has varied between versions,
-      # and a demo must not come up holding real connector credentials.
-      COPYPARTY_PASSWORD: ''
-      HOMELAB_API_TOKEN: ''
       # Empty unless the demo's own browser is up (DEMO_BROWSER=1) — never the
       # host instance's, which is a different container on a different network.
       BROWSER_URL: ${DEMO_BROWSER_URL:-}
@@ -70,12 +70,11 @@ services:
       - ./:/jarvis:${DEMO_SOURCE_MODE:-ro}
       - ./demo/instance/agent:/jarvis/agent
       - /jarvis/engine/node_modules
-    env_file:
+    # See backend — the demo reads only its own env file.
+    env_file: !override
       - path: demo/.env
         required: false
     environment:
-      COPYPARTY_PASSWORD: ''
-      HOMELAB_API_TOKEN: ''
       # Empty unless the demo's own browser is up (DEMO_BROWSER=1) — never the
       # host instance's, which is a different container on a different network.
       BROWSER_URL: ${DEMO_BROWSER_URL:-}
