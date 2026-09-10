@@ -44,6 +44,7 @@ The idea is less "deploy and use" and more "deploy and shape." You start with a 
 | **Browser** | A real Chromium the agent drives through Playwright, for sites that need clicking rather than fetching. |
 | **Voice input** | Audio transcribed by a bundled Whisper and injected into the conversation. |
 | **Sharing** | Send someone a link to a conversation, read-only or with replies. No account needed on their side. |
+| **API keys** | One header, and a script talks to the same API the web UI does — list chats, send a message, read the stream. |
 | **Any model** | Claude by default, or any OpenRouter model that can run the agent. Both providers live at once. |
 | **Mobile PWA** | Installable and responsive, with push notifications and share-target support. |
 
@@ -137,6 +138,27 @@ Share a conversation with a link. Read-only shows the transcript as it continues
 
 Generated apps have their own links, separate from conversation shares and separately revocable.
 
+### API keys
+
+Settings → API keys mints long-lived keys for the HTTP API. There is no separate
+integration API to learn: a key authenticates the same endpoints the web
+interface calls, so anything you can do in the UI, a script can do with one
+header.
+
+```bash
+curl https://your-jarvis/api/conversations \
+  -H "Authorization: Bearer jarvis_sk_..."
+
+curl -X POST https://your-jarvis/api/conversations/<id>/messages \
+  -H "Authorization: Bearer jarvis_sk_..." \
+  -H "Content-Type: application/json" \
+  -d '{"content": "What is on my calendar today?"}'
+```
+
+A key carries full account access and never expires — it is stored only as a
+hash and shown once, at creation. It cannot mint or revoke keys, so a leaked one
+can be cut off from the UI without it minting a replacement first.
+
 ## Quick Start
 
 Requires Docker and Docker Compose (v2.24+).
@@ -179,6 +201,7 @@ Worth being plain about, because Jarvis is unusual: it is an agent with a shell,
 - **Single-user by design.** Every account on an instance is a full admin — all conversations, all connector secrets, git write access. There is no permission model. Don't hand out accounts; hand out share links.
 - **The agent runs unattended.** It executes commands without prompting for approval, because a cron firing at 7am has nobody to ask. Whatever the agent can reach, a sufficiently convincing web page or email it reads can also reach. Give it credentials scoped to what it actually needs.
 - **First run is claimed with a code.** Creating the first account requires a setup code printed in the backend logs, so an instance that is reachable before you have configured it can't be taken over by whoever finds it.
+- **API keys are hashed and can't escalate.** Keys are stored as SHA-256, shown once, and refused on the key-management endpoints — revoking a leaked key is final.
 - **Secrets are generated, never defaulted.** JWT and internal secrets are random on first boot and stored outside git. There are no default credentials, and placeholder values are actively rejected.
 
 Found a vulnerability? See [SECURITY.md](SECURITY.md).

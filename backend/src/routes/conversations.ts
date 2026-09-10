@@ -25,6 +25,7 @@ import {
 import { config } from '../config.js'
 import { getConnectorValues } from '../connectors.js'
 import type { ConvRow, MessageRow, EffortLevel } from '../types.js'
+import { userForApiKey } from '../api-keys.js'
 
 export interface Attachment {
   id: string
@@ -1172,10 +1173,14 @@ export async function conversationRoutes(app: FastifyInstance) {
           }
         } else {
           if (!token) return reply.code(401).send({ error: 'Unauthorized' })
-          try {
-            app.jwt.verify(token)
-          } catch {
-            return reply.code(401).send({ error: 'Unauthorized' })
+          // An API key streams too: following a turn is most of what a script
+          // does after posting a message, and polling would be the alternative.
+          if (!userForApiKey(token)) {
+            try {
+              app.jwt.verify(token)
+            } catch {
+              return reply.code(401).send({ error: 'Unauthorized' })
+            }
           }
         }
       }

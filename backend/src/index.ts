@@ -7,8 +7,9 @@ import rateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import bcrypt from 'bcrypt'
 import { config } from './config.js'
-import { extractRequestToken } from './request-auth.js'
+import { extractRequestToken, applyApiKey } from './request-auth.js'
 import { resolveShareToken } from './share-access.js'
+import { userForApiKey } from './api-keys.js'
 import { initDb, getDb } from './db.js'
 import { authRoutes } from './routes/auth.js'
 import {
@@ -29,6 +30,7 @@ import { manifestRoutes } from './routes/manifest.js'
 import { sharedRoutes } from './routes/shared.js'
 import { browserRoutes } from './routes/browser.js'
 import { modelRoutes } from './routes/models.js'
+import { apiKeyRoutes } from './routes/api-keys.js'
 import { startCronScheduler } from './crons.js'
 import { startFrontendWatch } from './frontend-watch.js'
 import { initPush } from './push.js'
@@ -96,8 +98,10 @@ app.addHook('onRequest', async (req, reply) => {
     await app.jwt.verify(token)
     return
   } catch {
-    /* not a session — a share link may still own this file */
+    /* not a session — an API key or a share link may still own this file */
   }
+
+  if (userForApiKey(token)) return
 
   // Uploads are stored under the conversation they belong to, so a share link
   // can serve its own conversation's images without opening the whole store.
@@ -134,10 +138,19 @@ app.addHook('onRequest', async (req, reply) => {
 
 // ── Auth decorator ────────────────────────────────────────────────────────────
 
+// A session JWT and an API key are the same account arriving by different
+// doors, so both are resolved here rather than on a separate set of routes:
+// whatever the UI can call, a key can call, with no second surface to keep in
+// step. Handlers read `req.user` and never learn which door was used.
 app.decorate('authenticate', async function (req: any, reply: any) {
   try {
     await req.jwtVerify()
+    req.user.via = 'session'
+    return
   } catch {
+    /* not a session — an API key may still authenticate this */
+  }
+  if (!applyApiKey(req, extractRequestToken(req))) {
     reply.code(401).send({ error: 'Unauthorized' })
   }
 })
@@ -180,6 +193,7 @@ await app.register(manifestRoutes, { prefix: '/api' })
 await app.register(sharedRoutes, { prefix: '/api/shared' })
 await app.register(browserRoutes)
 await app.register(modelRoutes)
+await app.register(apiKeyRoutes, { prefix: '/api/api-keys' })
 
 // ── Global SSE (app-level events) ────────────────────────────────────────────
 
@@ -187,12 +201,16 @@ app.get<{ Querystring: { token?: string } }>('/api/events', async (req, reply) =
   try {
     await req.jwtVerify()
   } catch {
-    const token = req.query.token
+    // EventSource can't set headers, so the credential rides in the query —
+    // either flavour, since a script watching the stream has a key, not a JWT.
+    const token = req.query.token ?? extractRequestToken(req)
     if (!token) return reply.code(401).send({ error: 'Unauthorized' })
-    try {
-      app.jwt.verify(token)
-    } catch {
-      return reply.code(401).send({ error: 'Unauthorized' })
+    if (!userForApiKey(token)) {
+      try {
+        app.jwt.verify(token)
+      } catch {
+        return reply.code(401).send({ error: 'Unauthorized' })
+      }
     }
   }
 

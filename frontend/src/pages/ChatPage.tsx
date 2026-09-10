@@ -20,6 +20,7 @@ import ConnectionPage from '../components/ConnectionPage'
 import BrowserPage from '../components/BrowserPage'
 import UpdateBanner from '../components/UpdateBanner'
 import PluginsPage from '../components/PluginsPage'
+import ApiKeysPage from '../components/ApiKeysPage'
 import {
   SidebarToggleProvider,
   SidebarToggle,
@@ -222,6 +223,7 @@ export default function ChatPage() {
             <Route path='/connection' element={<ConnectionPage />} />
             <Route path='/browser' element={<BrowserPage />} />
             <Route path='/plugins' element={<PluginsPage />} />
+            <Route path='/api-keys' element={<ApiKeysPage />} />
             <Route path='/code/*' element={<CodeBrowser />} />
           </Routes>
         </SidebarToggleProvider>

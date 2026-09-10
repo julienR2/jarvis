@@ -24,6 +24,7 @@ import {
   Trash2,
   FolderPlus,
   Settings,
+  KeyRound,
 } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 import { reloadApp } from '../lib/reload'
@@ -111,6 +112,7 @@ export default function Sidebar({
     location.pathname === '/connection' ||
     location.pathname === '/browser' ||
     location.pathname === '/plugins' ||
+    location.pathname === '/api-keys' ||
     location.pathname.startsWith('/code')
 
   function logout() {
@@ -352,6 +354,12 @@ function SettingsMenu({
             icon={<Blocks size={15} />}
             active={activePath === '/plugins'}
             onClick={() => go('/plugins')}
+          />
+          <NavItem
+            label='API keys'
+            icon={<KeyRound size={15} />}
+            active={activePath === '/api-keys'}
+            onClick={() => go('/api-keys')}
           />
           <NavItem
             label='Code'

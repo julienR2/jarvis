@@ -242,6 +242,14 @@ export const api = {
   deleteWebhook: (id: string) => request<{ ok: boolean }>('DELETE', `/webhooks/${id}`),
   triggerWebhook: (id: string) => request<{ ok: boolean }>('POST', `/webhooks/${id}/trigger`),
 
+  // API keys
+  getApiKeys: () => request<ApiKey[]>('GET', '/api-keys'),
+  // `key` is present on this response and nowhere else — the backend stores
+  // only a hash, so a key not saved now is a key gone for good.
+  createApiKey: (name: string) =>
+    request<ApiKey & { key: string }>('POST', '/api-keys', { name }),
+  deleteApiKey: (id: string) => request<{ ok: boolean }>('DELETE', `/api-keys/${id}`),
+
   // Code (repo browser)
   getAgentTree: () => request<CodeEntry[]>('GET', '/git/agent-tree'),
   getCodeTree: () => request<CodeEntry[]>('GET', '/git/tree'),
@@ -560,6 +568,15 @@ export interface WebhookInput {
   inherit_context?: boolean
   model?: string
   effort?: Effort
+}
+
+export interface ApiKey {
+  id: string
+  name: string
+  /** Opening characters only — enough to recognise a key, not to use it. */
+  prefix: string
+  last_used_at: number | null
+  created_at: number
 }
 
 export interface CodeEntry {

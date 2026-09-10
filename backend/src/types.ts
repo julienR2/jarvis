@@ -82,6 +82,17 @@ export interface UserRow {
   created_at: number
 }
 
+export interface ApiKeyRow {
+  id: string
+  user_id: number
+  name: string
+  key_hash: string
+  /** Opening characters of the key, for telling keys apart in the UI. */
+  prefix: string
+  last_used_at: number | null
+  created_at: number
+}
+
 export interface ConnectorRow {
   id: string
   name: string

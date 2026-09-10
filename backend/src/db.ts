@@ -87,6 +87,21 @@ export function initDb(): void {
       last_result TEXT,
       created_at INTEGER DEFAULT (unixepoch())
     );
+
+    -- Long-lived credentials for calling the same API the web UI calls.
+    -- Only the SHA-256 of the key is stored, so a leaked database hands over
+    -- no working key; the plaintext is shown once, at creation, and never again.
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      key_hash TEXT UNIQUE NOT NULL,
+      -- The opening characters, kept in clear so the UI can tell two keys
+      -- apart without holding enough to reconstruct either.
+      prefix TEXT NOT NULL,
+      last_used_at INTEGER,
+      created_at INTEGER DEFAULT (unixepoch())
+    );
   `)
 
   // Migration: add app_path to conversations

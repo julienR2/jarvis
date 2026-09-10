@@ -1,4 +1,5 @@
 import type { FastifyRequest } from 'fastify'
+import { userForApiKey } from './api-keys.js'
 
 /**
  * Pull a bearer token off a request, from any of the three places a browser can
@@ -29,3 +30,29 @@ export function readCookie(req: FastifyRequest, name: string): string | null {
 }
 
 export const SESSION_COOKIE = 'jarvis_session'
+
+/**
+ * The identity a request carries, from either credential the account accepts.
+ *
+ * `via` is not decoration: key management refuses anything but a real session,
+ * so a stolen key cannot be used to mint a fresh one before you revoke it.
+ */
+export interface Identity {
+  id: number
+  email: string
+  via: 'session' | 'api-key'
+}
+
+/**
+ * Attach the identity behind an API key to the request, mirroring what
+ * `req.jwtVerify()` does for a session, so downstream handlers reading
+ * `req.user` cannot tell the two apart — which is the whole point.
+ */
+export function applyApiKey(req: FastifyRequest, token: string | null): Identity | null {
+  if (!token) return null
+  const user = userForApiKey(token)
+  if (!user) return null
+  const identity: Identity = { id: user.id, email: user.email, via: 'api-key' }
+  ;(req as FastifyRequest & { user: Identity }).user = identity
+  return identity
+}
