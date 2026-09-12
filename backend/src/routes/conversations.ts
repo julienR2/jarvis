@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { existsSync } from 'fs'
 import { basename, extname, resolve, sep } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
+import { activeRuns, finishRun, runStatus, stopRunsFor } from '../runs.js'
 import { ownerOrShare, resolveShareToken } from '../share-access.js'
 import { archiveAppDir } from '../app-archive.js'
 import { ensureAppToken, rotateAppToken, generateShareToken } from '../app-tokens.js'
@@ -157,6 +158,11 @@ export async function cancelConversation(conversationId: string): Promise<void> 
   // Soft interrupt: the engine stops the in-flight turn via the CLI control
   // protocol but keeps the session (and its warm context) alive.
   await interruptConversation(conversationId)
+  // …and the background runs, which the line above cannot reach. An isolated
+  // run lives under its own engine key, so cancelling the conversation used to
+  // interrupt a session the run was never in: the button reported success and
+  // the cron kept going. Stop means stop everything happening in this chat.
+  await stopRunsFor(conversationId)
   emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
 }
 
@@ -198,6 +204,10 @@ export function processMessage(
     // NOT get is this run's session. Used by crons and webhooks whose prompt is
     // self-contained (see inherit_context).
     runKey?: string
+    // The `runs` row this turn belongs to. Stamped onto every message the turn
+    // writes, so the chat can say where a message came from and whether it saw
+    // the conversation's history — and so a failure closes the run out.
+    runId?: string
   },
 ): string | null {
   // Slash commands pass through untouched — no notify prefix, no attachment refs.
@@ -319,6 +329,7 @@ export function processMessage(
         onDone: options?.onDone,
         runKey,
         isolated,
+        runId: options?.runId,
       })
       if (queued) {
         console.log(`[msg] steered into the running turn of ${conversationId}`)
@@ -429,6 +440,9 @@ const attachedConversations = new Map<
     // in progress at the next event so the reply resumes in a new one below the
     // user bubble. Set by markSteerPending(), consumed in appendLine().
     steerPending: boolean
+    // The `runs` rows this stream is serving. Usually zero (a human turn) or
+    // one; more when several inherited runs were steered into the same turn.
+    runIds: Set<string>
   }
 >()
 
@@ -459,7 +473,12 @@ function markSteerPending(conversationId: string): void {
 export function attachConversationStream(
   conversationId: string,
   conv: ConvRow,
-  options?: { onDone?: (text: string) => void; runKey?: string; isolated?: boolean },
+  options?: {
+    onDone?: (text: string) => void
+    runKey?: string
+    isolated?: boolean
+    runId?: string
+  },
 ): void {
   // `conversationId` names two things that are usually the same and, for an
   // isolated run, deliberately are not:
@@ -477,13 +496,48 @@ export function attachConversationStream(
   const existing = attachedConversations.get(streamKey)
   if (existing) {
     if (options?.onDone) existing.onDoneQueue.push(options.onDone)
+    // A run that inherits context reuses the conversation's existing stream, so
+    // there is no second attachment to carry its id — it joins this one. The
+    // set, not a single field: several inherited runs can be steered into the
+    // same turn, and all of them end when it does.
+    if (options?.runId) existing.runIds.add(options.runId)
     return
   }
   const attached = {
     onDoneQueue: options?.onDone ? [options.onDone] : [],
     steerPending: false,
+    runIds: new Set<string>(options?.runId ? [options.runId] : []),
   }
   attachedConversations.set(streamKey, attached)
+
+  // Written into every message this stream produces, so the chat can attribute
+  // it and mark whether it ran outside the conversation's memory. Read fresh
+  // from `attached.runIds` at write time rather than captured: an inherited run
+  // can join after the stream was created.
+  const runMetadata = (): string | null => {
+    const ids = [...attached.runIds]
+    if (ids.length === 0) return null
+    // Newest wins when several runs share a turn: it is the one whose prompt
+    // produced the text being written.
+    return JSON.stringify({ run_id: ids[ids.length - 1], isolated })
+  }
+
+  /**
+   * Close out the runs this stream is serving.
+   *
+   * Run status is owned here rather than in the cron/webhook onDone callback,
+   * because only this handler knows about `pending` — a turn that ends with
+   * background subagents still working is followed by a wake-up turn, and
+   * marking the run finished there would drop the Stop button while it is
+   * still, in every sense that matters, running.
+   */
+  const closeRuns = (
+    status: 'done' | 'error' | 'interrupted',
+    detail?: { result?: string; error?: string },
+  ) => {
+    for (const id of attached.runIds) finishRun(id, status, detail)
+    attached.runIds.clear()
+  }
 
   // Per-turn assembly state — one assistant message, progressively updated,
   // reset at every done/error so the next turn starts a fresh message.
@@ -578,9 +632,9 @@ export function attachConversationStream(
       )
       getDb()
         .prepare(
-          'INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, ?, ?)',
+          'INSERT INTO messages (id, conversation_id, role, content, metadata) VALUES (?, ?, ?, ?, ?)',
         )
-        .run(msgId, conversationId, 'assistant', content)
+        .run(msgId, conversationId, 'assistant', content, runMetadata())
       // A new turn began. For turns the CLI starts on its own (background
       // subagent wake-ups) no processMessage ran, so signal thinking here —
       // it's idempotent for turns that did go through processMessage.
@@ -604,6 +658,14 @@ export function attachConversationStream(
       // keeps it out of appendLine, whose whole-row rewrite per event is fine
       // for the handful of tool/chunk events in a turn and quadratic for tokens.
       if (ev.type === 'delta') {
+        // Isolated runs don't stream live text. `liveTurnText` is keyed by
+        // conversation, and two background runs reporting into the same one
+        // would interleave character-for-character into a single buffer with
+        // no way to tell them apart. Their progress is still visible — the
+        // tool/note/chunk lines are persisted messages, each stamped with its
+        // run id — so what's given up is per-token typing on work nobody is
+        // watching being typed.
+        if (isolated) return
         deltaBuf += ev.text
         scheduleLive()
         return
@@ -660,9 +722,9 @@ export function attachConversationStream(
           console.log(`[msg] db INSERT assistant ${msgId} (result only)`)
           getDb()
             .prepare(
-              'INSERT INTO messages (id, conversation_id, role, content, result) VALUES (?, ?, ?, ?, ?)',
+              'INSERT INTO messages (id, conversation_id, role, content, result, metadata) VALUES (?, ?, ?, ?, ?, ?)',
             )
-            .run(msgId, conversationId, 'assistant', '', resultText)
+            .run(msgId, conversationId, 'assistant', '', resultText, runMetadata())
         } else {
           console.log(`[msg] db UPDATE assistant ${msgId}: set result`)
           getDb()
@@ -712,6 +774,7 @@ export function attachConversationStream(
         // A soft interrupt resolves as a normal done — clear the suppression
         // flag so it doesn't swallow a genuine error later in the session.
         cancelledConversations.delete(conversationId)
+        if (!ev.pending) closeRuns('done', { result: resultText })
         for (const cb of attached.onDoneQueue.splice(0)) cb(resultText)
         // Reset the per-turn state: the stream stays attached and the next
         // turn (steered, queued or wake-up) starts a fresh assistant message.
@@ -781,10 +844,26 @@ export function attachConversationStream(
         msgId = null
         lines = []
 
-        // Skip error message if this was a user-initiated cancellation
+        // Skip error message if this was a user-initiated cancellation.
+        // stopRun already marked its own run `stopped`, and finishRun won't
+        // overwrite a closed row — this call is for a conversation-level
+        // cancel that swept up an inherited run it didn't know the id of.
         if (cancelledConversations.has(conversationId)) {
           console.log(`[msg] cancelled — skipping error message`)
           cancelledConversations.delete(conversationId)
+          closeRuns('interrupted', { error: 'Cancelled' })
+          return
+        }
+
+        // Same thing one level down. Stopping a single run interrupts only its
+        // session, so the conversation-wide `cancelled` flag above never gets
+        // set — and the SIGTERM surfaced as `Claude exited with code 143` in
+        // the transcript, an error bubble for something the user just asked
+        // for. The run row is the record of intent; read it instead of
+        // keeping a second flag in sync with it.
+        if ([...attached.runIds].some((id) => runStatus(id) === 'stopped')) {
+          console.log(`[msg] run stopped — skipping error message`)
+          closeRuns('interrupted')
           return
         }
 
@@ -795,9 +874,11 @@ export function attachConversationStream(
         )
         getDb()
           .prepare(
-            'INSERT INTO messages (id, conversation_id, role, type, content) VALUES (?, ?, ?, ?, ?)',
+            'INSERT INTO messages (id, conversation_id, role, type, content, metadata) VALUES (?, ?, ?, ?, ?, ?)',
           )
-          .run(errorMsgId, conversationId, 'assistant', 'error', ev.message)
+          .run(errorMsgId, conversationId, 'assistant', 'error', ev.message, runMetadata())
+
+        closeRuns('error', { error: ev.message })
 
         const errorRow = getMessageRow(errorMsgId)
         console.log(`[msg] emit message (error) ${errorMsgId}`)
@@ -828,6 +909,10 @@ export function attachConversationStream(
     // the safety net that turns it off.
     dropLive()
     attachedConversations.delete(streamKey)
+    // The session is gone, so nothing will ever report on these runs again.
+    // Anything still open here died with it — say so rather than leave a Stop
+    // button wired to a session that no longer exists.
+    closeRuns('interrupted', { error: 'The engine session ended mid-run' })
     emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
   })
 }
@@ -843,6 +928,9 @@ export function attachConversationStream(
 export function resumeProcessMessage(
   conversationId: string,
   conv: ConvRow,
+  // Set when the session being resumed is an isolated run's rather than the
+  // conversation's own — see reconnectActiveSessions in index.ts.
+  options?: { runKey?: string; runId?: string },
 ): void {
   // Delete any partial assistant message (no result, no error type) that was
   // being streamed before the restart — the engine will replay all
@@ -866,7 +954,11 @@ export function resumeProcessMessage(
   // the spinner until the done event arrives.
   emitConversationEvent(conversationId, { type: 'thinking', thinking: true })
 
-  attachConversationStream(conversationId, conv)
+  attachConversationStream(conversationId, conv, {
+    runKey: options?.runKey,
+    isolated: !!options?.runKey,
+    runId: options?.runId,
+  })
 }
 
 export async function conversationRoutes(app: FastifyInstance) {
@@ -1218,6 +1310,13 @@ export async function conversationRoutes(app: FastifyInstance) {
         )
       }
 
+      // Runs are pushed on change, so a client connecting between changes would
+      // otherwise learn about an in-flight run only when it ended. Always sent,
+      // empty list included — that is what clears a stale pill.
+      reply.raw.write(
+        `data: ${JSON.stringify({ type: 'runs', runs: activeRuns(id) })}\n\n`,
+      )
+
       // Any thinking event forwarded during the isRunning round-trip is more
       // current than its answer, so it wins — the seed is skipped rather than
       // allowed to overwrite it with a stale value.
@@ -1230,7 +1329,11 @@ export async function conversationRoutes(app: FastifyInstance) {
       // Sent whether or not a turn is running: `false` matters just as much, as
       // nothing else tells a reconnecting client that the turn it last saw
       // running has since finished — which used to leave its spinner on for good.
-      const running = await isRunning(id)
+      // A background run is work in this conversation that the conversation's
+      // own engine session knows nothing about, so isRunning() answers `false`
+      // for it. Without the second clause a refresh mid-cron dropped the
+      // spinner and the Stop button while the run carried on invisibly.
+      const running = (await isRunning(id)) || activeRuns(id).length > 0
       if (!sawThinking) {
         reply.raw.write(
           `data: ${JSON.stringify({ type: 'thinking', thinking: running })}\n\n`,

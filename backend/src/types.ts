@@ -75,6 +75,28 @@ export interface WebhookRow {
   created_at: number
 }
 
+export type RunKind = 'cron' | 'webhook'
+
+/** Terminal states a run can reach. `interrupted` = lost, not cancelled. */
+export type RunStatus = 'running' | 'done' | 'error' | 'stopped' | 'interrupted'
+
+export interface RunRow {
+  id: string
+  kind: RunKind
+  /** The cron/webhook this came from. Kept after that row is deleted. */
+  source_id: string | null
+  source_name: string
+  conversation_id: string
+  /** Engine session key. NULL when the run used the conversation's own. */
+  run_key: string | null
+  inherit_context: number
+  status: RunStatus
+  started_at: number
+  ended_at: number | null
+  result: string | null
+  error: string | null
+}
+
 export interface UserRow {
   id: number
   email: string

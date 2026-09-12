@@ -23,6 +23,7 @@ export function useChatEvents(conversationId: string | undefined): {
     store.setProcessing(conversationId, false)
     store.clearLive(conversationId)
     store.loadConversation(conversationId)
+    store.loadRuns(conversationId)
 
     const handleEvent = (ev: ChatEvent) => {
       const cid = convIdRef.current
@@ -43,6 +44,9 @@ export function useChatEvents(conversationId: string | undefined): {
           break
         case 'thinking':
           s.setProcessing(cid, ev.thinking)
+          break
+        case 'runs':
+          s.setActiveRuns(cid, ev.runs)
           break
         case 'usage':
           s.setContextUsage(cid, ev.contextTokens, ev.contextWindow)

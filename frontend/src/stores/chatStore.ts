@@ -5,6 +5,7 @@ import {
   type Conversation,
   type ConversationWithMessages,
   type Message,
+  type Run,
   type Section,
 } from '../api'
 
@@ -48,6 +49,19 @@ interface ChatState {
    * nothing to draw.
    */
   unreadAnchor: Record<string, string | null>
+  /**
+   * Cron/webhook runs still in flight, per conversation. Fed exclusively by the
+   * SSE stream, which sends the whole list on every change and once on connect
+   * — so this is never stale in the direction that matters (a Stop button for
+   * a run that already finished).
+   */
+  activeRuns: Record<string, Run[]>
+  /**
+   * Recent runs for a conversation, finished ones included. Used to label the
+   * messages a run produced; refetched whenever `activeRuns` changes, since a
+   * run appearing or ending is exactly when the labels need to move.
+   */
+  recentRuns: Record<string, Run[]>
 
   // ── List actions ─────────────────────────────────────────────────────────
   loadConversations: () => Promise<void>
@@ -83,6 +97,8 @@ interface ChatState {
   touchConversation: (convId: string) => void
   setTitleFromEvent: (convId: string, title: string) => void
   setContextUsage: (convId: string, tokens: number, windowTokens: number | null) => void
+  setActiveRuns: (convId: string, runs: Run[]) => void
+  loadRuns: (convId: string) => Promise<void>
   /** Keeps the shared indicator in step with the share dialog, which talks to
    * its own endpoint rather than the conversation patch route. */
   setShareMode: (convId: string, mode: Conversation['share_mode']) => void
@@ -187,6 +203,8 @@ export const useChatStore = create<ChatState>()(
     listLoaded: false,
     convsLoaded: {},
     unreadAnchor: {},
+    activeRuns: {},
+    recentRuns: {},
 
     async loadConversations() {
       try {
@@ -494,6 +512,33 @@ export const useChatStore = create<ChatState>()(
         // backend persists, so a reload shows the same thing.
         c.context_window = windowTokens
       })
+    },
+
+    setActiveRuns(convId, runs) {
+      // Refetch the labelled history only when the set of in-flight runs
+      // actually changed. The stream re-sends the list on connect and on every
+      // change, and an unconditional refetch here turned each reconnect into a
+      // request that would return the same rows.
+      const before = get().activeRuns[convId] ?? []
+      const changed =
+        before.length !== runs.length ||
+        before.some((r, i) => r.id !== runs[i]?.id)
+      set((s) => {
+        s.activeRuns[convId] = runs
+      })
+      if (changed) get().loadRuns(convId)
+    },
+
+    async loadRuns(convId) {
+      try {
+        const runs = await api.listRuns(convId)
+        set((s) => {
+          s.recentRuns[convId] = runs
+        })
+      } catch (err) {
+        // Non-fatal: without this the messages a run wrote simply go unlabelled.
+        console.error('Failed to load runs:', err)
+      }
     },
 
     setShareMode(convId, mode) {

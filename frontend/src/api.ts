@@ -190,6 +190,14 @@ export const api = {
   cancelMessage: (conversationId: string) =>
     request<{ ok: boolean }>('POST', `/conversations/${conversationId}/cancel`),
 
+  // Runs — one row per cron/webhook fire. Scoped to a conversation here
+  // because that is where they are shown; the unscoped list is the same
+  // endpoint without the parameter.
+  listRuns: (conversationId: string, limit = 50) =>
+    request<Run[]>('GET', `/runs?conversation_id=${conversationId}&limit=${limit}`),
+  stopRun: (runId: string) =>
+    request<{ stopped: boolean }>('POST', `/runs/${runId}/stop`),
+
   // Fire-and-forget: the server transcribes and posts the message in the
   // background (survives the client navigating away), so there's nothing to
   // return — the message arrives over the conversation event stream.
@@ -510,6 +518,23 @@ export interface MessagePage {
 
 export interface ConversationWithMessages extends Conversation, MessagePage {}
 
+export interface Run {
+  id: string
+  kind: 'cron' | 'webhook'
+  source_id: string | null
+  source_name: string
+  conversation_id: string
+  /** Engine session key; null when the run used the conversation's own. */
+  run_key: string | null
+  /** 0 = the run could not see this conversation's history. */
+  inherit_context: number
+  status: 'running' | 'done' | 'error' | 'stopped' | 'interrupted'
+  started_at: number
+  ended_at: number | null
+  result: string | null
+  error: string | null
+}
+
 export interface Section {
   id: string
   name: string
@@ -705,6 +730,9 @@ export type ChatEvent =
   | { type: 'message'; message: Message }
   | { type: 'conversation'; id: string; title?: string }
   | { type: 'thinking'; thinking: boolean }
+  // The conversation's in-flight cron/webhook runs, whole list on every change
+  // (and once on connect). An empty array is meaningful: it clears the pill.
+  | { type: 'runs'; runs: Run[] }
   | { type: 'app_updated' }
   | { type: 'usage'; contextTokens: number; contextWindow: number | null }
   // Live-only, never persisted: answer text as it is written (append). Dropped

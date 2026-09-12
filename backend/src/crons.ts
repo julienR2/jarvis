@@ -2,6 +2,7 @@ import cron, { type ScheduledTask } from 'node-cron'
 import { getDb, uuid } from './db.js'
 import { config } from './config.js'
 import { processMessage } from './routes/conversations.js'
+import { startRun } from './runs.js'
 import type { CronRow, ConvRow } from './types.js'
 
 const tasks = new Map<string, ScheduledTask>()
@@ -56,17 +57,30 @@ export function fireCron(entry: CronRow): void {
 
   const { conversationId, conv } = ensureConversation(entry)
 
+  // Unless the cron opts into the conversation's history, each fire runs in its
+  // own session and only reports into the linked conversation. The key is
+  // unique per fire so two runs never share a session, and the conversation's
+  // own session is never touched.
+  const runKey = entry.inherit_context
+    ? undefined
+    : `cron-${entry.id}-${Date.now()}`
+
+  // Recorded before the prompt is sent, so the run is stoppable from the very
+  // first moment it exists rather than from whenever the engine answers.
+  const run = startRun({
+    kind: 'cron',
+    sourceId: entry.id,
+    sourceName: entry.name,
+    conversationId,
+    runKey,
+  })
+
   processMessage(conversationId, conv, entry.prompt, [], {
     skipUserMessage: true,
     model: entry.model ?? undefined,
     effort: entry.effort,
-    // Unless the cron opts into the conversation's history, each fire runs in
-    // its own session and only reports into the linked conversation. The key is
-    // unique per fire so two runs never share a session, and the conversation's
-    // own session is never touched.
-    runKey: entry.inherit_context
-      ? undefined
-      : `cron-${entry.id}-${Date.now()}`,
+    runKey,
+    runId: run.id,
     onDone: (text) => {
       getDb()
         .prepare('UPDATE crons SET last_result = ? WHERE id = ?')

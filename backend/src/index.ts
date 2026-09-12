@@ -18,6 +18,8 @@ import {
 } from './routes/conversations.js'
 import { sectionRoutes } from './routes/sections.js'
 import { cronRoutes } from './routes/crons.js'
+import { runRoutes } from './routes/runs.js'
+import { runByKey, reconcileStaleRuns } from './runs.js'
 import { webhookRoutes, webhookTriggerRoute } from './routes/webhooks.js'
 import { uploadRoutes, UPLOADS_DIR, MAX_FILE_SIZE } from './routes/uploads.js'
 import { pushRoutes } from './routes/push.js'
@@ -180,6 +182,7 @@ await app.register(authRoutes, { prefix: '/api/auth' })
 await app.register(conversationRoutes, { prefix: '/api/conversations' })
 await app.register(sectionRoutes, { prefix: '/api/sections' })
 await app.register(cronRoutes, { prefix: '/api/crons' })
+await app.register(runRoutes, { prefix: '/api/runs' })
 await app.register(webhookRoutes, { prefix: '/api/webhooks' })
 await app.register(webhookTriggerRoute, { prefix: '/api/hooks' })
 await app.register(uploadRoutes)
@@ -268,19 +271,31 @@ async function reconnectActiveSessions(): Promise<void> {
       `[reconnect] found ${busy.length} busy conversation(s) to resume`,
     )
     for (const conversationId of busy) {
+      // An isolated run's engine key is not a conversation id, so look it up
+      // as a run first. This is the runKey->conversation mapping the comment
+      // here used to say we didn't keep: the `runs` table now holds it, so a
+      // restart mid-cron no longer throws the run's output away.
+      const run = runByKey(conversationId)
+      const targetId = run?.conversation_id ?? conversationId
+
       const conv = getDb()
         .prepare('SELECT * FROM conversations WHERE id = ?')
-        .get(conversationId) as ConvRow | undefined
+        .get(targetId) as ConvRow | undefined
       if (!conv) {
-        // Synthetic ids have no conversation row: title generation, probes,
-        // and the `cron-*` / `hook-*` keys of isolated runs. Skipping an
-        // isolated run costs its output — the engine finishes the turn, but
-        // nothing is left to persist it into the linked conversation. That is
-        // the accepted trade for the restart being rare and the alternative
-        // being a runKey->conversation mapping to keep alive across restarts.
+        // Genuinely synthetic ids land here: title generation and probes.
         console.warn(
           `[reconnect] conversation ${conversationId} not found, skipping`,
         )
+        continue
+      }
+      if (run) {
+        console.log(
+          `[reconnect] resuming ${run.kind} run "${run.source_name}" into ${targetId}`,
+        )
+        resumeProcessMessage(targetId, conv, {
+          runKey: run.run_key ?? undefined,
+          runId: run.id,
+        })
         continue
       }
       console.log(`[reconnect] resuming conversation ${conversationId}`)
@@ -292,8 +307,10 @@ async function reconnectActiveSessions(): Promise<void> {
 }
 
 // Fire off reconnection without blocking startup — the engine may
-// still be booting when the backend comes up.
-reconnectActiveSessions()
+// still be booting when the backend comes up. Whatever it could not re-attach
+// to is gone with the old process, so close those runs out rather than leave
+// them showing a Stop button for a session nothing is listening to.
+reconnectActiveSessions().then(reconcileStaleRuns)
 
 // ── Start ────────────────────────────────────────────────────────────────────
 

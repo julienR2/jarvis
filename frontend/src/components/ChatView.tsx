@@ -4,12 +4,13 @@ import { useParams, useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { Clock, Link2, Earth, Loader2, ArrowUp } from 'lucide-react'
+import { Clock, Link2, Earth, Loader2, ArrowUp, EyeOff } from 'lucide-react'
 import {
   api,
   type Message,
   type Attachment,
   type Conversation,
+  type Run,
 } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { useChatEvents } from '../hooks/useChatEvents'
@@ -20,6 +21,7 @@ import AppPreview from './AppPreview'
 import ResizeHandle from './ResizeHandle'
 import { useIsDesktop } from '../hooks/useIsDesktop'
 import { ContentTitle } from './ContentLayout'
+import BackgroundRuns from './BackgroundRuns'
 
 /** Shared so the jump button can find the divider without threading a ref
  *  through the day-grouping list. */
@@ -113,6 +115,15 @@ export default function ChatView({
   )
   const unreadAnchor = useChatStore((s) =>
     conversationId ? s.unreadAnchor[conversationId] ?? null : null,
+  )
+  const recentRuns = useChatStore((s) =>
+    conversationId ? s.recentRuns[conversationId] : undefined,
+  )
+  // Lets the transcript markers name their run without scanning the list once
+  // per marker. Rebuilt only when the runs change, not on every message.
+  const runsById = useMemo(
+    () => new Map((recentRuns ?? []).map((r) => [r.id, r])),
+    [recentRuns],
   )
 
   const title = conv?.title ?? ''
@@ -446,6 +457,7 @@ export default function ChatView({
           <ContentTitle
             action={conversationId && !shared ? (
               <span className='flex items-center gap-2'>
+                <BackgroundRuns conversationId={conversationId} />
                 <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} shareMode={shareMode} />
                 <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
                 <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShareToken(token) } : undefined} />
@@ -487,7 +499,8 @@ export default function ChatView({
               <ContentTitle
                 action={conversationId && !shared ? (
                   <span className='flex items-center gap-2'>
-                    <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} shareMode={shareMode} />
+                    <BackgroundRuns conversationId={conversationId} />
+                <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} shareMode={shareMode} />
                     <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
                     <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} />
                   </span>
@@ -539,6 +552,12 @@ export default function ChatView({
                         <DateSeparator key={item.key} label={item.label} />
                       ) : item.type === 'unread' ? (
                         <UnreadSeparator key={item.key} onDismiss={dismissUnread} />
+                      ) : item.type === 'run' ? (
+                        <RunSeparator
+                          key={item.key}
+                          run={runsById.get(item.runId)}
+                          isolated={item.isolated}
+                        />
                       ) : (
                         <MessageBubble
                           key={item.msg.id}
@@ -726,10 +745,24 @@ type MessageItem =
   | { type: 'message'; msg: Message }
   | { type: 'separator'; key: string; label: string }
   | { type: 'unread'; key: string }
+  | { type: 'run'; key: string; runId: string; isolated: boolean }
+
+/** The run a message was written by, from the metadata the backend stamps on. */
+function messageRun(msg: Message): { runId: string; isolated: boolean } | null {
+  if (!msg.metadata) return null
+  try {
+    const parsed = JSON.parse(msg.metadata)
+    if (typeof parsed?.run_id !== 'string') return null
+    return { runId: parsed.run_id, isolated: !!parsed.isolated }
+  } catch {
+    return null
+  }
+}
 
 function groupMessagesByDay(messages: Message[], unreadAnchor: string | null): MessageItem[] {
   const result: MessageItem[] = []
   let lastDay = ''
+  let lastRunId: string | null = null
 
   for (const msg of messages) {
     const date = new Date((msg.created_at || 0) * 1000)
@@ -738,7 +771,24 @@ function groupMessagesByDay(messages: Message[], unreadAnchor: string | null): M
     if (dayKey !== lastDay) {
       lastDay = dayKey
       result.push({ type: 'separator', key: `sep-${dayKey}`, label: formatDayLabel(date) })
+      // A day separator already breaks the block visually, so the next run
+      // marker has to be re-drawn even if the run id happens to be unchanged.
+      lastRunId = null
     }
+
+    // One marker per contiguous block of a run's messages, not one per message.
+    // A cron writes an activity message, then a result message, then sometimes
+    // an error — labelling each of them would triple the noise for one event.
+    const run = messageRun(msg)
+    if (run && run.runId !== lastRunId) {
+      result.push({
+        type: 'run',
+        key: `run-${run.runId}-${msg.id}`,
+        runId: run.runId,
+        isolated: run.isolated,
+      })
+    }
+    lastRunId = run?.runId ?? null
     // Below the day separator, not above it: the divider marks where reading
     // resumes, and that is inside the day, not before it.
     if (msg.id === unreadAnchor) result.push({ type: 'unread', key: `unread-${msg.id}` })
@@ -759,6 +809,42 @@ function formatDayLabel(date: Date): string {
   const diffDays = Math.floor((today.getTime() - date.getTime()) / 86_400_000)
   if (diffDays < 7) return date.toLocaleDateString([], { weekday: 'long' })
   return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined })
+}
+
+/**
+ * Marks where a cron or webhook wrote into the transcript.
+ *
+ * The wording points forward, not back: the interesting fact is not that this
+ * ran elsewhere, it is that asking about it in the box below won't work,
+ * because the conversation's own session never saw any of it. Saying "ran
+ * without context" describes the run; "outside this chat's memory" describes
+ * the consequence for the person reading.
+ *
+ * `run` can be missing — the runs list is capped, so an old enough message
+ * outlives its row. The marker still renders, just without the name.
+ */
+function RunSeparator({ run, isolated }: { run?: Run; isolated: boolean }) {
+  const name = run?.source_name
+  const kindLabel = run?.kind === 'webhook' ? 'Webhook' : run?.kind === 'cron' ? 'Cron' : 'Automation'
+  return (
+    <div className='flex items-center gap-3 my-4'>
+      <div className='flex-1 h-px bg-border' />
+      <span className='flex items-center gap-1.5 text-[11px] text-text-muted/70 font-medium shrink-0'>
+        {run?.kind === 'webhook' ? <Link2 size={11} /> : <Clock size={11} />}
+        <span className='max-w-[220px] truncate'>{name ? `${kindLabel}: ${name}` : kindLabel}</span>
+        {isolated && (
+          <span
+            className='flex items-center gap-1 text-text-muted/50'
+            title="This ran in its own session. The messages below are on screen but not in the conversation's memory — ask about them and Claude has to go and read the history first."
+          >
+            <EyeOff size={10} />
+            outside this chat's memory
+          </span>
+        )}
+      </span>
+      <div className='flex-1 h-px bg-border' />
+    </div>
+  )
 }
 
 function DateSeparator({ label }: { label: string }) {

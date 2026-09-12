@@ -1,5 +1,6 @@
 import { getDb, uuid } from './db.js'
 import { processMessage } from './routes/conversations.js'
+import { startRun } from './runs.js'
 import type { WebhookRow, ConvRow } from './types.js'
 
 function ensureConversation(entry: WebhookRow): { conversationId: string; conv: ConvRow } {
@@ -64,29 +65,53 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
     }
   }
 
+  // See crons.ts — a webhook fires on someone else's schedule, so by default it
+  // gets a clean session and reports into the linked conversation rather than
+  // inheriting (and paying for) everything said there.
+  const runKey = entry.inherit_context
+    ? undefined
+    : `hook-${entry.id}-${Date.now()}`
+
+  // Two fires of the same webhook land two runs in the same conversation, in
+  // parallel and by design. That only stays legible because each carries its
+  // own id — the messages it writes are stamped with it, and Stop targets one
+  // run rather than "whatever is running here".
+  const run = startRun({
+    kind: 'webhook',
+    sourceId: entry.id,
+    sourceName: entry.name,
+    conversationId,
+    runKey,
+  })
+
+  const recordDone = (text: string) => {
+    getDb()
+      .prepare('UPDATE webhooks SET last_result = ? WHERE id = ?')
+      .run(text, entry.id)
+  }
+
   const msgOptions = {
     skipUserMessage: !displayMessage,
     userMessageOverride: displayMessage,
     model: entry.model ?? undefined,
     effort: entry.effort,
-    // See crons.ts — a webhook fires on someone else's schedule, so by default
-    // it gets a clean session and reports into the linked conversation rather
-    // than inheriting (and paying for) everything said there.
-    runKey: entry.inherit_context
-      ? undefined
-      : `hook-${entry.id}-${Date.now()}`,
+    runKey,
+    runId: run.id,
   }
 
   const donePromise = sync
     ? new Promise<string>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('Webhook response timeout')), 120_000)
+        const timeout = setTimeout(() => {
+          // The caller gets an error, but the run itself is still going — the
+          // timeout is on the HTTP response, not on the work. Leaving it
+          // `running` is correct: it is, and it is still stoppable.
+          reject(new Error('Webhook response timeout'))
+        }, 120_000)
         processMessage(conversationId, conv, prompt, [], {
           ...msgOptions,
           onDone: (text) => {
             clearTimeout(timeout)
-            getDb()
-              .prepare('UPDATE webhooks SET last_result = ? WHERE id = ?')
-              .run(text, entry.id)
+            recordDone(text)
             resolve(text)
           },
         })
@@ -96,11 +121,7 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
   if (!sync) {
     processMessage(conversationId, conv, prompt, [], {
       ...msgOptions,
-      onDone: (text) => {
-        getDb()
-          .prepare('UPDATE webhooks SET last_result = ? WHERE id = ?')
-          .run(text, entry.id)
-      },
+      onDone: recordDone,
     })
   }
 

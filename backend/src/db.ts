@@ -315,6 +315,39 @@ export function initDb(): void {
     } catch { /* already exists */ }
   }
 
+  // Runs — one row per cron/webhook fire.
+  //
+  // Before this table an isolated run existed only as an entry in an in-memory
+  // map keyed by a throwaway `cron-…`/`hook-…` string. Nothing outside the
+  // backend process knew it was there, which is why it could not be stopped
+  // (Stop cancels the *conversation's* engine session, and an isolated run is
+  // not in it), why a refresh dropped the spinner while the run carried on, and
+  // why a restart lost it entirely. `run_key` is that string, now persisted: it
+  // is what the engine answers to. NULL means the run inherited the
+  // conversation's own session, so the conversation id is the key.
+  //
+  // source_id has no foreign key on purpose: deleting a cron must not erase the
+  // history of what it did, and source_name is denormalised for the same reason.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS runs (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL CHECK(kind IN ('cron', 'webhook')),
+      source_id TEXT,
+      source_name TEXT NOT NULL,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      run_key TEXT,
+      inherit_context INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL CHECK(status IN ('running', 'done', 'error', 'stopped', 'interrupted')),
+      started_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      ended_at INTEGER,
+      result TEXT,
+      error TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_runs_conv ON runs(conversation_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_runs_running ON runs(status) WHERE status = 'running';
+  `)
+
   // Connectors — one row per connector holding its definition AND its values.
   // Unified from the former three-way split (hardcoded catalog + custom_connectors
   // definitions + connectors secrets). See connectors.ts.
