@@ -6,6 +6,11 @@ A self-hosted, full-stack AI assistant powered by Claude Code CLI, with a chat w
 
 The Jarvis repo itself is git-controlled. When Claude modifies backend/frontend code, changes can be reviewed (diff), committed, or reverted through the API. The backend mounts the whole repo at `/jarvis` (working dir), so source, agent config, workspace, and data all live under one tree.
 
+**Previewing**: the `next` stack (compose profile `next`) is this same checkout in
+dev mode on its own throwaway database, served at `/next/` on the same origin —
+prod's frontend proxies it, so no reverse-proxy change is needed. A save is live
+there in about a second, which is how a change gets shown before it is deployed.
+
 **Deploying**: prod runs without file watchers, so an edit under `backend/`, `frontend/` or `engine/` is inert until the `deploy` skill runs (`agent/skills/deploy/deploy.sh`). It builds the frontend, restarts the backend through `POST /internal/restart`, and restarts the engine only when told to. Edits under `agent/` are read at runtime and need no deploy.
 
 **Recovery strategy**: First try discarding uncommitted changes (`/api/git/discard`). If the repo is clean but still broken, revert the last commit (`/api/git/revert`). Either way the running code only changes after a deploy — or, if the backend itself is down, after the `jarvis` project is restarted on the host.

@@ -4,7 +4,7 @@
  */
 import type { FastifyInstance } from 'fastify'
 import cron from 'node-cron'
-import { mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { processMessage, type Attachment } from './conversations.js'
@@ -26,6 +26,31 @@ function checkSecret(req: any, reply: any): boolean {
   return true
 }
 
+
+/**
+ * Die in whichever way actually brings us back on the code now on disk.
+ * Plain `tsx src/index.ts`: exiting ends the container's `sh -c` chain and the
+ * restart policy restarts it. `tsx watch`: the watcher outlives an exited child
+ * and waits for a file change — so give it one, a byte-identical rewrite of our
+ * own entry file. (Signalling PID 1 is not an option: a non-interactive sh as
+ * init ignores SIGTERM.) Delayed so the reply gets out first.
+ */
+function scheduleRestart(): 'watch' | 'exit' {
+  const underWatch = parentIsTsxWatch()
+  setTimeout(() => {
+    if (underWatch) {
+      try {
+        const entry = join(process.env.JARVIS_REPO_DIR || '/jarvis', 'backend/src/index.ts')
+        writeFileSync(entry, readFileSync(entry))
+        return
+      } catch (err) {
+        console.error('[restart] could not nudge tsx watch, exiting instead:', err)
+      }
+    }
+    process.exit(0)
+  }, 300)
+  return underWatch ? 'watch' : 'exit'
+}
 
 /** True when our parent process is the `tsx watch` supervisor. Linux only, like the container. */
 function parentIsTsxWatch(): boolean {
@@ -51,20 +76,24 @@ export async function internalRoutes(app: FastifyInstance) {
   // is not an option: a non-interactive sh as init ignores SIGTERM.)
   app.post('/restart', async (req, reply) => {
     if (!checkSecret(req, reply)) return
-    const underWatch = parentIsTsxWatch()
-    setTimeout(() => {
-      if (underWatch) {
-        try {
-          const entry = join(process.env.JARVIS_REPO_DIR || '/jarvis', 'backend/src/index.ts')
-          writeFileSync(entry, readFileSync(entry))
-          return
-        } catch (err) {
-          console.error('[restart] could not nudge tsx watch, exiting instead:', err)
-        }
-      }
-      process.exit(0)
-    }, 300)
-    return { ok: true, restarting: true, mode: underWatch ? 'watch' : 'exit' }
+    const mode = scheduleRestart()
+    return { ok: true, restarting: true, mode }
+  })
+
+  // Wipe this instance's database and come back empty (re-seeded at boot when
+  // SEED_FIXTURES is set). Only for throwaway instances — the `next` stack —
+  // and only when its compose says so; prod never sets ALLOW_DB_RESET.
+  app.post('/reset', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    if (process.env.ALLOW_DB_RESET !== '1') {
+      return reply.code(403).send({ error: 'reset is not enabled on this instance' })
+    }
+    try { getDb().close() } catch { /* already closed */ }
+    for (const suffix of ['', '-wal', '-shm']) {
+      try { unlinkSync(config.dbPath + suffix) } catch { /* absent */ }
+    }
+    const mode = scheduleRestart()
+    return { ok: true, reset: true, restarting: true, mode }
   })
 
   app.post('/crons', async (req, reply) => {

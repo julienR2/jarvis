@@ -1,4 +1,6 @@
-const BASE = '/api'
+import { API_BASE, BASE_PATH } from './base'
+
+const BASE = API_BASE
 
 // Origin that serves generated apps. Same origin by default, which keeps a
 // zero-config deploy working; set VITE_APPS_ORIGIN to a different host or port
@@ -49,7 +51,7 @@ function handleUnauthorized() {
     window.__jarvisToast?.info('Your session expired — please sign in again.')
   }
   if (window.location.pathname !== '/login') {
-    window.location.href = '/login'
+    window.location.href = `${BASE_PATH}/login`
   }
 }
 

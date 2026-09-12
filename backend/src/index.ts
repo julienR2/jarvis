@@ -20,6 +20,7 @@ import { sectionRoutes } from './routes/sections.js'
 import { cronRoutes } from './routes/crons.js'
 import { runRoutes } from './routes/runs.js'
 import { runByKey, reconcileStaleRuns } from './runs.js'
+import { seedFixtures } from './fixtures.js'
 import { webhookRoutes, webhookTriggerRoute } from './routes/webhooks.js'
 import { uploadRoutes, UPLOADS_DIR, MAX_FILE_SIZE } from './routes/uploads.js'
 import { pushRoutes } from './routes/push.js'
@@ -175,6 +176,9 @@ if (config.adminEmail && config.adminPassword) {
     console.log(`[init] Created admin user: ${config.adminEmail}`)
   }
 }
+
+// Throwaway instances (the next stack, e2e) start with something to look at.
+if (process.env.SEED_FIXTURES === '1') seedFixtures()
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 

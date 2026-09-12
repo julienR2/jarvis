@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react'
 import { ExternalLink, RefreshCw } from 'lucide-react'
 import { APPS_ORIGIN } from '../api'
+import { BASE_PATH } from '../base'
 
 interface ShareIntent {
   title?: string
@@ -51,7 +52,7 @@ export default function AppPreview({
   // own location.search. App HTML is written by the agent from web content, so
   // the account credential shouldn't be reachable from inside the frame: this
   // token opens one app and nothing else.
-  const appBase = `${APPS_ORIGIN}/api/apps/${appSlug}/index.html`
+  const appBase = `${APPS_ORIGIN || BASE_PATH}/api/apps/${appSlug}/index.html`
   const src = appToken
     ? `${appBase}?token=${appToken}&v=${refreshKey}${appHashRef.current}`
     : ''

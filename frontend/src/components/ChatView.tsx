@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { API_BASE } from '../base'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
@@ -142,7 +143,7 @@ export default function ChatView({
   }, [hasApp, conversationId])
   const appShareUrl =
     hasApp && appShareToken
-      ? `/api/apps/${conv!.app_path!.replace(/^apps\//, '')}/index.html?token=${appShareToken}`
+      ? `${API_BASE}/apps/${conv!.app_path!.replace(/^apps\//, '')}/index.html?token=${appShareToken}`
       : undefined
   const notify: Conversation['notify'] = conv?.notify ?? 'subscribe'
   // `null` on the row means "the instance default", which depends on the

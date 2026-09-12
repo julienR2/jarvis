@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useState, useRef } from 'react'
+import { API_BASE } from '../base'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
@@ -555,7 +556,7 @@ function Linkify({ text }: { text: string }) {
 function translateSrc(src?: string): string {
   if (!src) return ''
   return withMediaToken(
-    src.replace(/^\/(?:jarvis\/(?:agent\/)?)?workspace\/uploads\//, '/api/uploads/files/'),
+    src.replace(/^\/(?:jarvis\/(?:agent\/)?)?workspace\/uploads\//, `${API_BASE}/uploads/files/`),
   )
 }
 

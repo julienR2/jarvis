@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { API_BASE } from '../base'
 import { Loader2, ExternalLink, Info } from 'lucide-react'
 import { api } from '../api'
 import { ContentTitle } from './ContentLayout'
@@ -28,7 +29,7 @@ export default function BrowserPage() {
         action={
           status === 'ready' ? (
             <a
-              href='/api/browser/'
+              href={`${API_BASE}/browser/`}
               target='_blank'
               rel='noreferrer'
               title='Open in a new tab'
@@ -81,7 +82,7 @@ docker compose --profile browser up -d
       {status === 'ready' && (
         <iframe
           ref={frameRef}
-          src='/api/browser/'
+          src={`${API_BASE}/browser/`}
           title='Browser'
           className='flex-1 w-full border-0 bg-white'
           // Same-origin so the proxied VNC session keeps its own storage; this
