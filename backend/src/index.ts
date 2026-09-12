@@ -244,7 +244,8 @@ app.get<{ Querystring: { token?: string } }>('/api/events', async (req, reply) =
 
 // ── Health check ──────────────────────────────────────────────────────────────
 
-app.get('/health', async () => ({ ok: true }))
+// uptime lets a deploy prove the restart it asked for actually happened.
+app.get('/health', async () => ({ ok: true, uptime: Math.round(process.uptime()) }))
 
 // ── Cron scheduler ────────────────────────────────────────────────────────────
 

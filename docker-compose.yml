@@ -26,7 +26,11 @@ services:
   backend:
     build: ./backend
     working_dir: /jarvis/backend
-    command: sh -c "npm install && npx tsx watch src/index.ts"
+    # No file watcher: this is the instance you talk to, and a half-saved edit
+    # used to take it down mid-conversation. Source on disk is inert until the
+    # `deploy` skill asks for a restart (POST /internal/restart), or the
+    # container is recreated. Preview edits live on the `next` stack instead.
+    command: sh -c "npm install && npx tsx src/index.ts"
     volumes:
       - ./:/jarvis
       # Named, not anonymous, so the engine can mount the same tree read-only
@@ -98,12 +102,16 @@ services:
     image: node:25
     working_dir: /app
     # Install and first build run to completion in the FOREGROUND before
-    # anything else starts. The old form (`npm install && build --watch & sleep
-    # 5 && preview`) backgrounded the install, so on a fresh clone preview died
-    # first (`vite: not found`), the container restart killed npm mid-extract,
-    # and a truncated native binary (SIGBUS crash-loop) was left behind that
-    # later installs never re-extracted.
-    command: sh -c "npm install && npx vite build && { npx vite build --watch & exec npm run preview -- --host; }"
+    # preview starts: a backgrounded install once left preview dying first
+    # (`vite: not found`) and a truncated native binary crash-looping.
+    # Serves the production build in dist/ and nothing else. The build itself
+    # runs here only when dist/ is missing (a fresh clone); afterwards the
+    # `deploy` skill builds from the engine and drops the result into dist/,
+    # index.html last, so preview never serves a torn bundle. No `--watch`:
+    # a source edit must not reach this instance until it is deployed.
+    # This container is root; the engine (which deploys) is uid 1000 — hence
+    # the chown, so what is built here can later be replaced from there.
+    command: sh -c "npm install && { [ -f dist/index.html ] || npx vite build; } && chown -R 1000:1000 dist && exec npm run preview -- --host"
     volumes:
       - ./frontend:/app
       # Named so the engine can mount it read-only for typechecking; see backend.

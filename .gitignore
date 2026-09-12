@@ -38,6 +38,7 @@ agent/skills/*
 !agent/skills/linear/
 !agent/skills/connectors/
 !agent/skills/jarvis/
+!agent/skills/deploy/
 !agent/skills/slack/
 !agent/skills/github/
 !agent/skills/elevenlabs/

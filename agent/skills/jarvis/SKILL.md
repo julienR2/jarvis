@@ -6,7 +6,7 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 
 # Self-Edit Skill — Modify Jarvis Frontend
 
-You can edit Jarvis's own frontend source code. The container rebuilds automatically, but the user's open tab keeps running the old bundle until it reloads — see "Telling the user to reload" below.
+You can edit Jarvis's own frontend source code. **Nothing you save is live**: prod runs without file watchers. Once the user has seen and approved the change, run the `deploy` skill — it builds the frontend and the open tab gets a reload banner. See "Telling the user to reload" below.
 
 ## When to use this skill
 
@@ -42,22 +42,22 @@ The source is mounted at `/jarvis/frontend/` inside the container.
 1. Use `Glob` and `Grep` to explore the codebase and understand existing patterns
 2. Read the relevant files before editing — understand the existing code first
 3. Use `Edit` for targeted changes, `Write` only for new files
-4. Save your edits and let the rebuild finish (a second or two)
+4. Typecheck (`npm --prefix /jarvis/frontend run typecheck`), show the user the diff, and when they approve, run the `deploy` skill
 
 ## Telling the user to reload
 
-There is **no hot reload**. The container runs `vite build --watch` behind
-`vite preview` — a production build, not a dev server — so nothing is pushed to
-the browser. Until the tab reloads, the user is looking at the old interface and
+There is **no hot reload**, and no build until you deploy. The container serves
+a fixed production build behind `vite preview`; the `deploy` skill replaces it.
+Until the tab reloads after that, the user is looking at the old interface and
 your change appears to have done nothing.
 
-When the rebuild lands, a **"Jarvis updated its interface" banner with a Reload
+When the deploy lands, a **"Jarvis updated its interface" banner with a Reload
 button** appears at the bottom of their screen automatically. So:
 
 - **Finish by telling them to reload**, e.g. "Reload to see it — use the Reload
   button in the banner at the bottom, or the ↻ button at the bottom of the sidebar."
-- Give the rebuild a moment before you say you're done; the banner only appears
-  once the new build is on disk.
+- The banner appears once the deploy has swapped the build in; there is nothing
+  to wait for after the script returns.
 - If they say the change isn't showing, the first question is always whether
   they reloaded.
 

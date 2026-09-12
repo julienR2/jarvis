@@ -6,7 +6,9 @@ A self-hosted, full-stack AI assistant powered by Claude Code CLI, with a chat w
 
 The Jarvis repo itself is git-controlled. When Claude modifies backend/frontend code, changes can be reviewed (diff), committed, or reverted through the API. The backend mounts the whole repo at `/jarvis` (working dir), so source, agent config, workspace, and data all live under one tree.
 
-**Recovery strategy**: First try discarding uncommitted changes (`/api/git/discard`). If the repo is clean but still broken, revert the last commit (`/api/git/revert`).
+**Deploying**: prod runs without file watchers, so an edit under `backend/`, `frontend/` or `engine/` is inert until the `deploy` skill runs (`agent/skills/deploy/deploy.sh`). It builds the frontend, restarts the backend through `POST /internal/restart`, and restarts the engine only when told to. Edits under `agent/` are read at runtime and need no deploy.
+
+**Recovery strategy**: First try discarding uncommitted changes (`/api/git/discard`). If the repo is clean but still broken, revert the last commit (`/api/git/revert`). Either way the running code only changes after a deploy — or, if the backend itself is down, after the `jarvis` project is restarted on the host.
 
 ## Typechecking your own edits
 
@@ -17,9 +19,9 @@ npm --prefix /jarvis/backend run typecheck
 npm --prefix /jarvis/frontend run typecheck
 ```
 
-This is the only check available before a rebuild, so use it — a type error that
-reaches the build takes the whole stack down, and the rebuild is what restarts the
-container serving the conversation you would need in order to fix it.
+Run it before deploying — the deploy script runs it too and refuses to go on
+if it fails, but a type error caught while editing is cheaper than one caught
+at deploy time.
 
 **Use `npm run`, never `npx tsc`.** `npm run` resolves the project's own compiler
 from its `node_modules/.bin`. npx resolves from the current directory, and in a

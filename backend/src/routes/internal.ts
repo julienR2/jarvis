@@ -4,7 +4,7 @@
  */
 import type { FastifyInstance } from 'fastify'
 import cron from 'node-cron'
-import { mkdirSync } from 'fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { processMessage, type Attachment } from './conversations.js'
@@ -26,7 +26,47 @@ function checkSecret(req: any, reply: any): boolean {
   return true
 }
 
+
+/** True when our parent process is the `tsx watch` supervisor. Linux only, like the container. */
+function parentIsTsxWatch(): boolean {
+  try {
+    const ppid = /PPid:\s*(\d+)/.exec(readFileSync('/proc/self/status', 'utf8'))?.[1]
+    if (!ppid) return false
+    const cmd = readFileSync(`/proc/${ppid}/cmdline`, 'utf8').split('\0').join(' ')
+    return /\btsx\b.*\bwatch\b/.test(cmd)
+  } catch {
+    return false
+  }
+}
+
 export async function internalRoutes(app: FastifyInstance) {
+  // Restart this backend so it picks up new source. Prod mode runs without a
+  // file watcher, so a deploy has to say when.
+  //
+  // Two ways to die, depending on how we were started. Plain `tsx src/index.ts`:
+  // exiting ends the container's `sh -c` chain and the restart policy brings it
+  // back on the code now on disk. `tsx watch`: the watcher outlives an exited
+  // child and waits for a file change — so give it one, a byte-identical
+  // rewrite of our own entry file, and it restarts us itself. (Signalling PID 1
+  // is not an option: a non-interactive sh as init ignores SIGTERM.)
+  app.post('/restart', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    const underWatch = parentIsTsxWatch()
+    setTimeout(() => {
+      if (underWatch) {
+        try {
+          const entry = join(process.env.JARVIS_REPO_DIR || '/jarvis', 'backend/src/index.ts')
+          writeFileSync(entry, readFileSync(entry))
+          return
+        } catch (err) {
+          console.error('[restart] could not nudge tsx watch, exiting instead:', err)
+        }
+      }
+      process.exit(0)
+    }, 300)
+    return { ok: true, restarting: true, mode: underWatch ? 'watch' : 'exit' }
+  })
+
   app.post('/crons', async (req, reply) => {
     if (!checkSecret(req, reply)) return
 

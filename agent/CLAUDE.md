@@ -133,9 +133,12 @@ This project (`/jarvis`) is a git repository. You can inspect and modify it free
 
 Commit meaningful changes, but don't commit eagerly — for multi-file or testable changes, wait for the user to review first. Keep messages short and focused on the *why*.
 
+Code under `backend/`, `frontend/` and `engine/` is **not live when saved** — prod
+runs without watchers. After the user approves a change, run the `deploy` skill.
+
 Committing often is what makes a broken change recoverable: with a clean history the
 fix is `git diff` to see what you did, then discard the working tree or revert the
-last commit. If you break the app badly enough that the UI won't load, say so plainly
+last commit, then deploy again. If you break the app badly enough that the UI won't load, say so plainly
 and tell the user which command to run on the host — you may not get another turn
 through the chat to fix it.
 
