@@ -9,8 +9,9 @@
  * and "fixtures for tests" are the same code path.
  */
 import { mkdirSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { randomBytes } from 'crypto'
+import bcrypt from 'bcrypt'
 import { getDb, uuid } from './db.js'
 import { config } from './config.js'
 import { generateApiKey, hashApiKey, keyHint } from './api-keys.js'
@@ -37,6 +38,25 @@ export function seedFixtures(): void {
   const insMsg = db.prepare(
     'INSERT INTO messages (id, conversation_id, role, content, metadata, type, result, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   )
+
+  // A second account for automated checks, so the agent can log in to this
+  // instance without ever holding the owner's password. The password is random
+  // per seed and lands in a file only the containers can read — never a fixed
+  // string: this instance sits behind the same public URL as prod, and the
+  // engine behind it mounts the whole repo.
+  const e2eEmail = 'e2e@jarvis.local'
+  const e2ePassword = randomBytes(18).toString('base64url')
+  if (!db.prepare('SELECT 1 FROM users WHERE email = ?').get(e2eEmail)) {
+    db.prepare('INSERT INTO users (email, password_hash, onboarded) VALUES (?, ?, 1)')
+      .run(e2eEmail, bcrypt.hashSync(e2ePassword, 10))
+    const credsPath = join(dirname(config.dbPath), 'e2e-credentials.json')
+    writeFileSync(credsPath, JSON.stringify({ email: e2eEmail, password: e2ePassword }) + '\n', { mode: 0o600 })
+    console.log(`[fixtures] e2e user ${e2eEmail}, credentials in ${credsPath}`)
+  }
+
+  // A throwaway instance is for looking at, not for being welcomed to: every
+  // account here — the admin created at boot included — skips onboarding.
+  db.prepare('UPDATE users SET onboarded = 1').run()
 
   const tx = db.transaction(() => {
     for (const s of sections) insSection.run(s.id, s.name, s.position)
@@ -117,7 +137,7 @@ export function seedFixtures(): void {
       .run(uuid(), admin.id, 'fixture key', hashApiKey(key), keyHint(key))
   })
   tx()
-  console.log('[fixtures] seeded: 3 sections, 4 conversations, 1 run, 1 cron, 1 webhook, 1 api key')
+  console.log('[fixtures] seeded: 3 sections, 4 conversations, 1 run, 1 cron, 1 webhook, 1 api key, 1 e2e user')
 }
 
 const FIXTURE_APP_HTML = `<!doctype html>

@@ -51,6 +51,18 @@ run, a fixture app, a disabled cron, a webhook, an API key. `POST
 http://next-backend:3005/internal/reset` (same secret) wipes and reseeds it if
 a test made a mess.
 
+**Logging in to next yourself** (for a screenshot or an e2e run): the seed
+creates `e2e@jarvis.local` with a random password, kept in
+`/jarvis/agent/next/data/e2e-credentials.json` (regenerated on every reseed).
+```bash
+TOK=$(curl -s -X POST http://next-backend:3005/api/auth/login -H 'Content-Type: application/json' \
+  -d "$(cat /jarvis/agent/next/data/e2e-credentials.json)" | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+```
+Then in Playwright: open `/next/login` on `http://jarvis-frontend:5173`, set
+`localStorage.token`, navigate to `/next/`. That token is refused by prod on
+purpose — prod only honours sessions for accounts that exist in its own DB. Never
+paste it into a tool call; hand it to the browser through a file or a request.
+
 ## When to use this skill
 
 **ONLY** when the user explicitly asks to modify Jarvis itself. Look for clear intent like:

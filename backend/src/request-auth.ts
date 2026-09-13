@@ -1,5 +1,6 @@
 import type { FastifyRequest } from 'fastify'
 import { userForApiKey } from './api-keys.js'
+import { getDb } from './db.js'
 
 /**
  * Pull a bearer token off a request, from any of the three places a browser can
@@ -55,4 +56,21 @@ export function applyApiKey(req: FastifyRequest, token: string | null): Identity
   const identity: Identity = { id: user.id, email: user.email, via: 'api-key' }
   ;(req as FastifyRequest & { user: Identity }).user = identity
   return identity
+}
+
+/**
+ * A valid session JWT whose account exists on THIS instance.
+ *
+ * Signature alone is not enough: the `next` stack shares the signing secret so
+ * the owner's session carries over to it, and that cuts both ways — a token
+ * minted over there for an account that exists only over there (the e2e user)
+ * must not open this instance. Rejecting unknown ids keeps the sharing exactly
+ * as wide as the accounts the two databases have in common.
+ */
+export async function verifySession(req: FastifyRequest): Promise<void> {
+  await req.jwtVerify()
+  const id = (req.user as { id?: unknown } | undefined)?.id
+  if (typeof id !== 'number' || !getDb().prepare('SELECT 1 FROM users WHERE id = ?').get(id)) {
+    throw new Error('session user unknown here')
+  }
 }

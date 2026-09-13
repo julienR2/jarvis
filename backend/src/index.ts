@@ -7,7 +7,7 @@ import rateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import bcrypt from 'bcrypt'
 import { config } from './config.js'
-import { extractRequestToken, applyApiKey } from './request-auth.js'
+import { extractRequestToken, applyApiKey, verifySession } from './request-auth.js'
 import { resolveShareToken } from './share-access.js'
 import { userForApiKey } from './api-keys.js'
 import { initDb, getDb } from './db.js'
@@ -147,7 +147,7 @@ app.addHook('onRequest', async (req, reply) => {
 // step. Handlers read `req.user` and never learn which door was used.
 app.decorate('authenticate', async function (req: any, reply: any) {
   try {
-    await req.jwtVerify()
+    await verifySession(req)
     req.user.via = 'session'
     return
   } catch {
@@ -206,7 +206,7 @@ await app.register(apiKeyRoutes, { prefix: '/api/api-keys' })
 
 app.get<{ Querystring: { token?: string } }>('/api/events', async (req, reply) => {
   try {
-    await req.jwtVerify()
+    await verifySession(req)
   } catch {
     // EventSource can't set headers, so the credential rides in the query —
     // either flavour, since a script watching the stream has a key, not a JWT.

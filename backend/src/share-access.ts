@@ -13,7 +13,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { getDb } from './db.js'
 import { secureEquals } from './security.js'
-import { extractRequestToken } from './request-auth.js'
+import { extractRequestToken, verifySession } from './request-auth.js'
 import type { ConvRow } from './types.js'
 
 export interface ShareAccess {
@@ -52,7 +52,7 @@ export function ownerOrShare(app: FastifyInstance, need: 'read' | 'write') {
   return async function (req: any, reply: any) {
     // Owner first: a logged-in user keeps full rights on their own instance.
     try {
-      await req.jwtVerify()
+      await verifySession(req)
       return
     } catch {
       /* not a session — fall through to share links */

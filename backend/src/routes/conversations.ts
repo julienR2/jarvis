@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { verifySession } from '../request-auth.js'
 import { existsSync } from 'fs'
 import { basename, extname, resolve, sep } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
@@ -1251,7 +1252,7 @@ export async function conversationRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id } = req.params
       try {
-        await req.jwtVerify()
+        await verifySession(req)
       } catch {
         // EventSource can't set headers, so the credential rides in the query.
         // A share link is accepted here too — a shared conversation that never
