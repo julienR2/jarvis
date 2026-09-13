@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { API_BASE } from '../base'
+import { API_BASE, BASE_PATH } from '../base'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
@@ -727,14 +727,14 @@ function JarvisIndicator({ isThinking }: { isThinking: boolean }) {
       canvas.getContext('2d')?.drawImage(img, 0, 0)
       setStaticFrame(canvas.toDataURL())
     }
-    img.src = '/images/jarvis_loading.gif'
+    img.src = `${BASE_PATH}/images/jarvis_loading.gif`
   }, [])
 
   return (
     <div className='flex items-start mb-3'>
       <img
         key={isThinking ? 'thinking' : 'idle'}
-        src={isThinking ? '/images/jarvis_loading.gif' : (staticFrame || '/images/jarvis_loading.gif')}
+        src={isThinking ? `${BASE_PATH}/images/jarvis_loading.gif` : (staticFrame || `${BASE_PATH}/images/jarvis_loading.gif`)}
         alt='Jarvis'
         className='w-10 h-10 mix-blend-multiply dark:mix-blend-screen'
       />

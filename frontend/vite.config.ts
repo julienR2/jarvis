@@ -11,6 +11,10 @@ const backendUrl = process.env.BACKEND_URL || 'http://backend:3005'
 // Mount point. Prod is `/`; the next stack is served by the reverse proxy under
 // `/next/` on prod's origin (same login, no mixed content). With a prefix the
 // dev server sees `/next/api/...`, so the proxy has to match and strip it.
+//
+// The API key is `/api/` WITH the slash: vite matches proxy keys by prefix, and
+// a bare `/api` also captured the `/api-keys` page, so a reload there answered
+// with the backend's 404 instead of the app.
 const base = (process.env.VITE_BASE || '/').replace(/\/?$/, '/')
 const prefixed = (path: string) => (base === '/' ? path : `${base.slice(0, -1)}${path}`)
 const strip = base === '/' ? undefined : (p: string) => p.slice(base.length - 1)
@@ -49,7 +53,7 @@ export default defineConfig({
       // Settings → Browser). Vite's string shorthand does not enable upgrade
       // forwarding, so without this the handshake is dropped here — the page
       // loads and then sits forever on "connecting".
-      [prefixed('/api')]: { target: backendUrl, ws: true, rewrite: strip },
+      [prefixed('/api/')]: { target: backendUrl, ws: true, rewrite: strip },
       [prefixed('/health')]: { target: backendUrl, rewrite: strip },
     },
   },
@@ -58,7 +62,7 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       ...nextProxy,
-      '/api': { target: backendUrl, ws: true },
+      '/api/': { target: backendUrl, ws: true },
       '/health': backendUrl,
     },
   },

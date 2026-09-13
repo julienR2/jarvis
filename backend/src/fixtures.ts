@@ -132,12 +132,17 @@ export function seedFixtures(): void {
       .run(uuid(), 'morning-brief', '30 5 * * *', 'Write the morning brief.', bg)
     db.prepare('INSERT INTO webhooks (id, name, token, prompt, conversation_id, enabled) VALUES (?, ?, ?, ?, ?, 1)')
       .run(uuid(), 'fixture-hook', randomBytes(24).toString('base64url'), 'Handle the payload.', act)
-    const key = generateApiKey()
-    db.prepare('INSERT INTO api_keys (id, user_id, name, key_hash, prefix) VALUES (?, ?, ?, ?, ?)')
-      .run(uuid(), admin.id, 'fixture key', hashApiKey(key), keyHint(key))
+    // Keys are per account, and the e2e account is what the checks sign in as:
+    // every user here gets one, or the page reads "No API keys yet" to them.
+    const users = db.prepare('SELECT id FROM users').all() as { id: number }[]
+    const insKey = db.prepare('INSERT INTO api_keys (id, user_id, name, key_hash, prefix) VALUES (?, ?, ?, ?, ?)')
+    for (const u of users) {
+      const key = generateApiKey()
+      insKey.run(uuid(), u.id, 'fixture key', hashApiKey(key), keyHint(key))
+    }
   })
   tx()
-  console.log('[fixtures] seeded: 3 sections, 4 conversations, 1 run, 1 cron, 1 webhook, 1 api key, 1 e2e user')
+  console.log('[fixtures] seeded: 3 sections, 4 conversations, 1 run, 1 cron, 1 webhook, 1 api key per user, 1 e2e user')
 }
 
 const FIXTURE_APP_HTML = `<!doctype html>

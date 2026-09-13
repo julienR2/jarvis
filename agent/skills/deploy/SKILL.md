@@ -22,12 +22,15 @@ bash "$CLAUDE_CONFIG_DIR/skills/deploy/deploy.sh" [--fast] [--dry-run] [--allow-
 |---|---|
 | `--dry-run` | print the plan (which services, host actions) and stop |
 | `--allow-dirty` | deploy uncommitted work; still records HEAD in the marker |
-| `--fast` | skip e2e (not wired yet — phase 3) |
+| `--fast` | skip the e2e run against next (about 10 s when next is up) |
 | `--engine` | allowed to restart the engine (see below) |
 | `--all` | ignore the marker; treat every service as changed |
 
 It works out what changed since the last deploy (`agent/data/deployed.json`),
-typechecks what it will touch, then applies in this order:
+typechecks what it will touch, runs the **e2e suite against next** (`e2e/run.sh`:
+wipes and reseeds next, then 14 UI-only checks — login, rendering of the fixture
+conversations, sidebar, settings pages, a console/failed-request guard), and only
+then applies, in this order:
 
 1. **frontend** — builds from the engine container, copies hashed assets in,
    swaps `index.html` last. Zero downtime. Open tabs get the "Jarvis updated
@@ -58,3 +61,19 @@ are read at runtime.
   Recovery: `git diff` / `git revert` the offending change, then run deploy
   again — the restart endpoint is on the *new* code, so if the backend is truly
   down the user restarts the `jarvis` project via the homelab skill.
+
+## The e2e suite
+
+`e2e/` is its own small package (Playwright test runner, system Chromium of the
+engine container). Run it alone with `bash /jarvis/e2e/run.sh`; a single spec with
+`bash /jarvis/e2e/run.sh specs/chat.spec.ts`. Exit 3 means next is not up, and the
+deploy then continues with a `! e2e not run` line rather than failing.
+
+A failure prints the failing assertions; artefacts (screenshot, trace,
+`error-context.md` with the page's accessibility snapshot) land in `e2e/results/`.
+The guard fails a test on any `console.error`, uncaught exception, or 4xx/5xx
+response the page provoked — under the `/next/` mount that is exactly how a
+hardcoded absolute path shows up.
+
+When you change the UI, extend the spec that covers it rather than loosening an
+assertion. Fixture data lives in `backend/src/fixtures.ts`.

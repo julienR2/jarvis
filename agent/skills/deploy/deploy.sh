@@ -23,7 +23,7 @@ MARKER="$REPO/agent/data/deployed.json"
 FAST=0 DRY=0 ALLOW_DIRTY=0 ENGINE_OK=0 FORCE_ALL=0
 for a in "$@"; do
   case "$a" in
-    --fast) FAST=1 ;;            # skip e2e
+    --fast) FAST=1 ;;            # skip the e2e run against next
     --dry-run) DRY=1 ;;          # decide and report, change nothing
     --allow-dirty) ALLOW_DIRTY=1 ;;  # deploy uncommitted work (records HEAD anyway)
     --engine) ENGINE_OK=1 ;;     # allowed to restart the engine
@@ -66,6 +66,9 @@ else
     [ -z "$f" ] && continue
     case "$f" in
       frontend/package.json|frontend/package-lock.json) HOST+=("frontend dependencies changed — recreate the frontend container (npm install runs on start)") ;;
+      # The preview server reads its proxy table once, at start — a build alone
+      # does not carry a change here. Still built below, for the bundle side.
+      frontend/vite.config.ts) FE=1; HOST+=("frontend/vite.config.ts changed — the preview proxy only reloads on \`docker compose up -d frontend\`") ;;
       frontend/*) FE=1 ;;
       backend/*) BE=1 ;;
       engine/*) EN=1 ;;
@@ -102,7 +105,25 @@ fi
 if [ "$EN" = 1 ] && [ -x "$REPO/engine/node_modules/.bin/tsc" ]; then
   echo "· typecheck engine"; "$REPO/engine/node_modules/.bin/tsc" --noEmit -p "$REPO/engine" >/dev/null || { echo "✗ engine typecheck failed"; "$REPO/engine/node_modules/.bin/tsc" --noEmit -p "$REPO/engine" 2>&1 | tail -15; exit 1; }
 fi
-if [ "$FAST" = 0 ]; then echo "· e2e: not wired yet (phase 3) — skipped"; fi
+if [ "$FAST" = 0 ]; then
+  # UI checks against next — the same tree that is about to be deployed, in
+  # dev mode. Exit 3 means next is not up: nothing was tested, say so, go on.
+  echo "· e2e against next"
+  set +e
+  bash "$REPO/e2e/run.sh" > /tmp/deploy-e2e.log 2>&1
+  E2E_RC=$?
+  set -e
+  if [ "$E2E_RC" = 0 ]; then
+    echo "✓ e2e: $(grep -oE '[0-9]+ passed[^\n]*' /tmp/deploy-e2e.log | tail -1)"
+  elif [ "$E2E_RC" = 3 ]; then
+    echo "! e2e not run — $(tail -1 /tmp/deploy-e2e.log)"
+  else
+    echo "✗ e2e failed — nothing deployed. Details:"
+    grep -E "✘|Error:|expect\(|Timeout|passed|failed|flaky" /tmp/deploy-e2e.log | head -30
+    echo "  full log: /tmp/deploy-e2e.log"
+    exit 1
+  fi
+fi
 
 [ "$DRY" = 1 ] && { echo "· dry run — stopping here"; for h in "${HOST[@]:-}"; do [ -n "$h" ] && echo "  host: $h"; done; exit 0; }
 

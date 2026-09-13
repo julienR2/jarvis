@@ -127,7 +127,9 @@ export default function AppPreview({
       <iframe
         ref={iframeRef}
         key={refreshKey}
-        src={src}
+        // undefined, not '' — an empty src makes the browser load the page
+        // itself into the frame while the token is still on its way.
+        src={src || undefined}
         onLoad={handleIframeLoad}
         allow='microphone'
         sandbox='allow-scripts allow-same-origin allow-forms allow-modals allow-popups'

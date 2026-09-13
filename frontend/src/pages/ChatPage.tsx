@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { BASE_PATH } from '../base'
 import {
   Routes,
   Route,
@@ -306,7 +307,7 @@ function Welcome({ onNew }: { onNew: () => void }) {
       <div className='flex flex-col items-center pt-8 pb-8 px-4 mt-5'>
         <div className='flex items-center gap-2 mb-4'>
           <img
-            src='/images/jarvis_wave.gif'
+            src={`${BASE_PATH}/images/jarvis_wave.gif`}
             alt='Jarvis'
             className='w-24 h-24 mix-blend-multiply dark:mix-blend-screen'
           />

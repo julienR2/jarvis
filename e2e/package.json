@@ -1,0 +1,12 @@
+{
+  "name": "jarvis-e2e",
+  "private": true,
+  "description": "UI-only end-to-end checks against the next stack. Runs from the engine container with the system Chromium; see run.sh.",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  }
+}

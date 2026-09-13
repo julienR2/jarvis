@@ -11,7 +11,7 @@ dev mode on its own throwaway database, served at `/next/` on the same origin â€
 prod's frontend proxies it, so no reverse-proxy change is needed. A save is live
 there in about a second, which is how a change gets shown before it is deployed.
 
-**Deploying**: prod runs without file watchers, so an edit under `backend/`, `frontend/` or `engine/` is inert until the `deploy` skill runs (`agent/skills/deploy/deploy.sh`). It builds the frontend, restarts the backend through `POST /internal/restart`, and restarts the engine only when told to. Edits under `agent/` are read at runtime and need no deploy.
+**Deploying**: prod runs without file watchers, so an edit under `backend/`, `frontend/` or `engine/` is inert until the `deploy` skill runs (`agent/skills/deploy/deploy.sh`). It typechecks, runs the UI e2e suite against next (`e2e/`, 14 checks on seeded fixtures, ~10 s), builds the frontend, restarts the backend through `POST /internal/restart`, and restarts the engine only when told to. Edits under `agent/` are read at runtime and need no deploy.
 
 **Recovery strategy**: First try discarding uncommitted changes (`/api/git/discard`). If the repo is clean but still broken, revert the last commit (`/api/git/revert`). Either way the running code only changes after a deploy â€” or, if the backend itself is down, after the `jarvis` project is restarted on the host.
 

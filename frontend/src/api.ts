@@ -45,12 +45,16 @@ function handleUnauthorized() {
   // them to a sign-in page for an account they don't have.
   if (shareToken !== null) return
 
+  // Compared against the mounted path, not '/login': under /next/ the login
+  // page lives at /next/login, and treating it as "somewhere else" turned a
+  // wrong password into a silent full reload of the form.
+  const onLogin = window.location.pathname === `${BASE_PATH}/login`
   const hadToken = !!localStorage.getItem('token')
   localStorage.removeItem('token')
-  if (hadToken && window.location.pathname !== '/login') {
+  if (hadToken && !onLogin) {
     window.__jarvisToast?.info('Your session expired — please sign in again.')
   }
-  if (window.location.pathname !== '/login') {
+  if (!onLogin) {
     window.location.href = `${BASE_PATH}/login`
   }
 }

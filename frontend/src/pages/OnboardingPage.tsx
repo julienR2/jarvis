@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { BASE_PATH } from '../base'
 import { useNavigate } from 'react-router-dom'
 import {
   Sparkles,
@@ -236,7 +237,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
   return (
     <div className="flex flex-col items-center text-center animate-fade-in">
       <img
-        src="/images/jarvis_wave.gif"
+        src={`${BASE_PATH}/images/jarvis_wave.gif`}
         alt="Jarvis"
         className="w-28 h-28 mb-6 mix-blend-multiply dark:mix-blend-screen"
       />
@@ -504,7 +505,7 @@ function LaunchingStep() {
   return (
     <div className="flex flex-col items-center text-center animate-fade-in">
       <img
-        src="/images/jarvis_wave.gif"
+        src={`${BASE_PATH}/images/jarvis_wave.gif`}
         alt="Jarvis"
         className="w-24 h-24 mb-4 mix-blend-multiply dark:mix-blend-screen"
       />
