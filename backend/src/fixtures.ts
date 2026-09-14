@@ -142,8 +142,24 @@ export function seedFixtures(): void {
     // nothing in a throwaway instance ever fires.
     db.prepare('INSERT INTO crons (id, name, schedule, prompt, conversation_id, enabled) VALUES (?, ?, ?, ?, ?, 0)')
       .run(cronId, 'morning-brief', '30 5 * * *', 'Write the morning brief.', bg)
+    const hookId = uuid()
     db.prepare('INSERT INTO webhooks (id, name, token, prompt, conversation_id, enabled) VALUES (?, ?, ?, ?, ?, 1)')
-      .run(uuid(), 'fixture-hook', randomBytes(24).toString('base64url'), 'Handle the payload.', act)
+      .run(hookId, 'fixture-hook', randomBytes(24).toString('base64url'), 'Handle the payload.', act)
+
+    // 6. More run shapes for the Activity page — none of these wrote messages,
+    // so they add rows to the log without adding cards to a chat.
+    const insRun = db.prepare(
+      'INSERT INTO runs (id, kind, source_id, source_name, conversation_id, run_key, inherit_context, status, started_at, ended_at, result, error) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)',
+    )
+    // yesterday's brief failed
+    insRun.run(uuid(), 'cron', cronId, 'morning-brief', bg, `cron-${cronId}-y`, 'error', t(60 * 24 + 62), t(60 * 24 + 61), null,
+      'PocketBase returned 401 while reading the transactions collection — token expired?')
+    // the hook handled something three hours ago
+    insRun.run(uuid(), 'webhook', hookId, 'fixture-hook', act, `hook-${hookId}-1`, 'done', t(180), t(179),
+      'Filed under Projects. One attachment, saved to the drive.', null)
+    // and a brief from two days ago, for the day grouping
+    insRun.run(uuid(), 'cron', cronId, 'morning-brief', bg, `cron-${cronId}-2d`, 'done', t(60 * 48 + 62), t(60 * 48 + 60),
+      'Overcast, no surf. Two todos due.', null)
     // Keys are per account, and the e2e account is what the checks sign in as:
     // every user here gets one, or the page reads "No API keys yet" to them.
     const users = db.prepare('SELECT id FROM users').all() as { id: number }[]
@@ -154,7 +170,7 @@ export function seedFixtures(): void {
     }
   })
   tx()
-  console.log('[fixtures] seeded: 3 sections, 4 conversations, 1 run, 1 cron, 1 webhook, 1 api key per user, 1 e2e user')
+  console.log('[fixtures] seeded: 3 sections, 4 conversations, 1 run, 1 cron, 1 webhook, 4 runs, 1 api key per user, 1 e2e user')
 }
 
 const FIXTURE_APP_HTML = `<!doctype html>

@@ -13,7 +13,7 @@
 // not a state the rest of the code has to reason about.
 
 import { getDb, uuid } from './db.js'
-import { emitConversationEvent } from './sse.js'
+import { emitConversationEvent , emitGlobalEvent } from './sse.js'
 import { interruptConversation } from './engine.js'
 import type { RunRow, RunKind, RunStatus } from './types.js'
 
@@ -40,6 +40,10 @@ function emitRuns(conversationId: string): void {
     type: 'runs',
     runs: activeRuns(conversationId),
   })
+  // Also app-wide, as a nudge rather than a payload: the Activity page and the
+  // sidebar dot are not inside any conversation, and they know how to refetch
+  // the shape they need.
+  emitGlobalEvent({ type: 'runs', conversation_id: conversationId })
 }
 
 export function startRun(opts: {
@@ -103,31 +107,67 @@ export function activeRuns(conversationId: string): RunRow[] {
     .all(conversationId) as RunRow[]
 }
 
+/** A run as the Activity page lists it: with where it wrote, and a cursor. */
+export interface RunListRow extends RunRow {
+  /** Insertion order — the paging cursor. Runs are inserted when they start. */
+  seq: number
+  conversation_title: string | null
+  section_id: string | null
+}
+
 export function listRuns(opts: {
   conversationId?: string
-  status?: RunStatus
+  /** One or several; omitted = all. */
+  statuses?: RunStatus[]
+  kind?: RunKind
+  /** A section id, or 'none' for conversations outside any section. */
+  sectionId?: string
+  /** Only runs started at or after this unix time. */
+  since?: number
+  /** Only runs older (by insertion) than this `seq`. */
+  before?: number
   limit?: number
-}): RunRow[] {
+}): RunListRow[] {
   const where: string[] = []
   const params: unknown[] = []
   if (opts.conversationId) {
-    where.push('conversation_id = ?')
+    where.push('r.conversation_id = ?')
     params.push(opts.conversationId)
   }
-  if (opts.status) {
-    where.push('status = ?')
-    params.push(opts.status)
+  if (opts.statuses?.length) {
+    where.push(`r.status IN (${opts.statuses.map(() => '?').join(',')})`)
+    params.push(...opts.statuses)
+  }
+  if (opts.kind) {
+    where.push('r.kind = ?')
+    params.push(opts.kind)
+  }
+  if (opts.sectionId === 'none') {
+    where.push('c.section_id IS NULL')
+  } else if (opts.sectionId) {
+    where.push('c.section_id = ?')
+    params.push(opts.sectionId)
+  }
+  if (opts.since) {
+    where.push('r.started_at >= ?')
+    params.push(opts.since)
+  }
+  if (opts.before) {
+    where.push('r.rowid < ?')
+    params.push(opts.before)
   }
   const limit = Math.min(Math.max(opts.limit ?? RUNS_PAGE_SIZE, 1), 200)
   params.push(limit)
   return getDb()
     .prepare(
-      `SELECT * FROM runs
+      `SELECT r.*, r.rowid AS seq, c.title AS conversation_title, c.section_id AS section_id
+         FROM runs r
+         LEFT JOIN conversations c ON c.id = r.conversation_id
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-        ORDER BY started_at DESC, rowid DESC
+        ORDER BY r.rowid DESC
         LIMIT ?`,
     )
-    .all(...params) as RunRow[]
+    .all(...params) as RunListRow[]
 }
 
 /**

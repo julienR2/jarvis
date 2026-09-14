@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { getDb } from '../db.js'
 import { listRuns, stopRun } from '../runs.js'
-import type { RunRow, RunStatus } from '../types.js'
+import { fireCron } from '../crons.js'
+import type { CronRow, RunRow, RunStatus } from '../types.js'
 
 const RUN_STATUSES: RunStatus[] = ['running', 'done', 'error', 'stopped', 'interrupted']
 
@@ -14,13 +15,26 @@ export async function runRoutes(app: FastifyInstance) {
    * a request per message.
    */
   app.get('/', auth, async (req) => {
-    const q = req.query as { conversation_id?: string; status?: string; limit?: string }
-    const status = RUN_STATUSES.includes(q.status as RunStatus)
-      ? (q.status as RunStatus)
-      : undefined
+    const q = req.query as {
+      conversation_id?: string
+      /** Comma-separated. */
+      status?: string
+      kind?: string
+      section_id?: string
+      since?: string
+      before?: string
+      limit?: string
+    }
+    const statuses = (q.status ?? '')
+      .split(',')
+      .filter((s): s is RunStatus => RUN_STATUSES.includes(s as RunStatus))
     return listRuns({
       conversationId: q.conversation_id,
-      status,
+      statuses: statuses.length ? statuses : undefined,
+      kind: q.kind === 'cron' || q.kind === 'webhook' ? q.kind : undefined,
+      sectionId: q.section_id || undefined,
+      since: q.since ? Number(q.since) : undefined,
+      before: q.before ? Number(q.before) : undefined,
       limit: q.limit ? Number(q.limit) : undefined,
     })
   })
@@ -47,5 +61,24 @@ export async function runRoutes(app: FastifyInstance) {
       .get(req.params.id) as { id: string } | undefined
     if (!run) return reply.code(404).send({ error: 'Run not found' })
     return { stopped: await stopRun(req.params.id) }
+  })
+
+  /**
+   * Fire the run's source again. Crons only: a webhook fire is meaningless
+   * without the payload that triggered it, and that is not kept.
+   */
+  app.post<{ Params: { id: string } }>('/:id/retry', auth, async (req, reply) => {
+    const run = getDb()
+      .prepare('SELECT * FROM runs WHERE id = ?')
+      .get(req.params.id) as RunRow | undefined
+    if (!run) return reply.code(404).send({ error: 'Run not found' })
+    if (run.kind !== 'cron') {
+      return reply.code(400).send({ error: 'Only a cron can be re-fired; a webhook needs its original payload' })
+    }
+    if (!run.source_id) return reply.code(410).send({ error: 'The cron this came from is gone' })
+    const entry = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(run.source_id) as CronRow | undefined
+    if (!entry) return reply.code(410).send({ error: 'The cron this came from is gone' })
+    fireCron(entry)
+    return { ok: true }
   })
 }
