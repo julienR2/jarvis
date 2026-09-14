@@ -8,22 +8,24 @@ test.describe('activity', () => {
 
   test('log: every run, newest first, grouped by day, with its one line', async ({ page }) => {
     const rows = page.getByTestId('run-row')
-    // 4 seeded runs: today's brief, yesterday's failed brief, the hook, a brief from 2 days ago
-    await expect(rows).toHaveCount(4)
+    // 5 seeded runs: today's brief and the yearly cron's failure, the hook, yesterday's failed brief, a brief from 2 days ago
+    await expect(rows).toHaveCount(5)
     await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Yesterday' })).toBeVisible()
-    await expect(rows.first().getByText('morning-brief')).toBeVisible()
-    await expect(rows.first().getByText(/done · \d+ min/)).toBeVisible()
+    // Newest first: the yearly cron's failure (45 min ago) sits above this morning's brief.
+    await expect(rows.first().getByText('new-year-wish')).toBeVisible()
+    await expect(rows.filter({ hasText: 'morning-brief' }).first().getByText(/done · \d+ min/)).toBeVisible()
     await expect(page.getByText('Filed under Projects.')).toBeVisible()
   })
 
   test('log: a failed run shows its error, and offers a retry', async ({ page }) => {
-    await page.getByRole('button', { name: 'Failed' }).click()
+    await page.getByRole('button', { name: 'Failed', exact: true }).click()
     const rows = page.getByTestId('run-row')
-    await expect(rows).toHaveCount(1)
-    await expect(rows.first()).toHaveAttribute('data-status', 'error')
-    await expect(rows.first().getByText(/PocketBase returned 401/)).toBeVisible()
-    await expect(rows.first().getByRole('button', { name: /Retry/ })).toBeVisible()
+    await expect(rows).toHaveCount(2)
+    const brief = rows.filter({ hasText: 'morning-brief' })
+    await expect(brief).toHaveAttribute('data-status', 'error')
+    await expect(brief.getByText(/PocketBase returned 401/)).toBeVisible()
+    await expect(brief.getByRole('button', { name: /Retry/ })).toBeVisible()
   })
 
   test('log: filters narrow by kind, and a row opens its chat', async ({ page }) => {
@@ -38,7 +40,7 @@ test.describe('activity', () => {
   test('routines: crons and webhooks in one list, with a working switch', async ({ page }) => {
     await page.getByRole('tab', { name: 'Routines' }).click()
     const rows = page.getByTestId('routine-row')
-    await expect(rows).toHaveCount(2)
+    await expect(rows).toHaveCount(3)
     await expect(page.getByText('daily at 05:30')).toBeVisible()
     await expect(page.getByText('when called')).toBeVisible()
     await expect(page.getByTitle('Copy trigger URL')).toBeVisible()
@@ -81,8 +83,8 @@ test.describe('activity', () => {
   })
 
   test('sidebar: the entry shows a red dot when something failed today', async ({ page }) => {
-    // The fixture failure is from yesterday — so no dot by default…
-    await expect(page.getByTestId('activity-failed')).toHaveCount(0)
+    // The yearly cron's run failed this morning and nothing is running: red dot, no accent dot.
+    await expect(page.getByTestId('activity-failed')).toHaveCount(1)
     await expect(page.getByTestId('activity-running')).toHaveCount(0)
   })
 })

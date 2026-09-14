@@ -160,6 +160,16 @@ export function seedFixtures(): void {
     // and a brief from two days ago, for the day grouping
     insRun.run(uuid(), 'cron', cronId, 'morning-brief', bg, `cron-${cronId}-2d`, 'done', t(60 * 48 + 62), t(60 * 48 + 60),
       'Overcast, no surf. Two todos due.', null)
+    // 7. A cron that IS enabled, so Today's "Coming up" has a row — scheduled
+    // once a year, on New Year's night, so a throwaway instance all but never
+    // fires it. Its run this morning failed and nothing succeeded since: that
+    // is what "Needs you" lists. It belongs to the app conversation, so the
+    // row offers "Open app".
+    const yearlyId = '00000000-0000-4000-8000-0000000000c2'
+    db.prepare('INSERT INTO crons (id, name, schedule, prompt, conversation_id, enabled) VALUES (?, ?, ?, ?, ?, 1)')
+      .run(yearlyId, 'new-year-wish', '0 4 1 1 *', 'Wish the user a happy new year.', appConv)
+    insRun.run(uuid(), 'cron', yearlyId, 'new-year-wish', appConv, `cron-${yearlyId}-t`, 'error', t(45), t(44), null,
+      'The greetings API answered 503 three times — gave up.')
     // Keys are per account, and the e2e account is what the checks sign in as:
     // every user here gets one, or the page reads "No API keys yet" to them.
     const users = db.prepare('SELECT id FROM users').all() as { id: number }[]
@@ -170,7 +180,7 @@ export function seedFixtures(): void {
     }
   })
   tx()
-  console.log('[fixtures] seeded: 3 sections, 4 conversations, 1 run, 1 cron, 1 webhook, 4 runs, 1 api key per user, 1 e2e user')
+  console.log('[fixtures] seeded: 3 sections, 4 conversations, 2 crons, 1 webhook, 5 runs, 1 api key per user, 1 e2e user')
 }
 
 const FIXTURE_APP_HTML = `<!doctype html>

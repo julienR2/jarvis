@@ -1,4 +1,5 @@
 import { test as base, expect, type Page } from '@playwright/test'
+import { appendFileSync } from 'fs'
 
 /**
  * Two things every spec gets for free:
@@ -27,7 +28,7 @@ const EXPECTED_RESPONSES: Array<{ status: number; path: RegExp }> = [
 
 export const test = base.extend<{ consoleGuard: void }>({
   consoleGuard: [
-    async ({ page }, use) => {
+    async ({ page }, use, testInfo) => {
       const problems: string[] = []
       page.on('pageerror', (e) => problems.push(`uncaught: ${e.message}`))
       page.on('console', (m) => {
@@ -45,7 +46,13 @@ export const test = base.extend<{ consoleGuard: void }>({
         if (EXPECTED_RESPONSES.some((e) => e.status === status && e.path.test(path))) return
         problems.push(`${status} ${res.request().method()} ${path}`)
       })
+      // E2E_COUNT=1 writes every API call each test made to results/requests.log.
+      // The backend allows 300 requests a minute per client and the whole suite
+      // is one client, so when 429s appear this is how to see what to trim.
+      const apiCalls: string[] = []
+      page.on('request', (r) => { if (/\/api\//.test(r.url())) apiCalls.push(`${r.method()} ${new URL(r.url()).pathname}`) })
       await use()
+      if (process.env.E2E_COUNT) appendFileSync('results/requests.log', `${testInfo.title}\n  ${apiCalls.join('\n  ')}\n`)
       expect(problems, 'no console errors or failed requests during the test').toEqual([])
     },
     { auto: true },

@@ -89,6 +89,16 @@ export function fireCron(entry: CronRow): void {
   })
 }
 
+/**
+ * When a scheduled cron fires next, as a unix timestamp — from the live task,
+ * which is the only thing that knows (node-cron computes it in the scheduler's
+ * timezone; the client turns it local). Null for a cron that isn't scheduled.
+ */
+export function nextRun(id: string): number | null {
+  const next = tasks.get(id)?.getNextRun()
+  return next ? Math.floor(next.getTime() / 1000) : null
+}
+
 function unschedule(id: string): void {
   tasks.get(id)?.stop()
   tasks.delete(id)

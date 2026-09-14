@@ -14,7 +14,7 @@ import {
   Monitor,
   BellOff,
   AppWindow,
-  Home,
+  Sunrise,
   Link2,
   RefreshCw,
   Earth,
@@ -39,7 +39,7 @@ import SectionPicker from './SectionPicker'
 import type { Conversation, Section } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { api } from '../api'
-import { RUNS_NUDGE_EVENT } from '../pages/ActivityPage'
+import { startOfToday, useRecentRuns } from '../lib/runs'
 import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
@@ -163,8 +163,8 @@ export default function Sidebar({
           onClick={() => handleNav('/')}
           className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${location.pathname === '/' ? 'text-text-primary bg-selected' : 'text-text-secondary hover:bg-surface2'}`}
         >
-          <Home size={16} />
-          <span>Home</span>
+          <Sunrise size={16} />
+          <span>Today</span>
         </button>
         <button
           onClick={onNew}
@@ -735,36 +735,14 @@ function NavItem({
 
 /**
  * The way into Activity, carrying its two signals: something is running now
- * (accent, pulsing), something failed today (red). Fetched cheaply — one row
- * each — and refetched on the global runs nudge, so it moves with the log.
+ * (accent, pulsing), something failed today (red). Read from the shared recent
+ * runs feed, which moves with the log.
  */
 function ActivityEntry({ active, onClick }: { active: boolean; onClick: () => void }) {
-  const [running, setRunning] = useState(false)
-  const [failedToday, setFailedToday] = useState(false)
-
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const load = async () => {
-      const startOfDay = Math.floor(new Date().setHours(0, 0, 0, 0) / 1000)
-      try {
-        // One request for both signals. Since yesterday, so a run that started
-        // late last night and is still going counts as running too.
-        const rows = await api.listRunsAll({ status: ['running', 'error'], since: startOfDay - 86_400, limit: 50 })
-        setRunning(rows.some((r) => r.status === 'running'))
-        setFailedToday(rows.some((r) => r.status === 'error' && r.started_at >= startOfDay))
-      } catch { /* the entry still works without its dots */ }
-    }
-    load()
-    const onNudge = () => {
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(load, 400)
-    }
-    window.addEventListener(RUNS_NUDGE_EVENT, onNudge)
-    return () => {
-      window.removeEventListener(RUNS_NUDGE_EVENT, onNudge)
-      if (timer) clearTimeout(timer)
-    }
-  }, [])
+  const { runs } = useRecentRuns()
+  const startOfDay = startOfToday()
+  const running = !!runs?.some((r) => r.status === 'running')
+  const failedToday = !!runs?.some((r) => r.status === 'error' && r.started_at >= startOfDay)
 
   return (
     <button

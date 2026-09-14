@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { connectGlobalEvents } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { FRONTEND_UPDATED_EVENT } from '../components/UpdateBanner'
-import { RUNS_NUDGE_EVENT } from '../pages/ActivityPage'
+import { RUNS_NUDGE_EVENT } from '../lib/runs'
 
 // Subscribes to the global SSE stream and dispatches into the chat store.
 // Mounted once near the app root.

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import cron from 'node-cron'
 import { getDb, uuid, normalizeEffort } from '../db.js'
-import { schedule, rescheduleAll, fireCron } from '../crons.js'
+import { schedule, rescheduleAll, fireCron, nextRun } from '../crons.js'
 import type { CronRow } from '../types.js'
 
 export async function cronRoutes(app: FastifyInstance) {
@@ -9,6 +9,20 @@ export async function cronRoutes(app: FastifyInstance) {
 
   app.get('/', auth, async () => {
     return getDb().prepare('SELECT * FROM crons ORDER BY created_at ASC').all()
+  })
+
+  /**
+   * The enabled crons with their next fire time, soonest first — what Today's
+   * "Coming up" lists. A cron whose task isn't live (invalid expression) has
+   * no next run and sorts last.
+   */
+  app.get('/upcoming', auth, async () => {
+    const rows = getDb()
+      .prepare('SELECT id, name, schedule, conversation_id FROM crons WHERE enabled = 1')
+      .all() as Pick<CronRow, 'id' | 'name' | 'schedule' | 'conversation_id'>[]
+    return rows
+      .map((row) => ({ ...row, next_run: nextRun(row.id) }))
+      .sort((a, b) => (a.next_run ?? Infinity) - (b.next_run ?? Infinity))
   })
 
   app.post('/', auth, async (req, reply) => {

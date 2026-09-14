@@ -262,6 +262,8 @@ export const api = {
 
   // Crons
   getCrons: () => request<Cron[]>('GET', '/crons'),
+  /** Enabled crons with their next fire, soonest first — Today's "Coming up". */
+  getUpcomingCrons: () => request<UpcomingCron[]>('GET', '/crons/upcoming'),
   createCron: (data: CronInput) => request<Cron>('POST', '/crons', data),
   updateCron: (id: string, data: Partial<CronInput>) =>
     request<Cron>('PATCH', `/crons/${id}`, data),
@@ -593,6 +595,15 @@ export interface Cron {
   last_run: number | null
   last_result: string | null
   created_at: number
+}
+
+export interface UpcomingCron {
+  id: string
+  name: string
+  schedule: string
+  conversation_id: string | null
+  /** Unix seconds; null when the scheduler holds no task for it. */
+  next_run: number | null
 }
 
 export interface CronInput {

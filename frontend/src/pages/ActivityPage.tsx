@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  AlertCircle, Check, Clock, Copy, Link2, Loader2, MessageSquare, Plus, RotateCcw, Settings2, Square, Trash2, Zap,
+  Check, Clock, Copy, Link2, Loader2, MessageSquare, Plus, RotateCcw, Settings2, Square, Trash2, Zap,
 } from 'lucide-react'
 import { CronForm, WebhookForm, Drawer } from '../components/RoutineForm'
 import ContentLayout from '../components/ContentLayout'
-import { api, type Cron, type RunListItem, type RunStatus, type Webhook } from '../api'
+import StatusPill from '../components/StatusPill'
+import { api, type Cron, type RunListItem, type Webhook } from '../api'
+import { describeSchedule, firstLine, formatTime, groupByDay, relative, useRunsNudge } from '../lib/runs'
 import { useChatStore } from '../stores/chatStore'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -30,8 +32,6 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'cron', label: 'Crons' },
   { id: 'webhook', label: 'Webhooks' },
 ]
-
-export const RUNS_NUDGE_EVENT = 'jarvis:runs'
 
 export default function ActivityPage() {
   // The tab lives in the URL so the old /crons and /webhooks addresses, and a
@@ -105,24 +105,8 @@ function RunLog({ onOpenRoutine }: { onOpenRoutine: (id: string) => void }) {
     }
   }, [query])
 
-  useEffect(() => {
-    load()
-  }, [load])
-
-  // A run starting or ending anywhere: refetch, lightly debounced — a burst of
-  // fires would otherwise refetch once per event.
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const onNudge = () => {
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(() => load(), 400)
-    }
-    window.addEventListener(RUNS_NUDGE_EVENT, onNudge)
-    return () => {
-      window.removeEventListener(RUNS_NUDGE_EVENT, onNudge)
-      if (timer) clearTimeout(timer)
-    }
-  }, [load])
+  // A run starting or ending anywhere refetches the page.
+  useRunsNudge(load)
 
   async function loadMore() {
     if (!runs?.length) return
@@ -270,22 +254,6 @@ function RunRow({
       </div>
     </div>
   )
-}
-
-function StatusPill({ run }: { run: RunListItem }) {
-  const base = 'inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-[10.5px] font-medium'
-  switch (run.status) {
-    case 'running':
-      return <span className={`${base} border-accent/30 text-accent`}><Loader2 size={9} className='animate-spin' /> running · {duration(run.started_at, null)}</span>
-    case 'done':
-      return <span className={`${base} border-success/40 text-success`}><Check size={9} /> done · {duration(run.started_at, run.ended_at)}</span>
-    case 'error':
-      return <span className={`${base} border-danger/40 text-danger`}><AlertCircle size={9} /> failed</span>
-    case 'stopped':
-      return <span className={`${base} border-border text-text-muted`}>stopped</span>
-    case 'interrupted':
-      return <span className={`${base} border-border text-text-muted`}>interrupted</span>
-  }
 }
 
 // ── Routines ─────────────────────────────────────────────────────────────────
@@ -439,76 +407,3 @@ function Routines() {
     </div>
   )
 }
-
-// ── helpers ──────────────────────────────────────────────────────────────────
-
-function groupByDay(runs: RunListItem[]): { label: string; runs: RunListItem[] }[] {
-  const out: { label: string; runs: RunListItem[] }[] = []
-  for (const run of runs) {
-    const label = dayLabel(new Date(run.started_at * 1000))
-    const last = out[out.length - 1]
-    if (last && last.label === label) last.runs.push(run)
-    else out.push({ label, runs: [run] })
-  }
-  return out
-}
-
-function dayLabel(date: Date): string {
-  const today = new Date()
-  const yesterday = new Date(today)
-  yesterday.setDate(today.getDate() - 1)
-  if (date.toDateString() === today.toDateString()) return 'Today'
-  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday'
-  const diffDays = Math.floor((today.getTime() - date.getTime()) / 86_400_000)
-  if (diffDays < 7) return date.toLocaleDateString([], { weekday: 'long' })
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined })
-}
-
-/** A summary's first real line, with the markdown scaffolding taken off. */
-function firstLine(text: string): string {
-  const line = text
-    .split('\n')
-    .map((l) => l.trim())
-    .find((l) => l && !/^\|?\s*:?-{2,}/.test(l)) ?? ''
-  return line.replace(/^[#>*\-\s|]+/, '').replace(/\|/g, ' · ').replace(/\*\*/g, '').trim()
-}
-
-function duration(start: number, end: number | null): string {
-  const secs = Math.max(0, Math.floor((end ?? Date.now() / 1000) - start))
-  if (secs < 60) return `${secs}s`
-  const m = Math.floor(secs / 60)
-  if (m < 60) return `${m} min`
-  return `${Math.floor(m / 60)}h ${m % 60}m`
-}
-
-function formatTime(ts: number): string {
-  return new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-function relative(ts: number): string {
-  const mins = Math.floor((Date.now() / 1000 - ts) / 60)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins} min ago`
-  const h = Math.floor(mins / 60)
-  if (h < 24) return `${h}h ago`
-  const d = Math.floor(h / 24)
-  return d === 1 ? 'yesterday' : `${d} days ago`
-}
-
-/** A cron expression in words, for the common shapes; the raw one otherwise. */
-function describeSchedule(expr: string): string {
-  const parts = expr.trim().split(/\s+/)
-  if (parts.length !== 5) return expr
-  const [min, hour, dom, mon, dow] = parts
-  const time = /^\d+$/.test(min) && /^\d+$/.test(hour) ? `${hour.padStart(2, '0')}:${min.padStart(2, '0')}` : null
-  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  if (time && dom === '*' && mon === '*') {
-    if (dow === '*') return `daily at ${time}`
-    if (dow === '1-5') return `weekdays at ${time}`
-    const days = dow.split(',').map((d) => DAYS[Number(d)] ?? d).join(', ')
-    return `${days} at ${time}`
-  }
-  return expr
-}
-
-export type { RunStatus }

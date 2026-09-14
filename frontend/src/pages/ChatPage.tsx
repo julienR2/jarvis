@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import ActivityPage from './ActivityPage'
-import { BASE_PATH } from '../base'
+import TodayPage from './TodayPage'
 import { Routes, Route, useNavigate, useLocation, useSearchParams, Navigate } from 'react-router-dom'
-import { Plus, MessageSquare, FileText, X, AppWindow, Clock, Link2, Sparkles, AudioLines, Mic } from 'lucide-react'
+import { Plus, MessageSquare, FileText, X, AppWindow, AudioLines, Mic } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import Sidebar from '../components/Sidebar'
 import ResizeHandle from '../components/ResizeHandle'
@@ -169,7 +169,7 @@ export default function ChatPage() {
               path='/'
               element={
                 listLoaded ? (
-                  <Welcome onNew={newConversation} />
+                  <TodayPage />
                 ) : (
                   <LoadingScreen />
                 )
@@ -230,15 +230,6 @@ export default function ChatPage() {
   )
 }
 
-// Get greeting based on time of day
-function getGreeting(): string {
-  const hour = new Date().getHours()
-  if (hour < 12) return 'Good morning'
-  if (hour < 18) return 'Good afternoon'
-  return 'Good evening'
-}
-
-/** Home's section folds are per-device, and separate from the sidebar's. */
 /** The width the sidebar has always been, and what double-click returns to. */
 export const SIDEBAR_DEFAULT_W = 256 // w-64
 const SIDEBAR_MIN_W = 190
@@ -254,132 +245,6 @@ function readSidebarWidth(): number {
   } catch {
     return SIDEBAR_DEFAULT_W
   }
-}
-
-const HOME_COLLAPSE_KEY = 'home-sections-collapsed'
-
-function readHomeCollapsed(): string[] {
-  try {
-    const raw = JSON.parse(localStorage.getItem(HOME_COLLAPSE_KEY) || '[]')
-    return Array.isArray(raw) ? raw.filter((x) => typeof x === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-function Welcome({ onNew }: { onNew: () => void }) {
-  const navigate = useNavigate()
-  // Home surfaces the chats you filed into sections, in section order. The
-  // catch-all "Chats" group is left to the sidebar.
-  const sections = useChatStore(useShallow((s) => s.sections))
-  const conversations = useChatStore(
-    useShallow((s) => s.order.map((id) => s.conversations[id]).filter(Boolean)),
-  )
-  const filed = sections
-    .map((section) => ({
-      section,
-      convs: conversations.filter((c) => c.section_id === section.id),
-    }))
-    .filter((g) => g.convs.length > 0)
-
-  // Kept out of the sidebar's key: folding a section on home shouldn't fold it
-  // in the sidebar too, they're browsed differently.
-  const [collapsed, setCollapsed] = useState<string[]>(readHomeCollapsed)
-  useEffect(() => {
-    localStorage.setItem(HOME_COLLAPSE_KEY, JSON.stringify(collapsed))
-  }, [collapsed])
-  const toggle = (id: string) =>
-    setCollapsed((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    )
-
-  return (
-    <div className='flex flex-col h-full overflow-y-auto'>
-      <div className='px-3 pt-3'>
-        <SidebarToggle />
-      </div>
-      {/* Hero */}
-      <div className='flex flex-col items-center pt-8 pb-8 px-4 mt-5'>
-        <div className='flex items-center gap-2 mb-4'>
-          <img
-            src={`${BASE_PATH}/images/jarvis_wave.gif`}
-            alt='Jarvis'
-            className='w-24 h-24 mix-blend-multiply dark:mix-blend-screen'
-          />
-        </div>
-        <h1 className='text-2xl md:text-3xl font-light text-text-primary'>
-          {getGreeting()}
-        </h1>
-        <p className='text-text-muted text-sm mt-1 mb-6'>
-          How can I help you today?
-        </p>
-        <div className='flex items-center gap-3'>
-          <button
-            onClick={onNew}
-            className='flex items-center gap-2 bg-accent text-white px-5 py-2.5 rounded-xl font-medium hover:bg-accent-hover transition-colors'
-          >
-            <Plus size={18} />
-            New conversation
-          </button>
-          <button
-            onClick={() => navigate('/onboarding')}
-            className='flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium border border-border text-text-secondary hover:bg-surface hover:text-text-primary transition-colors'
-          >
-            <Sparkles size={16} />
-            Setup wizard
-          </button>
-        </div>
-      </div>
-
-      {/* One grid per section */}
-      {filed.map(({ section, convs }) => {
-        const isCollapsed = collapsed.includes(section.id)
-        const unread = convs.reduce((n, c) => n + (c.unread_count || 0), 0)
-        return (
-        <div key={section.id} className='max-w-2xl w-full mx-auto px-4 pb-8 mt-2'>
-          <button
-            onClick={() => toggle(section.id)}
-            className='flex items-center gap-1.5 mb-3 text-xs font-medium text-text-muted uppercase tracking-wider hover:text-text-secondary transition-colors'
-          >
-            {section.name}
-            {isCollapsed && unread > 0 && (
-              <span className='min-w-[18px] h-[18px] px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[10px] font-medium'>
-                {unread}
-              </span>
-            )}
-          </button>
-          <div
-            className={`grid grid-cols-2 md:grid-cols-3 gap-3 ${isCollapsed ? 'hidden' : ''}`}
-          >
-            {convs.map((conv) => (
-              <button
-                key={conv.id}
-                onClick={() => navigate(`/c/${conv.id}`)}
-                className='flex flex-col gap-2 px-4 py-3 rounded-xl bg-surface border border-border hover:border-accent/40 hover:bg-surface2 transition-colors text-left'
-              >
-                <span className='flex items-center justify-between gap-1.5'>
-                  <span className='flex items-center gap-1.5 text-text-muted'>
-                    {!!conv.app_path && <AppWindow size={13} />}
-                    {!!conv.has_cron && <Clock size={13} />}
-                    {!!conv.has_webhook && <Link2 size={13} />}
-                  </span>
-                  {conv.unread_count > 0 && (
-                    <span className='min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[11px] font-medium'>
-                      {conv.unread_count}
-                    </span>
-                  )}
-                </span>
-                <span className='text-sm text-text-primary truncate'>
-                  {conv.title}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-        )
-      })}
-    </div>
-  )
 }
 
 function LoadingScreen() {
