@@ -242,7 +242,19 @@ export async function getState(): Promise<PluginState> {
   )
   const meta = manifestIndex(marketplaces)
 
-  const installed: InstalledPlugin[] = (listed.installed ?? []).map((p) => {
+  // The CLI returns one record per *install*, and the same plugin can be
+  // installed at several scopes (user + a project-local one). That is one
+  // plugin as far as this page is concerned, so collapse them — otherwise the
+  // same card renders twice, under the same React key. User scope wins: that is
+  // the only scope we ever install at, and the one the enable/disable toggles
+  // drive.
+  const byId = new Map<string, any>()
+  for (const p of listed.installed ?? []) {
+    const seen = byId.get(String(p.id))
+    if (!seen || (seen.scope !== 'user' && p.scope === 'user')) byId.set(String(p.id), p)
+  }
+
+  const installed: InstalledPlugin[] = [...byId.values()].map((p) => {
     const [name, marketplace = ''] = String(p.id).split('@')
     return {
       id: p.id,

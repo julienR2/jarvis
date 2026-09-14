@@ -132,7 +132,7 @@ export default function AppPreview({
         src={src || undefined}
         onLoad={handleIframeLoad}
         allow='microphone'
-        sandbox='allow-scripts allow-same-origin allow-forms allow-modals allow-popups'
+        sandbox='allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads'
         className='flex-1 w-full border-0'
         title='App preview'
       />
