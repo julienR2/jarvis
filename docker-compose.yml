@@ -269,6 +269,8 @@ services:
       # neither: /internal/reset refuses without ALLOW_DB_RESET.
       SEED_FIXTURES: '1'
       ALLOW_DB_RESET: '1'
+      # The e2e suite fires a few hundred requests a minute from one address.
+      RATE_LIMIT_MAX: '3000'
       TZ: ${TZ:-UTC}
     ports:
       - '${BIND_ADDR:-127.0.0.1}:${NEXT_BACKEND_PORT:-3205}:3005'

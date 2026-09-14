@@ -1,21 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import ActivityPage from './ActivityPage'
 import { BASE_PATH } from '../base'
-import {
-  Routes,
-  Route,
-  useNavigate,
-  useLocation,
-  useSearchParams,
-} from 'react-router-dom'
+import { Routes, Route, useNavigate, useLocation, useSearchParams, Navigate } from 'react-router-dom'
 import { Plus, MessageSquare, FileText, X, AppWindow, Clock, Link2, Sparkles, AudioLines, Mic } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import Sidebar from '../components/Sidebar'
 import ResizeHandle from '../components/ResizeHandle'
 import { useIsDesktop } from '../hooks/useIsDesktop'
 import ChatView from '../components/ChatView'
-import CronManager from '../components/CronManager'
-import WebhookManager from '../components/WebhookManager'
 import CodeBrowser from '../components/CodeBrowser'
 import ConnectorsPage from '../components/ConnectorsPage'
 import ConnectionPage from '../components/ConnectionPage'
@@ -220,8 +212,9 @@ export default function ChatPage() {
               }
             />
             <Route path='/activity' element={<ActivityPage />} />
-            <Route path='/crons' element={<CronManager />} />
-            <Route path='/webhooks' element={<WebhookManager />} />
+            {/* The definitions moved into Activity › Routines; old links still land. */}
+            <Route path='/crons' element={<LegacyRoutinesRedirect />} />
+            <Route path='/webhooks' element={<LegacyRoutinesRedirect />} />
             <Route path='/connectors' element={<ConnectorsPage />} />
             <Route path='/connection' element={<ConnectionPage />} />
             <Route path='/browser' element={<BrowserPage />} />
@@ -734,4 +727,12 @@ function ShareHandler({
       </div>
     </div>
   )
+}
+
+/** /crons and /webhooks, carrying their ?conversation_id= or ?edit= into Activity. */
+function LegacyRoutinesRedirect() {
+  const { search } = useLocation()
+  const p = new URLSearchParams(search)
+  p.set('tab', 'routines')
+  return <Navigate to={`/activity?${p}`} replace />
 }

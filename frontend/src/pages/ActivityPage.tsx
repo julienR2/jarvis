@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  AlertCircle, Check, Clock, Link2, Loader2, MessageSquare, RotateCcw, Settings2, Square,
+  AlertCircle, Check, Clock, Copy, Link2, Loader2, MessageSquare, Plus, RotateCcw, Settings2, Square, Trash2, Zap,
 } from 'lucide-react'
+import { CronForm, WebhookForm, Drawer } from '../components/RoutineForm'
 import ContentLayout from '../components/ContentLayout'
 import { api, type Cron, type RunListItem, type RunStatus, type Webhook } from '../api'
 import { useChatStore } from '../stores/chatStore'
@@ -33,7 +34,15 @@ const FILTERS: { id: Filter; label: string }[] = [
 export const RUNS_NUDGE_EVENT = 'jarvis:runs'
 
 export default function ActivityPage() {
-  const [tab, setTab] = useState<'log' | 'routines'>('log')
+  // The tab lives in the URL so the old /crons and /webhooks addresses, and a
+  // run card's gear, can land straight on Routines with a form open.
+  const [params, setParams] = useSearchParams()
+  const tab: 'log' | 'routines' = params.get('tab') === 'routines' ? 'routines' : 'log'
+  const setTab = (t: 'log' | 'routines') =>
+    setParams((p) => { if (t === 'log') p.delete('tab'); else p.set('tab', t); return p }, { replace: true })
+  const openRoutine = (id: string) =>
+    setParams((p) => { p.set('tab', 'routines'); p.set('edit', id); return p })
+
   return (
     <ContentLayout title='Activity'>
       <div className='max-w-3xl mx-auto px-4 md:px-6 py-4'>
@@ -52,7 +61,7 @@ export default function ActivityPage() {
             </button>
           ))}
         </div>
-        {tab === 'log' ? <RunLog /> : <Routines />}
+        {tab === 'log' ? <RunLog onOpenRoutine={openRoutine} /> : <Routines />}
       </div>
     </ContentLayout>
   )
@@ -60,7 +69,7 @@ export default function ActivityPage() {
 
 // ── Log ──────────────────────────────────────────────────────────────────────
 
-function RunLog() {
+function RunLog({ onOpenRoutine }: { onOpenRoutine: (id: string) => void }) {
   const [filter, setFilter] = useState<Filter>('all')
   const [sectionId, setSectionId] = useState<string>('')
   const [runs, setRuns] = useState<RunListItem[] | null>(null)
@@ -186,7 +195,7 @@ function RunLog() {
                   onStop={() => act(run, 'stop')}
                   onRetry={() => act(run, 'retry')}
                   onOpen={() => navigate(`/c/${run.conversation_id}`)}
-                  onSettings={() => run.source_id && navigate(`/${run.kind}s?edit=${run.source_id}`)}
+                  onSettings={() => run.source_id && onOpenRoutine(run.source_id)}
                 />
               ))}
             </div>
@@ -287,6 +296,10 @@ type Routine =
 
 function Routines() {
   const [items, setItems] = useState<Routine[] | null>(null)
+  const [drawer, setDrawer] = useState<{ kind: 'cron' | 'webhook'; item?: Cron | Webhook } | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
+  const [params, setParams] = useSearchParams()
+  const filterConvId = params.get('conversation_id')
   const conversations = useChatStore((s) => s.conversations)
   const navigate = useNavigate()
 
@@ -304,65 +317,125 @@ function Routines() {
     load().catch(() => setItems([]))
   }, [load])
 
+  // ?edit=<id>: open that routine's form — how a run card's gear and the old
+  // /crons?edit= links land here. Consumed once, or saving would reopen it.
+  useEffect(() => {
+    const id = params.get('edit')
+    if (!id || !items) return
+    const target = items.find((r) => r.row.id === id)
+    if (target) setDrawer({ kind: target.kind, item: target.row })
+    setParams((p) => { p.delete('edit'); return p }, { replace: true })
+  }, [items, params, setParams])
+
   async function toggle(r: Routine) {
     if (r.kind === 'cron') await api.updateCron(r.row.id, { enabled: !r.row.enabled })
     else await api.updateWebhook(r.row.id, { enabled: !r.row.enabled })
     await load()
   }
+  async function fire(r: Routine) {
+    if (r.kind === 'cron') await api.triggerCron(r.row.id)
+    else await api.triggerWebhook(r.row.id)
+  }
+  async function remove(r: Routine) {
+    if (!window.confirm(`Delete ${r.kind} “${r.row.name}”? Its past runs stay in the log.`)) return
+    if (r.kind === 'cron') await api.deleteCron(r.row.id)
+    else await api.deleteWebhook(r.row.id)
+    await load()
+  }
+  function copyUrl(token: string) {
+    navigator.clipboard.writeText(`${window.location.origin}/api/hooks/${token}/trigger`)
+    setCopied(token)
+    setTimeout(() => setCopied(null), 2000)
+  }
 
-  if (items === null) {
-    return <div className='flex items-center gap-2 py-8 text-sm text-text-muted'><Loader2 size={14} className='animate-spin' /> Loading…</div>
-  }
-  if (items.length === 0) {
-    return <div className='py-10 text-center text-sm text-text-muted'>No routines yet. A cron runs on a schedule; a webhook runs when something calls it.</div>
-  }
+  const displayed = (items ?? []).filter((r) => !filterConvId || r.row.conversation_id === filterConvId)
+
   return (
-    <div className='rounded-xl border border-border bg-surface divide-y divide-border'>
-      {items.map((r) => {
-        const Icon = r.kind === 'webhook' ? Link2 : Clock
-        const conv = r.row.conversation_id ? conversations[r.row.conversation_id] : undefined
-        const when = r.kind === 'cron' ? describeSchedule(r.row.schedule) : 'when called'
-        return (
-          <div key={`${r.kind}-${r.row.id}`} className='flex items-start gap-3 px-3 py-2.5' data-testid='routine-row'>
-            <div className='mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-surface2 text-text-muted'><Icon size={13} /></div>
-            <div className='min-w-0 flex-1'>
-              <div className='flex flex-wrap items-center gap-x-2'>
-                <span className='truncate text-sm font-medium text-text-primary'>{r.row.name}</span>
-                <span className='text-[11px] text-text-muted'>{when}</span>
-                {!r.row.enabled && <span className='rounded-full border border-border px-1.5 text-[10.5px] text-text-muted'>off</span>}
-              </div>
-              <div className='mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-text-muted'>
-                {r.row.last_run ? <span>last {relative(r.row.last_run)}</span> : <span>never ran</span>}
-                {conv && (
-                  <>
-                    <span>·</span>
-                    <button onClick={() => navigate(`/c/${conv.id}`)} className='inline-flex items-center gap-1 hover:text-text-primary transition-colors'>
-                      <MessageSquare size={10} /> {conv.title}
+    <div>
+      <div className='flex flex-wrap items-center gap-2 mb-3'>
+        {filterConvId && (
+          <span className='flex items-center gap-2 text-xs text-text-muted'>
+            Routines of one chat
+            <button onClick={() => setParams((p) => { p.delete('conversation_id'); return p })} className='text-accent hover:opacity-80'>Show all</button>
+          </span>
+        )}
+        <span className='flex-1' />
+        <button onClick={() => setDrawer({ kind: 'cron' })} className='flex items-center gap-1 rounded-lg border border-border bg-surface px-2.5 py-1 text-xs text-text-secondary hover:bg-surface2'>
+          <Plus size={12} /> New cron
+        </button>
+        <button onClick={() => setDrawer({ kind: 'webhook' })} className='flex items-center gap-1 rounded-lg border border-border bg-surface px-2.5 py-1 text-xs text-text-secondary hover:bg-surface2'>
+          <Plus size={12} /> New webhook
+        </button>
+      </div>
+
+      {items === null ? (
+        <div className='flex items-center gap-2 py-8 text-sm text-text-muted'><Loader2 size={14} className='animate-spin' /> Loading…</div>
+      ) : displayed.length === 0 ? (
+        <div className='py-10 text-center text-sm text-text-muted'>No routines yet. A cron runs on a schedule; a webhook runs when something calls it.</div>
+      ) : (
+        <div className='rounded-xl border border-border bg-surface divide-y divide-border'>
+          {displayed.map((r) => {
+            const Icon = r.kind === 'webhook' ? Link2 : Clock
+            const conv = r.row.conversation_id ? conversations[r.row.conversation_id] : undefined
+            const when = r.kind === 'cron' ? describeSchedule(r.row.schedule) : 'when called'
+            return (
+              <div key={`${r.kind}-${r.row.id}`} className={`flex items-start gap-3 px-3 py-2.5 ${r.row.enabled ? '' : 'opacity-70'}`} data-testid='routine-row'>
+                <div className='mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-surface2 text-text-muted'><Icon size={13} /></div>
+                <div className='min-w-0 flex-1'>
+                  <div className='flex flex-wrap items-center gap-x-2'>
+                    <span className='truncate text-sm font-medium text-text-primary'>{r.row.name}</span>
+                    <span className='text-[11px] text-text-muted'>{when}</span>
+                    {!r.row.enabled && <span className='rounded-full border border-border px-1.5 text-[10.5px] text-text-muted'>off</span>}
+                  </div>
+                  <div className='mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-text-muted'>
+                    {r.row.last_run ? <span>last {relative(r.row.last_run)}</span> : <span>never ran</span>}
+                    {conv && (
+                      <>
+                        <span>·</span>
+                        <button onClick={() => navigate(`/c/${conv.id}`)} className='inline-flex items-center gap-1 hover:text-text-primary transition-colors'>
+                          <MessageSquare size={10} /> {conv.title}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {r.row.last_result && (
+                    <div className='mt-0.5 text-[12.5px] text-text-secondary line-clamp-1'>{firstLine(r.row.last_result)}</div>
+                  )}
+                </div>
+                <div className='flex shrink-0 items-center gap-0.5'>
+                  <button
+                    role='switch'
+                    aria-checked={!!r.row.enabled}
+                    aria-label={`${r.row.enabled ? 'Disable' : 'Enable'} ${r.row.name}`}
+                    onClick={() => toggle(r)}
+                    className={`relative mr-1 h-5 w-9 rounded-full transition-colors ${r.row.enabled ? 'bg-success' : 'bg-border'}`}
+                  >
+                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${r.row.enabled ? 'left-[18px]' : 'left-0.5'}`} />
+                  </button>
+                  <button onClick={() => fire(r)} title='Fire now' className='rounded-md p-1 text-text-muted/60 hover:bg-surface2 hover:text-accent'><Zap size={13} /></button>
+                  {r.kind === 'webhook' && (
+                    <button onClick={() => copyUrl(r.row.token)} title={copied === r.row.token ? 'Copied!' : 'Copy trigger URL'} className={`rounded-md p-1 hover:bg-surface2 ${copied === r.row.token ? 'text-success' : 'text-text-muted/60 hover:text-text-primary'}`}>
+                      {copied === r.row.token ? <Check size={13} /> : <Copy size={13} />}
                     </button>
-                  </>
-                )}
+                  )}
+                  <button onClick={() => setDrawer({ kind: r.kind, item: r.row })} title={`Edit this ${r.kind}`} className='rounded-md p-1 text-text-muted/60 hover:bg-surface2 hover:text-text-primary'><Settings2 size={13} /></button>
+                  <button onClick={() => remove(r)} title={`Delete this ${r.kind}`} className='rounded-md p-1 text-text-muted/60 hover:bg-surface2 hover:text-danger'><Trash2 size={13} /></button>
+                </div>
               </div>
-              {r.row.last_result && (
-                <div className='mt-0.5 text-[12.5px] text-text-secondary line-clamp-1'>{firstLine(r.row.last_result)}</div>
-              )}
-            </div>
-            <div className='flex shrink-0 items-center gap-1'>
-              <button
-                role='switch'
-                aria-checked={!!r.row.enabled}
-                aria-label={`${r.row.enabled ? 'Disable' : 'Enable'} ${r.row.name}`}
-                onClick={() => toggle(r)}
-                className={`relative h-5 w-9 rounded-full transition-colors ${r.row.enabled ? 'bg-success' : 'bg-border'}`}
-              >
-                <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${r.row.enabled ? 'left-[18px]' : 'left-0.5'}`} />
-              </button>
-              <button onClick={() => navigate(`/${r.kind}s?edit=${r.row.id}`)} title={`Open this ${r.kind}'s settings`} className='rounded-md p-1 text-text-muted/60 hover:bg-surface2 hover:text-text-primary'>
-                <Settings2 size={13} />
-              </button>
-            </div>
-          </div>
-        )
-      })}
+            )
+          })}
+        </div>
+      )}
+
+      {drawer && (
+        <Drawer title={drawer.kind === 'cron' ? 'Cron' : 'Webhook'} onClose={() => setDrawer(null)}>
+          {drawer.kind === 'cron' ? (
+            <CronForm initial={drawer.item as Cron | undefined} onSaved={() => { setDrawer(null); load() }} onCancel={() => setDrawer(null)} />
+          ) : (
+            <WebhookForm initial={drawer.item as Webhook | undefined} onSaved={() => { setDrawer(null); load() }} onCancel={() => setDrawer(null)} />
+          )}
+        </Drawer>
+      )}
     </div>
   )
 }

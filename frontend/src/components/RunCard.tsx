@@ -60,11 +60,10 @@ export default function RunCard({
         <span className='flex-1' />
         <StatusPill run={run} live={live} />
         {run?.source_id && (
-          // Straight to this routine's definition, in edit mode. A modal here is
-          // the friendlier end state; the settings page is the honest one today.
+          // Straight to this routine's definition, open for editing in Activity.
           <button
             type='button'
-            onClick={() => navigate(`/${run.kind}s?edit=${run.source_id}`)}
+            onClick={() => navigate(`/activity?tab=routines&edit=${run.source_id}`)}
             title={`Open this ${run.kind}'s settings`}
             className='rounded p-0.5 text-text-muted/60 transition-colors hover:bg-surface2 hover:text-text-primary'
           >

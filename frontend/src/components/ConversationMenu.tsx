@@ -226,7 +226,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                     <div className='h-px bg-border my-1' />
                     {hasCron && (
                       <button
-                        onClick={() => { setOpen(false); navigate(`/crons?conversation_id=${conversationId}`) }}
+                        onClick={() => { setOpen(false); navigate(`/activity?tab=routines&conversation_id=${conversationId}`) }}
                         className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
                       >
                         <Clock size={14} />
@@ -235,7 +235,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                     )}
                     {hasWebhook && (
                       <button
-                        onClick={() => { setOpen(false); navigate(`/webhooks?conversation_id=${conversationId}`) }}
+                        onClick={() => { setOpen(false); navigate(`/activity?tab=routines&conversation_id=${conversationId}`) }}
                         className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
                       >
                         <Link2 size={14} />

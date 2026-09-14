@@ -5,27 +5,6 @@ test.describe('settings pages', () => {
     await signIn(page)
   })
 
-  test('crons: the seeded cron is listed, disabled, and can be toggled', async ({ page }) => {
-    await page.goto('crons')
-    await expect(page.getByText('morning-brief').first()).toBeVisible()
-    // exact: the sidebar has an "Enable notifications" button that a substring
-    // match would pick up first.
-    const enable = page.getByTitle('Enable', { exact: true })
-    await expect(enable).toBeVisible()
-    await enable.click()
-    const disable = page.getByTitle('Disable', { exact: true })
-    await expect(disable).toBeVisible()
-    // Leave it as we found it — a live cron on a throwaway instance still costs.
-    await disable.click()
-    await expect(page.getByTitle('Enable', { exact: true })).toBeVisible()
-  })
-
-  test('webhooks: the seeded hook is listed with its trigger URL', async ({ page }) => {
-    await page.goto('webhooks')
-    await expect(page.getByText('fixture-hook').first()).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Copy URL' }).first()).toBeVisible()
-  })
-
   test('connectors: the page renders its sections', async ({ page }) => {
     await page.goto('connectors')
     await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible()

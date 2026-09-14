@@ -69,7 +69,9 @@ await app.register(helmet, {
 })
 await app.register(rateLimit, {
   global: true,
-  max: 300,
+  // 300/min per client is plenty for a person; the e2e suite is not a person.
+  // The next stack lifts it through RATE_LIMIT_MAX rather than being exempt.
+  max: Number(process.env.RATE_LIMIT_MAX) || 300,
   timeWindow: '1 minute',
   // Exempt static asset routes: apps can serve hundreds of images (grids,
   // map tiles) that would otherwise blow past the API limit. These are

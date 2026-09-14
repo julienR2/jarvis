@@ -58,7 +58,7 @@ test.describe('chat rendering', () => {
   test("background run: the gear opens the cron's definition in edit mode", async ({ page }) => {
     await openConversation(page, 'Morning brief')
     await page.getByTestId('run-card').getByTitle("Open this cron's settings").click()
-    await expect(page).toHaveURL(/\/crons/)
+    await expect(page).toHaveURL(/\/activity\?tab=routines/)
     await expect(page.getByRole('heading', { name: 'Edit cron' })).toBeVisible()
     await expect(page.getByPlaceholder(/Name/)).toHaveValue('morning-brief')
   })

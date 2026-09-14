@@ -110,8 +110,6 @@ export default function Sidebar({
 
   const onToolsPage =
     location.pathname === '/activity' ||
-    location.pathname === '/crons' ||
-    location.pathname === '/webhooks' ||
     location.pathname === '/connectors' ||
     location.pathname === '/connection' ||
     location.pathname === '/browser' ||
@@ -330,18 +328,6 @@ function SettingsMenu({
       </button>
       {open && (
         <div className='absolute bottom-full left-0 mb-1 z-[200] w-[calc(100%+0.5rem)] min-w-[170px] bg-surface border border-border rounded-xl shadow-lg p-1'>
-          <NavItem
-            label='Crons'
-            icon={<Clock size={15} />}
-            active={activePath === '/crons'}
-            onClick={() => go('/crons')}
-          />
-          <NavItem
-            label='Webhooks'
-            icon={<Link2 size={15} />}
-            active={activePath === '/webhooks'}
-            onClick={() => go('/webhooks')}
-          />
           <NavItem
             label='Connectors'
             icon={<Plug size={15} />}
@@ -683,7 +669,7 @@ function ConvItem({
             <span
               title='Cron'
               className='hover:text-accent transition-colors cursor-pointer'
-              onClick={(e) => { e.stopPropagation(); navigate(`/crons?conversation_id=${conv.id}`) }}
+              onClick={(e) => { e.stopPropagation(); navigate(`/activity?tab=routines&conversation_id=${conv.id}`) }}
             >
               <Clock size={11} className='text-text-muted hover:text-accent' />
             </span>
@@ -692,7 +678,7 @@ function ConvItem({
             <span
               title='Webhook'
               className='hover:text-accent transition-colors cursor-pointer'
-              onClick={(e) => { e.stopPropagation(); navigate(`/webhooks?conversation_id=${conv.id}`) }}
+              onClick={(e) => { e.stopPropagation(); navigate(`/activity?tab=routines&conversation_id=${conv.id}`) }}
             >
               <Link2 size={11} className='text-text-muted hover:text-accent' />
             </span>
@@ -761,12 +747,11 @@ function ActivityEntry({ active, onClick }: { active: boolean; onClick: () => vo
     const load = async () => {
       const startOfDay = Math.floor(new Date().setHours(0, 0, 0, 0) / 1000)
       try {
-        const [run, err] = await Promise.all([
-          api.listRunsAll({ status: ['running'], limit: 1 }),
-          api.listRunsAll({ status: ['error'], since: startOfDay, limit: 1 }),
-        ])
-        setRunning(run.length > 0)
-        setFailedToday(err.length > 0)
+        // One request for both signals. Since yesterday, so a run that started
+        // late last night and is still going counts as running too.
+        const rows = await api.listRunsAll({ status: ['running', 'error'], since: startOfDay - 86_400, limit: 50 })
+        setRunning(rows.some((r) => r.status === 'running'))
+        setFailedToday(rows.some((r) => r.status === 'error' && r.started_at >= startOfDay))
       } catch { /* the entry still works without its dots */ }
     }
     load()

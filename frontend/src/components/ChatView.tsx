@@ -913,14 +913,14 @@ function ConvStatusIcons({ conversationId, hasCron, hasWebhook, shareMode }: { c
         <Clock
           size={14}
           className='text-text-muted hover:text-accent transition-colors cursor-pointer'
-          onClick={() => conversationId && navigate(`/crons?conversation_id=${conversationId}`)}
+          onClick={() => conversationId && navigate(`/activity?tab=routines&conversation_id=${conversationId}`)}
         />
       )}
       {hasWebhook && (
         <Link2
           size={14}
           className='text-text-muted hover:text-accent transition-colors cursor-pointer'
-          onClick={() => conversationId && navigate(`/webhooks?conversation_id=${conversationId}`)}
+          onClick={() => conversationId && navigate(`/activity?tab=routines&conversation_id=${conversationId}`)}
         />
       )}
       {!!shareMode && (
