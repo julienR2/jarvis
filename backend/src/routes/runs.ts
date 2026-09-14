@@ -6,6 +6,13 @@ import type { CronRow, RunRow, RunStatus } from '../types.js'
 
 const RUN_STATUSES: RunStatus[] = ['running', 'done', 'error', 'stopped', 'interrupted']
 
+/** `<started_at>:<seq>`, as the client got it from the last row of the previous page. */
+function parseCursor(raw?: string): { startedAt: number; seq: number } | undefined {
+  if (!raw) return undefined
+  const [a, b] = raw.split(':').map(Number)
+  return Number.isFinite(a) && Number.isFinite(b) ? { startedAt: a, seq: b } : undefined
+}
+
 export async function runRoutes(app: FastifyInstance) {
   const auth = { onRequest: [app.authenticate] }
 
@@ -34,7 +41,7 @@ export async function runRoutes(app: FastifyInstance) {
       kind: q.kind === 'cron' || q.kind === 'webhook' ? q.kind : undefined,
       sectionId: q.section_id || undefined,
       since: q.since ? Number(q.since) : undefined,
-      before: q.before ? Number(q.before) : undefined,
+      before: parseCursor(q.before),
       limit: q.limit ? Number(q.limit) : undefined,
     })
   })

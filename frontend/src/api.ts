@@ -203,6 +203,26 @@ export const api = {
     request<Run[]>('GET', `/runs?conversation_id=${conversationId}&limit=${limit}`),
   stopRun: (runId: string) =>
     request<{ stopped: boolean }>('POST', `/runs/${runId}/stop`),
+  /** The Activity log: every conversation, filtered and paged by `seq`. */
+  listRunsAll: (opts: {
+    status?: RunStatus[]
+    kind?: 'cron' | 'webhook'
+    sectionId?: string
+    since?: number
+    /** `<started_at>:<seq>` of the last row seen. */
+    before?: string
+    limit?: number
+  } = {}) => {
+    const q = new URLSearchParams()
+    if (opts.status?.length) q.set('status', opts.status.join(','))
+    if (opts.kind) q.set('kind', opts.kind)
+    if (opts.sectionId) q.set('section_id', opts.sectionId)
+    if (opts.since) q.set('since', String(opts.since))
+    if (opts.before) q.set('before', opts.before)
+    if (opts.limit) q.set('limit', String(opts.limit))
+    return request<RunListItem[]>('GET', `/runs?${q}`)
+  },
+  retryRun: (runId: string) => request<{ ok: boolean }>('POST', `/runs/${runId}/retry`),
 
   // Fire-and-forget: the server transcribes and posts the message in the
   // background (survives the client navigating away), so there's nothing to
@@ -534,11 +554,21 @@ export interface Run {
   run_key: string | null
   /** 0 = the run could not see this conversation's history. */
   inherit_context: number
-  status: 'running' | 'done' | 'error' | 'stopped' | 'interrupted'
+  status: RunStatus
   started_at: number
   ended_at: number | null
   result: string | null
   error: string | null
+}
+
+export type RunStatus = 'running' | 'done' | 'error' | 'stopped' | 'interrupted'
+
+/** A run as the Activity page lists it. */
+export interface RunListItem extends Run {
+  /** Insertion order — the paging cursor. */
+  seq: number
+  conversation_title: string | null
+  section_id: string | null
 }
 
 export interface Section {
@@ -751,6 +781,9 @@ export type GlobalEvent =
   // A new frontend build landed (Jarvis edited its own UI). The tab is running
   // stale code until it reloads — see useFrontendUpdate.
   | { type: 'frontend_updated' }
+  // A run started or ended somewhere. A nudge, not a payload: whoever shows
+  // runs outside a conversation refetches.
+  | { type: 'runs'; conversation_id: string }
 
 // ── Global SSE connection ────────────────────────────────────────────────────
 

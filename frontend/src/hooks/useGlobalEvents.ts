@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { connectGlobalEvents } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { FRONTEND_UPDATED_EVENT } from '../components/UpdateBanner'
+import { RUNS_NUDGE_EVENT } from '../pages/ActivityPage'
 
 // Subscribes to the global SSE stream and dispatches into the chat store.
 // Mounted once near the app root.
@@ -34,6 +35,10 @@ export function useGlobalEvents() {
         // The tab is now running a stale bundle. UpdateBanner offers the reload
         // rather than forcing it — a reload mid-reply would be hostile.
         window.dispatchEvent(new CustomEvent(FRONTEND_UPDATED_EVENT))
+        return
+      }
+      if (ev.type === 'runs') {
+        window.dispatchEvent(new CustomEvent(RUNS_NUDGE_EVENT))
         return
       }
       if (ev.type === 'new_message') {

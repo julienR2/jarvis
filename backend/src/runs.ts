@@ -109,7 +109,7 @@ export function activeRuns(conversationId: string): RunRow[] {
 
 /** A run as the Activity page lists it: with where it wrote, and a cursor. */
 export interface RunListRow extends RunRow {
-  /** Insertion order — the paging cursor. Runs are inserted when they start. */
+  /** Insertion order — tie-breaker in the paging cursor. */
   seq: number
   conversation_title: string | null
   section_id: string | null
@@ -124,8 +124,8 @@ export function listRuns(opts: {
   sectionId?: string
   /** Only runs started at or after this unix time. */
   since?: number
-  /** Only runs older (by insertion) than this `seq`. */
-  before?: number
+  /** Page cursor: the last row's `started_at` and `seq` — strictly older than both. */
+  before?: { startedAt: number; seq: number }
   limit?: number
 }): RunListRow[] {
   const where: string[] = []
@@ -153,8 +153,8 @@ export function listRuns(opts: {
     params.push(opts.since)
   }
   if (opts.before) {
-    where.push('r.rowid < ?')
-    params.push(opts.before)
+    where.push('(r.started_at < ? OR (r.started_at = ? AND r.rowid < ?))')
+    params.push(opts.before.startedAt, opts.before.startedAt, opts.before.seq)
   }
   const limit = Math.min(Math.max(opts.limit ?? RUNS_PAGE_SIZE, 1), 200)
   params.push(limit)
@@ -164,7 +164,7 @@ export function listRuns(opts: {
          FROM runs r
          LEFT JOIN conversations c ON c.id = r.conversation_id
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-        ORDER BY r.rowid DESC
+        ORDER BY r.started_at DESC, r.rowid DESC
         LIMIT ?`,
     )
     .all(...params) as RunListRow[]

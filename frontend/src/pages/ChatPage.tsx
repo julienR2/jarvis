@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import ActivityPage from './ActivityPage'
 import { BASE_PATH } from '../base'
 import {
   Routes,
@@ -218,6 +219,7 @@ export default function ChatPage() {
                 />
               }
             />
+            <Route path='/activity' element={<ActivityPage />} />
             <Route path='/crons' element={<CronManager />} />
             <Route path='/webhooks' element={<WebhookManager />} />
             <Route path='/connectors' element={<ConnectorsPage />} />

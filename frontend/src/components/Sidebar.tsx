@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Plus,
   Clock,
+  Activity,
   Code2,
   Plug,
   Globe,
@@ -37,6 +38,8 @@ import NameModal from './NameModal'
 import SectionPicker from './SectionPicker'
 import type { Conversation, Section } from '../api'
 import { useChatStore } from '../stores/chatStore'
+import { api } from '../api'
+import { RUNS_NUDGE_EVENT } from '../pages/ActivityPage'
 import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
@@ -106,6 +109,7 @@ export default function Sidebar({
   const { theme, preference, cycle } = useTheme()
 
   const onToolsPage =
+    location.pathname === '/activity' ||
     location.pathname === '/crons' ||
     location.pathname === '/webhooks' ||
     location.pathname === '/connectors' ||
@@ -171,6 +175,7 @@ export default function Sidebar({
           <Plus size={16} />
           <span>New chat</span>
         </button>
+        <ActivityEntry active={location.pathname === '/activity'} onClick={() => handleNav('/activity')} />
         {/* Same shape as New chat, one step dimmer. Kept out of the scroll area
             so it stays reachable however many chats are in the list. */}
         <button
@@ -738,6 +743,57 @@ function NavItem({
     >
       {icon}
       {label}
+    </button>
+  )
+}
+
+/**
+ * The way into Activity, carrying its two signals: something is running now
+ * (accent, pulsing), something failed today (red). Fetched cheaply — one row
+ * each — and refetched on the global runs nudge, so it moves with the log.
+ */
+function ActivityEntry({ active, onClick }: { active: boolean; onClick: () => void }) {
+  const [running, setRunning] = useState(false)
+  const [failedToday, setFailedToday] = useState(false)
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const load = async () => {
+      const startOfDay = Math.floor(new Date().setHours(0, 0, 0, 0) / 1000)
+      try {
+        const [run, err] = await Promise.all([
+          api.listRunsAll({ status: ['running'], limit: 1 }),
+          api.listRunsAll({ status: ['error'], since: startOfDay, limit: 1 }),
+        ])
+        setRunning(run.length > 0)
+        setFailedToday(err.length > 0)
+      } catch { /* the entry still works without its dots */ }
+    }
+    load()
+    const onNudge = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(load, 400)
+    }
+    window.addEventListener(RUNS_NUDGE_EVENT, onNudge)
+    return () => {
+      window.removeEventListener(RUNS_NUDGE_EVENT, onNudge)
+      if (timer) clearTimeout(timer)
+    }
+  }, [])
+
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${active ? 'text-text-primary bg-selected' : 'text-text-secondary hover:bg-surface2'}`}
+    >
+      <Activity size={16} />
+      <span>Activity</span>
+      {running && (
+        <span className='ml-auto h-2 w-2 rounded-full bg-accent animate-pulse' title='Something is running' data-testid='activity-running' />
+      )}
+      {!running && failedToday && (
+        <span className='ml-auto h-2 w-2 rounded-full bg-danger' title='Something failed today' data-testid='activity-failed' />
+      )}
     </button>
   )
 }
