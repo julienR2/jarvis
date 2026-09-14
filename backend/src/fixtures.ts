@@ -27,6 +27,15 @@ export function seedFixtures(): void {
     return
   }
 
+  // Fixed ids, so a preview pane or a spec can deep-link to a fixture
+  // conversation and the link survives every reseed.
+  const ID = {
+    markdown: '00000000-0000-4000-8000-000000000001',
+    activity: '00000000-0000-4000-8000-000000000002',
+    brief: '00000000-0000-4000-8000-000000000003',
+    app: '00000000-0000-4000-8000-000000000004',
+  }
+
   const now = Math.floor(Date.now() / 1000)
   const t = (minutesAgo: number) => now - minutesAgo * 60
 
@@ -63,7 +72,7 @@ export function seedFixtures(): void {
     const [fixtures, daily, projects] = sections
 
     // 1. Markdown — every construct the bubble renders.
-    const md = uuid()
+    const md = ID.markdown
     insConv.run(md, 'Markdown showcase', t(300), t(290), fixtures.id, null, null)
     insMsg.run(uuid(), md, 'user', 'Show me what you can render.', null, null, null, t(300))
     insMsg.run(uuid(), md, 'assistant', [
@@ -91,7 +100,7 @@ export function seedFixtures(): void {
     ].join('\n'), null, null, null, t(299))
 
     // 2. Activity — notes and tool calls folded between prose, a final result.
-    const act = uuid()
+    const act = ID.activity
     insConv.run(act, 'Activity steps', t(200), t(190), fixtures.id, null, null)
     insMsg.run(uuid(), act, 'user', 'How many photos did the school send this week?', null, null, null, t(200))
     insMsg.run(uuid(), act, 'assistant', [
@@ -104,12 +113,15 @@ export function seedFixtures(): void {
     ].join('\n\n'), null, 'activity', 'The school sent **10 photos** this week: 4 on Monday, 6 on Wednesday.', t(199))
 
     // 3. Background run — a cron that ran isolated, its output stamped with the run.
-    const bg = uuid()
+    const bg = ID.brief
     insConv.run(bg, '🗞️ Morning brief', t(120), t(60), daily.id, null, null)
+    // The run points at its cron, as a real one does — that link is what the
+    // card's gear follows.
+    const cronId = '00000000-0000-4000-8000-0000000000c1'
     const runId = uuid()
     db.prepare(
       'INSERT INTO runs (id, kind, source_id, source_name, conversation_id, run_key, inherit_context, status, started_at, ended_at, result) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)',
-    ).run(runId, 'cron', null, 'morning-brief', bg, `cron-${runId}`, 'done', t(62), t(60), 'Brief posted')
+    ).run(runId, 'cron', cronId, 'morning-brief', bg, `cron-${runId}`, 'done', t(62), t(60), 'Brief posted')
     const stamp = JSON.stringify({ run_id: runId, isolated: true })
     insMsg.run(uuid(), bg, 'user', 'Write the morning brief.', stamp, null, null, t(62))
     insMsg.run(uuid(), bg, 'assistant', '[note:1] Weather first, then the todo list.\n\n[tool:1] curl wttr.in/Parede', stamp, 'activity',
@@ -118,7 +130,7 @@ export function seedFixtures(): void {
     insMsg.run(uuid(), bg, 'assistant', 'Court booking opens at 9:15, and the gallery sync runs tonight.', null, null, null, t(29))
 
     // 4. An app in the side pane.
-    const appConv = uuid()
+    const appConv = ID.app
     const appDir = join(config.workspaceDir, 'apps', 'fixture')
     mkdirSync(appDir, { recursive: true })
     writeFileSync(join(appDir, 'index.html'), FIXTURE_APP_HTML)
@@ -129,7 +141,7 @@ export function seedFixtures(): void {
     // 5. Routines and a key — rows for the settings pages. The cron is disabled so
     // nothing in a throwaway instance ever fires.
     db.prepare('INSERT INTO crons (id, name, schedule, prompt, conversation_id, enabled) VALUES (?, ?, ?, ?, ?, 0)')
-      .run(uuid(), 'morning-brief', '30 5 * * *', 'Write the morning brief.', bg)
+      .run(cronId, 'morning-brief', '30 5 * * *', 'Write the morning brief.', bg)
     db.prepare('INSERT INTO webhooks (id, name, token, prompt, conversation_id, enabled) VALUES (?, ?, ?, ?, ?, 1)')
       .run(uuid(), 'fixture-hook', randomBytes(24).toString('base64url'), 'Handle the payload.', act)
     // Keys are per account, and the e2e account is what the checks sign in as:

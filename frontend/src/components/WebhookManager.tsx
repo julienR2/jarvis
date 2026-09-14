@@ -72,6 +72,18 @@ export default function WebhookManager() {
     load()
   }
 
+  // ?edit=<id> opens that entry's form straight away — how a run card's gear
+  // lands here. The param is consumed, or saving (which reloads the list) would
+  // reopen the form.
+  useEffect(() => {
+    const id = searchParams.get('edit')
+    if (!id) return
+    const target = webhooks.find((x) => x.id === id)
+    if (!target) return
+    edit(target)
+    setSearchParams((p) => { p.delete('edit'); return p }, { replace: true })
+  }, [webhooks, searchParams, setSearchParams])
+
   function edit(webhook: Webhook) {
     setEditing(webhook.id)
     setForm({

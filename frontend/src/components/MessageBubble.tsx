@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm'
 import { FileText, ChevronRight, Copy, Check } from 'lucide-react'
 import { withMediaToken } from '../api'
 import type { Message, Attachment } from '../api'
+import { Loader2 } from 'lucide-react'
 import type { Components, ExtraProps } from 'react-markdown'
 
 interface Props {
@@ -207,6 +208,33 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
   // key on the indices: groups and cycles are only ever appended as a turn goes
   // on, so a position never comes to mean a different cycle.
   const [toggled, setToggled] = useState<Record<string, boolean>>({})
+  // Folded by default: one line for the whole turn's machinery — the latest
+  // note while it runs, a count once done. A click unfolds the notes with their
+  // steps; a click on any note folds it all back.
+  const [unfolded, setUnfolded] = useState(false)
+  const folded = !unfolded
+  const stepGroups = groups.filter((g): g is StepsGroup => g.kind === 'steps')
+  const totals = stepGroups.reduce(
+    (acc, g) => {
+      for (const c of g.cycles) {
+        acc.notes += c.notes.length
+        acc.tools += c.tools.length
+      }
+      return acc
+    },
+    { notes: 0, tools: 0 },
+  )
+  const lastGroupIsSteps = groups.length > 0 && groups[groups.length - 1].kind === 'steps'
+  const latestNote = (() => {
+    for (let i = stepGroups.length - 1; i >= 0; i--) {
+      for (let j = stepGroups[i].cycles.length - 1; j >= 0; j--) {
+        const notes = stepGroups[i].cycles[j].notes
+        if (notes.length) return notes[notes.length - 1]
+      }
+    }
+    return null
+  })()
+  let quietLineDrawn = false
 
   // A turn that only ever called tools gets no timestamp row, as before — there
   // is nothing to date but the steps themselves.
@@ -236,6 +264,22 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
           // moves on to the next cycle, or ends.
           const liveCycle =
             !!live && i === groups.length - 1 ? g.cycles.length - 1 : -1
+          if (folded) {
+            // All the step groups of this message collapse into one line, drawn
+            // where the first of them would have been.
+            if (quietLineDrawn) return null
+            quietLineDrawn = true
+            return (
+              <QuietLine
+                key={i}
+                live={!!live && lastGroupIsSteps}
+                latestNote={latestNote}
+                tools={totals.tools}
+                notes={totals.notes}
+                onOpen={() => setUnfolded(true)}
+              />
+            )
+          }
           return (
             <StepsBlock
               key={i}
@@ -244,6 +288,7 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
               onToggle={(j, open) =>
                 setToggled((t) => ({ ...t, [`${i}:${j}`]: !open }))
               }
+              onNoteClick={() => setUnfolded(false)}
             />
           )
         })}
@@ -277,70 +322,78 @@ function isPlainClick(e: React.MouseEvent): boolean {
 const NOTE_CLAMP_PX = 54
 
 /**
- * A note, capped to a few lines until asked to open.
+ * The folded form of a message's machinery.
  *
- * Capped by max-height rather than -webkit-line-clamp: notes are markdown, and
- * line-clamp needs `display: -webkit-box`, which flattens the paragraphs and
- * lists a reasoning summary arrives with into one run of text.
- *
- * The overflow is measured rather than guessed, so the toggle appears only on
- * notes that actually lost something — most notes are a line or two, and an
- * unconditional "show more" under every one of them would be the noise this is
- * meant to remove. Measurement is skipped while expanded, where the element is
- * its own full height and would report itself unclamped, taking the toggle away
- * with no way back.
+ * While the turn runs it is a bubble carrying the latest note in full — what
+ * Jarvis says he is doing, in his words — with a spinner and a step count.
+ * Once it is over it shrinks to one line: a count you can open. Either way a
+ * click unfolds the notes and their steps.
  */
-function ClampedNote({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false)
-  const [clamped, setClamped] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+function QuietLine({
+  live,
+  latestNote,
+  tools,
+  notes,
+  onOpen,
+}: {
+  live: boolean
+  latestNote: string | null
+  tools: number
+  notes: number
+  onOpen: () => void
+}) {
+  const count = `${tools} step${tools !== 1 ? 's' : ''}`
+  if (live) {
+    return (
+      <div
+        role='button'
+        tabIndex={0}
+        onClick={onOpen}
+        onKeyDown={(e) => e.key === 'Enter' && onOpen()}
+        title='Show all the steps'
+        className='mb-3 flex max-w-full cursor-pointer items-start gap-2.5 rounded-xl border border-border bg-surface px-3 py-2.5 text-[14px] leading-relaxed text-text-secondary transition-colors hover:bg-surface2'
+      >
+        <Loader2 size={14} className='mt-1 shrink-0 animate-spin text-accent' />
+        <div className='min-w-0 flex-1'>
+          {latestNote ? <Markdown text={latestNote} /> : <span>Working…</span>}
+          {tools > 0 && (
+            <div className='mt-1 text-[11px] text-text-muted/60'>{count} so far ▾</div>
+          )}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <button
+      type='button'
+      onClick={onOpen}
+      title='Show the steps'
+      className='mb-3 flex max-w-full items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-left text-[12.5px] text-text-secondary transition-colors hover:bg-surface2'
+    >
+      <Check size={12} className='shrink-0 text-text-muted/60' />
+      <span className='min-w-0 truncate'>
+        {count}
+        {notes ? ` · ${notes} note${notes !== 1 ? 's' : ''}` : ''}
+      </span>
+      <span className='shrink-0 text-[10.5px] text-text-muted/60'>▾</span>
+    </button>
+  )
+}
 
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el || expanded) return
-    setClamped(el.scrollHeight > el.clientHeight + 1)
-  }, [text, expanded])
-
-  const toggle = () => setExpanded((e) => !e)
-
+/**
+ * A note in full, in his words. Clicking it folds the whole block back to its
+ * one line — the same gesture that opened it, in reverse.
+ */
+function NoteText({ text, onClick }: { text: string; onClick?: () => void }) {
   return (
     <div
-      className={clamped ? 'cursor-pointer' : undefined}
-      onClick={clamped ? (e) => isPlainClick(e) && toggle() : undefined}
+      onClick={onClick}
+      title={onClick ? 'Fold the steps' : undefined}
+      className={`markdown text-sm leading-relaxed text-text-muted ${onClick ? 'cursor-pointer' : ''}`}
     >
-      {/* The gradient is positioned against the text alone. Anchored to the
-          whole component it would also lie over the toggle beneath, fading the
-          one thing that has to stay legible. */}
-      <div className='relative'>
-        <div
-          ref={ref}
-          className='markdown text-[13px] text-text-muted leading-snug overflow-hidden'
-          style={expanded ? undefined : { maxHeight: NOTE_CLAMP_PX }}
-        >
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeRaw]}
-            components={markdownComponents}
-          >
-            {text}
-          </ReactMarkdown>
-        </div>
-
-        {clamped && !expanded && (
-          // Fades into the page rather than cutting mid-letter. Purely
-          // decorative, and never in the way of the text it sits over.
-          <div className='pointer-events-none absolute inset-x-0 bottom-0 h-5 bg-gradient-to-t from-bg to-transparent' />
-        )}
-      </div>
-
-      {clamped && (
-        <button
-          onClick={toggle}
-          className='mt-0.5 text-[11px] text-text-muted/60 hover:text-text-muted transition-colors'
-        >
-          {expanded ? 'show less' : 'show more'}
-        </button>
-      )}
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {text}
+      </ReactMarkdown>
     </div>
   )
 }
@@ -362,10 +415,13 @@ function StepsBlock({
   cycles,
   isOpen,
   onToggle,
+  onNoteClick,
 }: {
   cycles: Cycle[]
   isOpen: (cycle: number) => boolean
   onToggle: (cycle: number, open: boolean) => void
+  /** A press on a note folds the block; steps keep their own toggle. */
+  onNoteClick?: () => void
 }) {
   return (
     <div className='mb-3 flex flex-col gap-1.5 border-l-2 border-border pl-3'>
@@ -374,7 +430,7 @@ function StepsBlock({
         return (
           <div key={j} className='flex flex-col gap-1.5'>
             {cycle.notes.map((text, i) => (
-              <ClampedNote key={i} text={text} />
+              <NoteText key={i} text={text} onClick={onNoteClick} />
             ))}
 
             {cycle.tools.length > 0 && (
@@ -564,6 +620,17 @@ function translateSrc(src?: string): string {
 // same renderer. Matching them matters: if streamed text rendered differently
 // from the persisted message, the handoff at the end of a block would visibly
 // re-layout instead of just... continuing.
+/** Prose the way an assistant message renders it — for summaries shown outside a bubble. */
+export function Markdown({ text, className = '' }: { text: string; className?: string }) {
+  return (
+    <div className={`markdown ${className}`}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
 export const markdownComponents: Components = {
   article: ({ children, node: _node, ...props }) => {
     if ('data-details' in props || 'dataDetails' in props) {

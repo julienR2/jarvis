@@ -75,6 +75,18 @@ export default function CronManager() {
     load()
   }
 
+  // ?edit=<id> opens that entry's form straight away — how a run card's gear
+  // lands here. The param is consumed, or saving (which reloads the list) would
+  // reopen the form.
+  useEffect(() => {
+    const id = searchParams.get('edit')
+    if (!id) return
+    const target = crons.find((x) => x.id === id)
+    if (!target) return
+    edit(target)
+    setSearchParams((p) => { p.delete('edit'); return p }, { replace: true })
+  }, [crons, searchParams, setSearchParams])
+
   function edit(cron: Cron) {
     setEditing(cron.id)
     setForm({

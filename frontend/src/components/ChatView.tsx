@@ -23,6 +23,7 @@ import ResizeHandle from './ResizeHandle'
 import { useIsDesktop } from '../hooks/useIsDesktop'
 import { ContentTitle } from './ContentLayout'
 import BackgroundRuns from './BackgroundRuns'
+import RunCard from './RunCard'
 
 /** Shared so the jump button can find the divider without threading a ref
  *  through the day-grouping list. */
@@ -553,11 +554,13 @@ export default function ChatView({
                         <DateSeparator key={item.key} label={item.label} />
                       ) : item.type === 'unread' ? (
                         <UnreadSeparator key={item.key} onDismiss={dismissUnread} />
-                      ) : item.type === 'run' ? (
-                        <RunSeparator
+                      ) : item.type === 'runBlock' ? (
+                        <RunCard
                           key={item.key}
                           run={runsById.get(item.runId)}
-                          isolated={item.isolated}
+                          msgs={item.msgs}
+                          live={isProcessing && item.msgs.some((m) => m.id === lastMessageId)}
+                          lastMessageId={lastMessageId}
                         />
                       ) : (
                         <MessageBubble
@@ -746,7 +749,7 @@ type MessageItem =
   | { type: 'message'; msg: Message }
   | { type: 'separator'; key: string; label: string }
   | { type: 'unread'; key: string }
-  | { type: 'run'; key: string; runId: string; isolated: boolean }
+  | { type: 'runBlock'; key: string; runId: string; isolated: boolean; msgs: Message[] }
 
 /** The run a message was written by, from the metadata the backend stamps on. */
 function messageRun(msg: Message): { runId: string; isolated: boolean } | null {
@@ -777,21 +780,30 @@ function groupMessagesByDay(messages: Message[], unreadAnchor: string | null): M
       lastRunId = null
     }
 
-    // One marker per contiguous block of a run's messages, not one per message.
-    // A cron writes an activity message, then a result message, then sometimes
-    // an error — labelling each of them would triple the noise for one event.
+    // A run's contiguous messages become one block, rendered as a card. A cron
+    // writes an activity message, then a result, sometimes an error — shown one
+    // by one they were forty lines of machinery for a single event.
     const run = messageRun(msg)
-    if (run && run.runId !== lastRunId) {
-      result.push({
-        type: 'run',
-        key: `run-${run.runId}-${msg.id}`,
-        runId: run.runId,
-        isolated: run.isolated,
-      })
+    if (run) {
+      // Below the day separator, not above it: the divider marks where reading
+      // resumes, and that is inside the day, not before it.
+      if (msg.id === unreadAnchor) result.push({ type: 'unread', key: `unread-${msg.id}` })
+      const last = result[result.length - 1]
+      if (run.runId === lastRunId && last?.type === 'runBlock') {
+        last.msgs.push(msg)
+      } else {
+        result.push({
+          type: 'runBlock',
+          key: `run-${run.runId}-${msg.id}`,
+          runId: run.runId,
+          isolated: run.isolated,
+          msgs: [msg],
+        })
+      }
+      lastRunId = run.runId
+      continue
     }
-    lastRunId = run?.runId ?? null
-    // Below the day separator, not above it: the divider marks where reading
-    // resumes, and that is inside the day, not before it.
+    lastRunId = null
     if (msg.id === unreadAnchor) result.push({ type: 'unread', key: `unread-${msg.id}` })
     result.push({ type: 'message', msg })
   }
@@ -810,42 +822,6 @@ function formatDayLabel(date: Date): string {
   const diffDays = Math.floor((today.getTime() - date.getTime()) / 86_400_000)
   if (diffDays < 7) return date.toLocaleDateString([], { weekday: 'long' })
   return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined })
-}
-
-/**
- * Marks where a cron or webhook wrote into the transcript.
- *
- * The wording points forward, not back: the interesting fact is not that this
- * ran elsewhere, it is that asking about it in the box below won't work,
- * because the conversation's own session never saw any of it. Saying "ran
- * without context" describes the run; "outside this chat's memory" describes
- * the consequence for the person reading.
- *
- * `run` can be missing — the runs list is capped, so an old enough message
- * outlives its row. The marker still renders, just without the name.
- */
-function RunSeparator({ run, isolated }: { run?: Run; isolated: boolean }) {
-  const name = run?.source_name
-  const kindLabel = run?.kind === 'webhook' ? 'Webhook' : run?.kind === 'cron' ? 'Cron' : 'Automation'
-  return (
-    <div className='flex items-center gap-3 my-4'>
-      <div className='flex-1 h-px bg-border' />
-      <span className='flex items-center gap-1.5 text-[11px] text-text-muted/70 font-medium shrink-0'>
-        {run?.kind === 'webhook' ? <Link2 size={11} /> : <Clock size={11} />}
-        <span className='max-w-[220px] truncate'>{name ? `${kindLabel}: ${name}` : kindLabel}</span>
-        {isolated && (
-          <span
-            className='flex items-center gap-1 text-text-muted/50'
-            title="This ran in its own session. The messages below are on screen but not in the conversation's memory — ask about them and Claude has to go and read the history first."
-          >
-            <EyeOff size={10} />
-            outside this chat's memory
-          </span>
-        )}
-      </span>
-      <div className='flex-1 h-px bg-border' />
-    </div>
-  )
 }
 
 function DateSeparator({ label }: { label: string }) {
