@@ -15,7 +15,15 @@ import {
   Trash2,
   FolderPlus,
   Settings,
+  Moon,
+  Sun,
+  Monitor,
+  BellOff,
+  RefreshCw,
 } from 'lucide-react'
+import { useTheme } from '../hooks/useTheme'
+import { reloadApp } from '../lib/reload'
+import { useNotifications } from '../hooks/useNotifications'
 import { useLongPress } from '../hooks/useLongPress'
 import ConversationMenu, {
   type ConversationMenuHandle,
@@ -91,6 +99,9 @@ export default function Sidebar({
 
   const navigate = useNavigate()
   const location = useLocation()
+  const { permission, requestPermission } = useNotifications()
+  const { theme, preference, cycle } = useTheme()
+
   // Settings owns its tabs and the two full-height tools reached from Advanced.
   const onSettings =
     location.pathname === '/settings' ||
@@ -199,14 +210,48 @@ export default function Sidebar({
 
       </div>
 
-      {/* Bottom nav: one entry. Theme, notifications, reload and logout live in Settings › Overview. */}
+      {/* Bottom nav: Settings, plus the three one-click toggles kept at hand.
+          Logout moved into Settings › Overview. */}
       <div className='border-t border-border p-2'>
-        <NavItem
-          label='Settings'
-          icon={<Settings size={15} />}
-          active={onSettings}
-          onClick={() => handleNav('/settings')}
-        />
+        <div className='flex items-center gap-1'>
+          <div className='flex-1'>
+            <NavItem
+              label='Settings'
+              icon={<Settings size={15} />}
+              active={onSettings}
+              onClick={() => handleNav('/settings')}
+            />
+          </div>
+          <button
+            onClick={reloadApp}
+            title='Reload app'
+            className='p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'
+          >
+            <RefreshCw size={15} />
+          </button>
+          {permission !== 'granted' && (
+            <button
+              onClick={requestPermission}
+              title='Enable notifications'
+              className='p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'
+            >
+              <BellOff size={15} />
+            </button>
+          )}
+          <button
+            onClick={cycle}
+            title={`Theme: ${preference} (click to change)`}
+            className='p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'
+          >
+            {preference === 'system' ? (
+              <Monitor size={15} />
+            ) : theme === 'dark' ? (
+              <Moon size={15} />
+            ) : (
+              <Sun size={15} />
+            )}
+          </button>
+        </div>
       </div>
     </aside>
   )

@@ -110,7 +110,7 @@ When the deploy lands, a **"Jarvis updated its interface" banner with a Reload
 button** appears at the bottom of their screen automatically. So:
 
 - **Finish by telling them to reload**, e.g. "Reload to see it — use the Reload
-  button in the banner at the bottom, or Reload in Settings › Overview."
+  button in the banner at the bottom, or the ↻ button at the bottom of the sidebar."
 - The banner appears once the deploy has swapped the build in; there is nothing
   to wait for after the script returns.
 - If they say the change isn't showing, the first question is always whether
