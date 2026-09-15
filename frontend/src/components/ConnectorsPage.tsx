@@ -22,8 +22,6 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { api, type ConnectorInfo, type ConnectorDetail, type ConnectorInput } from '../api'
-import ContentLayout from './ContentLayout'
-import { ProviderConnections } from './ConnectionPage'
 
 const ICON_MAP: Record<string, LucideIcon> = {
   Mail, Github: GitBranch, SquareKanban, Image, Database, MessageSquare,
@@ -47,7 +45,7 @@ function IconComponent({ name, size = 20 }: { name: string; size?: number }) {
 // A blank field row for the modal.
 type FieldRow = { key?: string; label: string; value: string; type: 'text' | 'password' | 'email' }
 
-export default function ConnectorsPage() {
+export default function ConnectorsPanel() {
   const [connectors, setConnectors] = useState<ConnectorInfo[]>([])
   const [editing, setEditing] = useState<ConnectorDetail | null>(null)
   const [creating, setCreating] = useState(false)
@@ -68,17 +66,7 @@ export default function ConnectorsPage() {
   }
 
   return (
-    <ContentLayout title='Connectors'>
-      {/* The model provider is a credential like any other, and the first one
-          that matters — so it sits above the rest rather than in its own
-          corner of the settings menu. Collapsed once it's set up. */}
-      <div className='mb-6'>
-        <h2 className='text-xs font-medium text-text-muted uppercase tracking-wide mb-2'>
-          Model provider
-        </h2>
-        <ProviderConnections />
-      </div>
-
+    <div>
       <h2 className='text-xs font-medium text-text-muted uppercase tracking-wide mb-2'>
         Services
       </h2>
@@ -117,7 +105,7 @@ export default function ConnectorsPage() {
           onSaved={() => { setCreating(false); setEditing(null); load() }}
         />
       )}
-    </ContentLayout>
+    </div>
   )
 }
 

@@ -18,7 +18,6 @@ import {
   type InstalledPlugin,
   type AvailablePlugin,
 } from '../api'
-import ContentLayout from './ContentLayout'
 
 const EMPTY: PluginState = { marketplaces: [], installed: [], available: [] }
 
@@ -28,7 +27,7 @@ function sourceLabel(mp: Marketplace): string {
   return target ? `${mp.source}: ${target}` : mp.source
 }
 
-export default function PluginsPage() {
+export default function PluginsPanel() {
   const [state, setState] = useState<PluginState>(EMPTY)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
@@ -121,7 +120,7 @@ export default function PluginsPage() {
     : state.available
 
   return (
-    <ContentLayout title='Plugins'>
+    <div>
       <p className='text-text-muted text-sm mb-6'>
         Claude Code plugins — skills, agents, commands and hooks packaged
         together. Marketplaces are the catalogues you install them from.
@@ -300,7 +299,7 @@ export default function PluginsPage() {
           </div>
         )}
       </section>
-    </ContentLayout>
+    </div>
   )
 }
 

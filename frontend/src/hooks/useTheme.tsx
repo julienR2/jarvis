@@ -1,15 +1,18 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 
 type Theme = 'light' | 'dark'
-type Preference = 'light' | 'dark' | 'system'
+export type Preference = 'light' | 'dark' | 'system'
 
 interface ThemeContextValue {
   theme: Theme
   preference: Preference
   cycle: () => void
+  setPreference: (p: Preference) => void
 }
 
-const ThemeContext = createContext<ThemeContextValue>({ theme: 'light', preference: 'system', cycle: () => {} })
+const ThemeContext = createContext<ThemeContextValue>({
+  theme: 'light', preference: 'system', cycle: () => {}, setPreference: () => {},
+})
 
 function resolveTheme(pref: Preference): Theme {
   if (pref !== 'system') return pref
@@ -67,7 +70,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <ThemeContext.Provider value={{ theme, preference, cycle }}>
+    <ThemeContext.Provider value={{ theme, preference, cycle, setPreference }}>
       {children}
     </ThemeContext.Provider>
   )

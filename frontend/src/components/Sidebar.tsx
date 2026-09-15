@@ -4,19 +4,9 @@ import {
   Plus,
   Clock,
   Activity,
-  Code2,
-  Plug,
-  Globe,
-  Blocks,
-  LogOut,
-  Moon,
-  Sun,
-  Monitor,
-  BellOff,
   AppWindow,
   Sunrise,
   Link2,
-  RefreshCw,
   Earth,
   ChevronUp,
   ChevronDown,
@@ -25,11 +15,7 @@ import {
   Trash2,
   FolderPlus,
   Settings,
-  KeyRound,
 } from 'lucide-react'
-import { useTheme } from '../hooks/useTheme'
-import { reloadApp } from '../lib/reload'
-import { useNotifications } from '../hooks/useNotifications'
 import { useLongPress } from '../hooks/useLongPress'
 import ConversationMenu, {
   type ConversationMenuHandle,
@@ -105,22 +91,11 @@ export default function Sidebar({
 
   const navigate = useNavigate()
   const location = useLocation()
-  const { permission, requestPermission } = useNotifications()
-  const { theme, preference, cycle } = useTheme()
-
-  const onToolsPage =
-    location.pathname === '/activity' ||
-    location.pathname === '/connectors' ||
-    location.pathname === '/connection' ||
+  // Settings owns its tabs and the two full-height tools reached from Advanced.
+  const onSettings =
+    location.pathname === '/settings' ||
     location.pathname === '/browser' ||
-    location.pathname === '/plugins' ||
-    location.pathname === '/api-keys' ||
     location.pathname.startsWith('/code')
-
-  function logout() {
-    localStorage.removeItem('token')
-    navigate('/login')
-  }
 
   function handleNav(path: string) {
     // On mobile, fully animate the sidebar closed before navigating, so the
@@ -224,152 +199,16 @@ export default function Sidebar({
 
       </div>
 
-      {/* Bottom nav — one row: everything rarely used lives behind Settings. */}
+      {/* Bottom nav: one entry. Theme, notifications, reload and logout live in Settings › Overview. */}
       <div className='border-t border-border p-2'>
-        <div className='flex items-center gap-1'>
-          <SettingsMenu
-            onToolsPage={onToolsPage}
-            activePath={location.pathname}
-            onNav={handleNav}
-            onLogout={logout}
-          />
-          <button
-            onClick={reloadApp}
-            title='Reload app'
-            className='p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'
-          >
-            <RefreshCw size={15} />
-          </button>
-          {permission !== 'granted' && (
-            <button
-              onClick={requestPermission}
-              title='Enable notifications'
-              className='p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'
-            >
-              <BellOff size={15} />
-            </button>
-          )}
-          <button
-            onClick={cycle}
-            title={`Theme: ${preference} (click to change)`}
-            className='p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'
-          >
-            {preference === 'system' ? (
-              <Monitor size={15} />
-            ) : theme === 'dark' ? (
-              <Moon size={15} />
-            ) : (
-              <Sun size={15} />
-            )}
-          </button>
-        </div>
+        <NavItem
+          label='Settings'
+          icon={<Settings size={15} />}
+          active={onSettings}
+          onClick={() => handleNav('/settings')}
+        />
       </div>
     </aside>
-  )
-}
-
-/**
- * Everything below the chat list, behind one row. Crons/webhooks/connectors/plugins/code
- * and logout are rare enough that a permanent five-row block wasn't earning its
- * space. Opens upward, since it sits at the bottom of the sidebar.
- */
-function SettingsMenu({
-  onToolsPage,
-  activePath,
-  onNav,
-  onLogout,
-}: {
-  onToolsPage: boolean
-  activePath: string
-  onNav: (path: string) => void
-  onLogout: () => void
-}) {
-  const [open, setOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handleOutside(e: MouseEvent | TouchEvent) {
-      if (containerRef.current?.contains(e.target as Node)) return
-      setOpen(false)
-    }
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('click', handleOutside)
-    window.addEventListener('touchstart', handleOutside)
-    window.addEventListener('keydown', handleKey)
-    return () => {
-      window.removeEventListener('click', handleOutside)
-      window.removeEventListener('touchstart', handleOutside)
-      window.removeEventListener('keydown', handleKey)
-    }
-  }, [open])
-
-  function go(path: string) {
-    setOpen(false)
-    onNav(path)
-  }
-
-  return (
-    <div ref={containerRef} className='relative flex-1'>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm rounded-lg transition-colors ${
-          onToolsPage
-            ? 'text-text-primary bg-selected'
-            : open
-              ? 'text-text-primary bg-surface2'
-              : 'text-text-secondary hover:text-text-primary hover:bg-surface2'
-        }`}
-      >
-        <Settings size={15} />
-        <span className='flex-1 text-left'>Settings</span>
-      </button>
-      {open && (
-        <div className='absolute bottom-full left-0 mb-1 z-[200] w-[calc(100%+0.5rem)] min-w-[170px] bg-surface border border-border rounded-xl shadow-lg p-1'>
-          <NavItem
-            label='Connectors'
-            icon={<Plug size={15} />}
-            active={activePath === '/connectors'}
-            onClick={() => go('/connectors')}
-          />
-          <NavItem
-            label='Browser'
-            icon={<Globe size={15} />}
-            active={activePath === '/browser'}
-            onClick={() => go('/browser')}
-          />
-          <NavItem
-            label='Plugins'
-            icon={<Blocks size={15} />}
-            active={activePath === '/plugins'}
-            onClick={() => go('/plugins')}
-          />
-          <NavItem
-            label='API keys'
-            icon={<KeyRound size={15} />}
-            active={activePath === '/api-keys'}
-            onClick={() => go('/api-keys')}
-          />
-          <NavItem
-            label='Code'
-            icon={<Code2 size={15} />}
-            active={activePath.startsWith('/code')}
-            onClick={() => go('/code')}
-          />
-          <div className='h-px bg-border my-1' />
-          <NavItem
-            label='Logout'
-            icon={<LogOut size={15} />}
-            onClick={() => {
-              setOpen(false)
-              onLogout()
-            }}
-          />
-        </div>
-      )}
-    </div>
   )
 }
 

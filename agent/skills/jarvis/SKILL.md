@@ -37,7 +37,7 @@ You can edit Jarvis's own source. Two facts shape how:
    curl -s -X POST "$BACKEND_URL/internal/apps/$JARVIS_CONVERSATION_ID/notify" -H "X-Internal-Secret: $INTERNAL_SECRET"
    ```
    Replace `/next/crons` with the route being changed (`/next/` for the chat
-   itself, `/next/c/<id>` for a fixture conversation, `/next/connectors`…).
+   itself, `/next/c/<id>` for a fixture conversation, `/next/settings`…).
    Register once per conversation; later edits appear on their own through HMR.
    If next is down, say so and describe the change instead — do not deploy to
    show it.
@@ -110,7 +110,7 @@ When the deploy lands, a **"Jarvis updated its interface" banner with a Reload
 button** appears at the bottom of their screen automatically. So:
 
 - **Finish by telling them to reload**, e.g. "Reload to see it — use the Reload
-  button in the banner at the bottom, or the ↻ button at the bottom of the sidebar."
+  button in the banner at the bottom, or Reload in Settings › Overview."
 - The banner appears once the deploy has swapped the build in; there is nothing
   to wait for after the script returns.
 - If they say the change isn't showing, the first question is always whether

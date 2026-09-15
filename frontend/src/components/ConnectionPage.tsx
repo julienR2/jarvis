@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { Check, Loader2, ChevronDown, KeyRound, Trash2, ExternalLink, Eye, EyeOff } from 'lucide-react'
-import ContentLayout from './ContentLayout'
 import { api } from '../api'
 import type { ConnectionStatus, ProviderStatus } from '../api'
 import { loadModelCatalogue, useModelCatalogue, modelName } from './ModelSelector'
@@ -73,15 +72,6 @@ export function ProviderConnections() {
   )
 }
 
-export default function ConnectionPage() {
-  return (
-    <ContentLayout title='Connection'>
-      <div className='max-w-2xl mx-auto px-4 md:px-6 py-6'>
-        <ProviderConnections />
-      </div>
-    </ContentLayout>
-  )
-}
 
 function ProviderCard({
   mode, title, subtitle, status, isDefault, canChooseDefault, onChanged,

@@ -9,12 +9,9 @@ import ResizeHandle from '../components/ResizeHandle'
 import { useIsDesktop } from '../hooks/useIsDesktop'
 import ChatView from '../components/ChatView'
 import CodeBrowser from '../components/CodeBrowser'
-import ConnectorsPage from '../components/ConnectorsPage'
-import ConnectionPage from '../components/ConnectionPage'
 import BrowserPage from '../components/BrowserPage'
 import UpdateBanner from '../components/UpdateBanner'
-import PluginsPage from '../components/PluginsPage'
-import ApiKeysPage from '../components/ApiKeysPage'
+import SettingsPage from './SettingsPage'
 import {
   SidebarToggleProvider,
   SidebarToggle,
@@ -215,11 +212,14 @@ export default function ChatPage() {
             {/* The definitions moved into Activity › Routines; old links still land. */}
             <Route path='/crons' element={<LegacyRoutinesRedirect />} />
             <Route path='/webhooks' element={<LegacyRoutinesRedirect />} />
-            <Route path='/connectors' element={<ConnectorsPage />} />
-            <Route path='/connection' element={<ConnectionPage />} />
+            <Route path='/settings' element={<SettingsPage />} />
+            {/* The four settings pages became tabs; their addresses still land. */}
+            <Route path='/connectors' element={<Navigate to='/settings?tab=connectors' replace />} />
+            <Route path='/connection' element={<Navigate to='/settings?tab=models' replace />} />
+            <Route path='/api-keys' element={<Navigate to='/settings?tab=access' replace />} />
+            <Route path='/plugins' element={<Navigate to='/settings?tab=advanced' replace />} />
+            {/* Full-height tools, reached from Settings › Advanced. */}
             <Route path='/browser' element={<BrowserPage />} />
-            <Route path='/plugins' element={<PluginsPage />} />
-            <Route path='/api-keys' element={<ApiKeysPage />} />
             <Route path='/code/*' element={<CodeBrowser />} />
           </Routes>
         </SidebarToggleProvider>

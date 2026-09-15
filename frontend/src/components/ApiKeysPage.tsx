@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Copy, Check, KeyRound } from 'lucide-react'
 import { api, type ApiKey } from '../api'
-import ContentLayout from './ContentLayout'
 
 function when(ts: number | null): string {
   if (!ts) return 'never'
   return new Date(ts * 1000).toLocaleString('fr-FR')
 }
 
-export default function ApiKeysPage() {
+export default function ApiKeysPanel() {
   const [keys, setKeys] = useState<ApiKey[]>([])
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
@@ -59,7 +58,7 @@ export default function ApiKeysPage() {
   const origin = window.location.origin
 
   return (
-    <ContentLayout title='API keys'>
+    <div>
       {/* What a key is for. Deliberately concrete: the whole point is that
           there is no separate API to learn, so the example is a real call. */}
       <div className='bg-surface2/50 border border-border rounded-xl p-4 mb-6 text-xs text-text-muted'>
@@ -185,6 +184,6 @@ curl -X POST ${origin}/api/conversations/<id>/messages \\
           ))}
         </div>
       )}
-    </ContentLayout>
+    </div>
   )
 }
