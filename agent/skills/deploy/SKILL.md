@@ -28,7 +28,7 @@ bash "$CLAUDE_CONFIG_DIR/skills/deploy/deploy.sh" [--fast] [--dry-run] [--allow-
 
 It works out what changed since the last deploy (`agent/data/deployed.json`),
 typechecks what it will touch, runs the **e2e suite against next** (`e2e/run.sh`:
-wipes and reseeds next, then 14 UI-only checks — login, rendering of the fixture
+re-arms the fixtures on next (only their rows; the rest of next's data stays), then UI-only checks — login, rendering of the fixture
 conversations, sidebar, settings pages, a console/failed-request guard), and only
 then applies, in this order:
 

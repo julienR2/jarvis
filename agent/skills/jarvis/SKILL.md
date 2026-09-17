@@ -48,12 +48,15 @@ You can edit Jarvis's own source. Two facts shape how:
 Next's data is fixtures, not the user's: sections "🧪 Fixtures / ☀️ Daily /
 🏗️ Projects", a markdown showcase, an activity conversation, a morning-brief
 run, a fixture app, a disabled cron, a webhook, an API key. `POST
-http://next-backend:3005/internal/reset` (same secret) wipes and reseeds it if
-a test made a mess.
+http://next-backend:3005/internal/fixtures` (same secret) puts the fixture rows
+back without touching anything else — do this if a test made a mess of them.
+**Never `POST /internal/reset` on your own**: it wipes next's whole database,
+including whatever the user was trying there. Only when they ask for a wipe. The
+e2e suite re-arms too; it does not wipe (`E2E_RESET=1` would).
 
 **Logging in to next yourself** (for a screenshot or an e2e run): the seed
 creates `e2e@jarvis.local` with a random password, kept in
-`/jarvis/agent/next/data/e2e-credentials.json` (regenerated on every reseed).
+`/jarvis/agent/next/data/e2e-credentials.json` (regenerated only on a full wipe).
 ```bash
 TOK=$(curl -s -X POST http://next-backend:3005/api/auth/login -H 'Content-Type: application/json' \
   -d "$(cat /jarvis/agent/next/data/e2e-credentials.json)" | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
