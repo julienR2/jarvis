@@ -22,11 +22,10 @@ test.describe('today', () => {
 
   test('needs you: the failure nothing has fixed yet, with its error and a retry', async ({ page }) => {
     const needs = page.getByTestId('today-needs')
-    await expect(needs.getByRole('heading', { name: /Needs you · 1/ })).toBeVisible()
-    const row = needs.getByTestId('today-row')
+    await expect(needs.getByRole('heading', { name: /Needs you · \d/ })).toBeVisible()
+    // The questions waiting for an answer are needs-you.spec's; here, the failure.
+    const row = needs.locator('[data-testid="today-row"][data-status="error"]').filter({ hasText: 'new-year-wish' })
     await expect(row).toHaveCount(1)
-    await expect(row).toHaveAttribute('data-status', 'error')
-    await expect(row.getByText('new-year-wish')).toBeVisible()
     await expect(row.getByText(/greetings API answered 503/)).toBeVisible()
     await expect(row.getByRole('button', { name: /Retry/ })).toBeVisible()
     // Yesterday's failed brief is not here: this morning's brief succeeded.
@@ -47,7 +46,7 @@ test.describe('today', () => {
   })
 
   test('a row whose chat carries an app says so', async ({ page }) => {
-    const row = page.getByTestId('today-needs').getByTestId('today-row')
+    const row = page.getByTestId('today-needs').getByTestId('today-row').filter({ hasText: 'new-year-wish' })
     await row.getByRole('button', { name: 'Open app' }).click()
     await expect(page).toHaveURL(/\/c\/00000000-0000-4000-8000-000000000004$/)
   })
@@ -55,9 +54,10 @@ test.describe('today', () => {
   test('coming up: only enabled crons, soonest first, gear opens the definition', async ({ page }) => {
     const up = page.getByTestId('today-upcoming')
     await expect(up.getByRole('heading', { name: 'Coming up' })).toBeVisible()
-    const rows = up.getByTestId('today-row')
+    // The yearly fixture cron is here, the disabled daily one is not; a person's
+    // own enabled crons may sit alongside.
+    const rows = up.getByTestId('today-row').filter({ hasText: 'new-year-wish' })
     await expect(rows).toHaveCount(1)
-    await expect(rows.first().getByText('new-year-wish')).toBeVisible()
     await expect(rows.first().getByText(/1 Jan|Jan 1/)).toBeVisible()
     await expect(up.getByText('morning-brief')).toBeHidden()
     await rows.first().getByTitle("Open this cron's settings").click()
@@ -74,7 +74,7 @@ test.describe('today', () => {
 
   test('on a phone the actions sit under the row, full width', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    const row = page.getByTestId('today-needs').getByTestId('today-row')
+    const row = page.getByTestId('today-needs').getByTestId('today-row').filter({ hasText: 'new-year-wish' })
     const open = row.getByRole('button', { name: 'Open app' })
     const retry = row.getByRole('button', { name: /Retry/ })
     await expect(open).toBeVisible()

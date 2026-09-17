@@ -5,8 +5,9 @@ import { defineConfig } from '@playwright/test'
  *
  * Nothing here talks to the engine: the fixtures seeded into next's database
  * are what the tests look at, and the only writes are rows the UI itself
- * creates (a chat, an API key). `setup.ts` wipes and reseeds next before a run,
- * so every run starts from the same picture.
+ * creates (a chat, an API key). `setup.ts` re-arms the fixtures before a run —
+ * only the rows they own — so every run starts from the same picture without
+ * taking the rest of the instance's data with it (E2E_RESET=1 for a full wipe).
  *
  * Runs from the engine container — the only place both the repo and a Chromium
  * exist — against next by service name. `baseURL` carries the /next/ mount, so

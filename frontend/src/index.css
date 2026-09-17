@@ -18,6 +18,7 @@
   --color-accent-subtle: var(--theme-accent-subtle);
   --color-danger: var(--theme-danger);
   --color-success: var(--theme-success);
+  --color-warning: var(--theme-warning);
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
@@ -37,6 +38,7 @@
   --theme-accent-subtle: #f5ebe6;
   --theme-danger: #d94444;
   --theme-success: #3d9a6e;
+  --theme-warning: #c98a1b;
 }
 
 .dark {
@@ -54,6 +56,7 @@
   --theme-accent-subtle: #2e2622;
   --theme-danger: #e05252;
   --theme-success: #4caf82;
+  --theme-warning: #dea345;
 }
 
 @layer base {

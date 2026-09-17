@@ -1,5 +1,8 @@
 import { test, expect, signIn } from '../helpers'
 
+/** The routines the fixtures own — what every count here is scoped to. */
+const FIXTURE_RUNS = /morning-brief|new-year-wish|fixture-hook|reply-marta|publish-post/
+
 test.describe('activity', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page)
@@ -7,20 +10,25 @@ test.describe('activity', () => {
   })
 
   test('log: every run, newest first, grouped by day, with its one line', async ({ page }) => {
-    const rows = page.getByTestId('run-row')
-    // 5 seeded runs: today's brief and the yearly cron's failure, the hook, yesterday's failed brief, a brief from 2 days ago
-    await expect(rows).toHaveCount(5)
-    await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible()
+    // Fixture rows only, by name: next is also used by hand, and the log may hold more.
+    const rows = page.getByTestId('run-row').filter({ hasText: FIXTURE_RUNS })
+    // 7 seeded runs: two parked on the person, today's brief and the yearly cron's failure, the hook, yesterday's failed brief, a brief from 2 days ago
+    await expect(rows).toHaveCount(7)
+    // Grouped by day: the fixtures span several, so there are at least two day
+    // headings. Not asserting 'Today' by name — right after midnight the runs
+    // from "minutes ago" fall under Yesterday, and there is no Today group.
+    expect(await page.getByRole('heading', { level: 2 }).count()).toBeGreaterThanOrEqual(2)
     await expect(page.getByRole('heading', { name: 'Yesterday' })).toBeVisible()
-    // Newest first: the yearly cron's failure (45 min ago) sits above this morning's brief.
-    await expect(rows.first().getByText('new-year-wish')).toBeVisible()
+    // Newest first: the publish approval (6 min ago), then the question (12 min), then the yearly cron's failure (45 min).
+    await expect(rows.first().getByText('publish-post')).toBeVisible()
+    await expect(rows.nth(2).getByText('new-year-wish')).toBeVisible()
     await expect(rows.filter({ hasText: 'morning-brief' }).first().getByText(/done · \d+ min/)).toBeVisible()
     await expect(page.getByText('Filed under Projects.')).toBeVisible()
   })
 
   test('log: a failed run shows its error, and offers a retry', async ({ page }) => {
     await page.getByRole('button', { name: 'Failed', exact: true }).click()
-    const rows = page.getByTestId('run-row')
+    const rows = page.getByTestId('run-row').filter({ hasText: FIXTURE_RUNS })
     await expect(rows).toHaveCount(2)
     const brief = rows.filter({ hasText: 'morning-brief' })
     await expect(brief).toHaveAttribute('data-status', 'error')
@@ -30,20 +38,27 @@ test.describe('activity', () => {
 
   test('log: filters narrow by kind, and a row opens its chat', async ({ page }) => {
     await page.getByRole('button', { name: 'Webhooks' }).click()
-    const rows = page.getByTestId('run-row')
-    await expect(rows).toHaveCount(1)
-    await expect(rows.first().getByText('fixture-hook')).toBeVisible()
-    await rows.first().getByRole('button', { name: /Activity steps/ }).click()
+    const rows = page.getByTestId('run-row').filter({ hasText: FIXTURE_RUNS })
+    // The hook's run and the publish approval — both webhooks, no cron.
+    await expect(rows).toHaveCount(2)
+    await expect(rows.filter({ hasText: 'morning-brief' })).toHaveCount(0)
+    const hook = rows.filter({ hasText: 'fixture-hook' })
+    await expect(hook).toHaveCount(1)
+    await hook.getByRole('button', { name: /Activity steps/ }).click()
     await expect(page).toHaveURL(/\/c\/00000000-0000-4000-8000-000000000002$/)
   })
 
   test('routines: crons and webhooks in one list, with a working switch', async ({ page }) => {
     await page.getByRole('tab', { name: 'Routines' }).click()
     const rows = page.getByTestId('routine-row')
-    await expect(rows).toHaveCount(3)
-    await expect(page.getByText('daily at 05:30')).toBeVisible()
-    await expect(page.getByText('when called')).toBeVisible()
-    await expect(page.getByTitle('Copy trigger URL')).toBeVisible()
+    // Each fixture routine exactly once, by exact name — other rows may exist.
+    for (const name of ['morning-brief', 'new-year-wish', 'reply-marta', 'fixture-hook', 'publish-post']) {
+      await expect(rows.filter({ has: page.getByText(name, { exact: true }) })).toHaveCount(1)
+    }
+    await expect(rows.filter({ hasText: 'morning-brief' }).getByText('daily at 05:30')).toBeVisible()
+    const hook = rows.filter({ hasText: 'fixture-hook' })
+    await expect(hook.getByText('when called')).toBeVisible()
+    await expect(hook.getByTitle('Copy trigger URL')).toBeVisible()
     const sw = page.getByRole('switch', { name: 'Enable morning-brief' })
     await expect(sw).toHaveAttribute('aria-checked', 'false')
     await sw.click()
@@ -73,6 +88,11 @@ test.describe('activity', () => {
     await expect(page.getByPlaceholder(/Name/)).toHaveValue('e2e-nightly')
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('cron-form')).toBeHidden()
+
+    // Leave the instance as found: the suite shares it with whoever uses next.
+    page.once('dialog', (d) => d.accept())
+    await row.getByTitle('Delete this cron').click()
+    await expect(row).toBeHidden()
   })
 
   test('the old /crons address still lands, form open', async ({ page }) => {
@@ -82,9 +102,11 @@ test.describe('activity', () => {
     await expect(page.getByPlaceholder(/Name/)).toHaveValue('morning-brief')
   })
 
-  test('sidebar: the entry shows a red dot when something failed today', async ({ page }) => {
-    // The yearly cron's run failed this morning and nothing is running: red dot, no accent dot.
-    await expect(page.getByTestId('activity-failed')).toHaveCount(1)
+  test('sidebar: the entry shows one dot, the most urgent — amber while something waits on you', async ({ page }) => {
+    // Two runs wait for an answer, the yearly cron's run failed this morning,
+    // nothing is running: amber wins over red, and there is never more than one.
+    await expect(page.getByTestId('activity-waiting')).toHaveCount(1)
+    await expect(page.getByTestId('activity-failed')).toHaveCount(0)
     await expect(page.getByTestId('activity-running')).toHaveCount(0)
   })
 })

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, Check, ChevronRight, Clock, Link2, Loader2, Settings2, Square } from 'lucide-react'
+import { AlertCircle, Check, ChevronRight, Clock, Link2, Loader2, MessageCircleQuestion, Settings2, Square } from 'lucide-react'
 import type { Message, Run } from '../api'
 import MessageBubble, { Markdown } from './MessageBubble'
 
@@ -30,7 +30,7 @@ export default function RunCard({
   lastMessageId?: string
 }) {
   const navigate = useNavigate()
-  const running = run?.status === 'running' || (live && !run)
+  const running = run?.status === 'running' || run?.status === 'needs_you' || (live && !run)
   // A run in progress is worth watching; once done the summary is the point
   // and the rest is a click away.
   const [open, setOpen] = useState<boolean | null>(null)
@@ -75,6 +75,10 @@ export default function RunCard({
       <div className='px-3 py-2.5'>
         {summary ? (
           <Markdown text={summary} className='text-[15px] leading-relaxed' />
+        ) : run?.status === 'needs_you' ? (
+          <div className='flex items-center gap-2 text-[13px] text-text-secondary'>
+            <MessageCircleQuestion size={12} className='text-warning' /> Waiting for your answer below.
+          </div>
         ) : running ? (
           <div className='flex items-center gap-2 text-[13px] text-text-secondary'>
             <Loader2 size={12} className='animate-spin text-accent' /> Working…
@@ -134,6 +138,8 @@ function StatusPill({ run, live }: { run?: Run; live: boolean }) {
   switch (run.status) {
     case 'running':
       return <span className={`${base} border-accent/30 text-accent`}><Loader2 size={10} className='animate-spin' /> running · {formatDuration(run.started_at, null)}</span>
+    case 'needs_you':
+      return <span className={`${base} border-warning/40 text-warning`}><MessageCircleQuestion size={10} /> waiting for you</span>
     case 'done':
       return <span className={`${base} border-success/40 text-success`}><Check size={10} /> done · {formatDuration(run.started_at, run.ended_at)}</span>
     case 'error':

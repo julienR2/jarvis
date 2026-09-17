@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Square, Paperclip, X, FileText } from 'lucide-react'
+import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion } from 'lucide-react'
 import AudioButton from './AudioButton'
-import { api, type Attachment } from '../api'
+import AnswerCard, { OptionList, hasOptions } from './AnswerCard'
+import { api, questionsOf, type Attachment, type PendingQuestion } from '../api'
 
 export interface PendingFile {
   file: File
@@ -18,12 +19,24 @@ interface Props {
   isProcessing: boolean
   conversationId?: string
   autoFocus?: boolean
+  /** Replaces the default prompt. */
+  placeholder?: string
+  /**
+   * The question Jarvis is waiting on, when there is one: drawn on top of the
+   * input, whose text then answers it (see ChatView.sendMessage). With options
+   * on offer the input dims until touched, so the buttons read as the first
+   * way to answer and typing as the other.
+   */
+  question?: PendingQuestion
+  /** Tighter chrome for embedding — e.g. a Today card. Drops outer padding,
+   *  the width cap and the disclaimer line. */
+  compact?: boolean
   initialText?: string
   initialFiles?: File[]
   onInitialFilesConsumed?: () => void
 }
 
-export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing, conversationId, autoFocus, initialText, initialFiles, onInitialFilesConsumed }: Props) {
+export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing, conversationId, autoFocus, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed }: Props) {
   const [input, setInput] = useState(initialText || '')
   const [audioActive, setAudioActive] = useState(false)
   const [files, setFiles] = useState<PendingFile[]>([])
@@ -170,6 +183,14 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
   const allUploaded = files.every(f => f.uploaded || f.error)
   const hasContent = !!input.trim() || files.some(f => f.uploaded)
 
+  // A question Jarvis asked (not a tool approval): its options are drawn on the
+  // input, and picking one sets the input's value — the input IS the answer,
+  // and the composer's own Send confirms it. While nothing is picked or typed
+  // the input dims, so the options read as the first way to answer.
+  const asksQuestion = !!question && questionsOf(question).length > 0
+  const dimInput = asksQuestion && hasOptions(question!) && !input.trim() && !hasFiles && !audioActive
+  const effectivePlaceholder =
+    placeholder ?? (asksQuestion ? (hasOptions(question!) ? 'Or type your own answer…' : 'Your answer…') : 'How can I help you today?')
   // Mic shows when no text typed, OR when files are attached (even with text).
   // Send stays available while Claude works: the message is steered into the
   // running turn (Stop shows to its left in that case).
@@ -179,13 +200,36 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
 
   return (
     <div
-      className="px-4 md:px-6 pb-4 pt-2"
+      className={compact ? '' : 'px-4 md:px-6 pb-4 pt-2'}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={() => setDragOver(false)}
     >
-      <div className="max-w-3xl mx-auto">
-        <div className={`bg-surface border rounded-2xl shadow-sm transition-colors ${dragOver ? 'border-accent bg-accent/5' : 'border-border focus-within:border-text-muted'}`}>
+      <div className={compact ? '' : 'max-w-3xl mx-auto'}>
+        <div className={`bg-surface border rounded-2xl shadow-sm transition-colors ${dragOver ? 'border-accent bg-accent/5' : question ? 'border-warning/50 focus-within:border-warning' : 'border-border focus-within:border-text-muted'}`}>
+          {asksQuestion && question && (
+            <div className='border-b border-warning/30 bg-warning/5 px-4 py-2.5 rounded-t-2xl animate-fade-in' data-testid='answer-card' data-request-id={question.request_id}>
+              <div className='mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-warning/80'>
+                <MessageCircleQuestion size={11} /> Jarvis asks
+              </div>
+              <OptionList
+                questions={questionsOf(question)}
+                selectedOf={() => (input.trim() ? [input.trim()] : [])}
+                onPick={(_q, label) => {
+                  // Setting it as the input value is the whole trick: pick and
+                  // type are the same field, so Send, dictation and attach all
+                  // work unchanged. Tapping the chosen one again clears it.
+                  setInput(input.trim() === label ? '' : label)
+                  setTimeout(() => textareaRef.current?.focus(), 0)
+                }}
+                disabled={audioActive}
+              />
+            </div>
+          )}
+          {question && !asksQuestion && conversationId && (
+            <AnswerCard conversationId={conversationId} question={question} variant='strip' />
+          )}
+          <div className={dimInput ? 'opacity-50 transition-opacity hover:opacity-100 focus-within:opacity-100' : 'transition-opacity'}>
           {/* File previews */}
           {hasFiles && (
             <div className="flex flex-wrap gap-2 px-4 pt-3">
@@ -234,7 +278,7 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
               onInput={handleInput}
               onPaste={handlePaste}
               onFocus={() => setTimeout(() => textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
-              placeholder="How can I help you today?"
+              placeholder={effectivePlaceholder}
               disabled={audioActive}
               rows={1}
               className="w-full resize-none max-h-[200px] overflow-y-auto bg-transparent text-text-primary placeholder:text-text-muted text-sm leading-relaxed focus:outline-none disabled:opacity-50"
@@ -295,18 +339,21 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
               {showSend && (
                 <button
                   onClick={handleSend}
-                  className="p-2 rounded-xl bg-accent text-white disabled:opacity-30 hover:bg-accent-hover transition-colors"
-                  title="Send"
+                  className={`p-2 rounded-xl text-white disabled:opacity-30 transition-colors ${asksQuestion ? 'bg-warning hover:opacity-90' : 'bg-accent hover:bg-accent-hover'}`}
+                  title={asksQuestion ? 'Answer' : 'Send'}
                 >
                   <Send size={16} />
                 </button>
               )}
             </div>
           </div>
+          </div>
         </div>
-        <p className="text-center text-[11px] text-text-muted mt-2">
-          Jarvis can make mistakes. Double-check important info.
-        </p>
+        {!compact && (
+          <p className="text-center text-[11px] text-text-muted mt-2">
+            Jarvis can make mistakes. Double-check important info.
+          </p>
+        )}
       </div>
     </div>
   )

@@ -17,6 +17,7 @@ import {
   listSessions,
   sendUserMessage,
   interruptSession,
+  answerSession,
   recycleIdleSessions,
   type SessionEvent,
 } from './sessions.js'
@@ -506,6 +507,32 @@ app.post<{ Params: { conversationId: string } }>(
   },
 )
 
+// POST /answer/:conversationId — answer a parked prompt (question or
+// permission request) so the turn resumes. 404 when nothing by that request id
+// is waiting: the session ended, the prompt was withdrawn, or it was already
+// answered — in every case the caller should stop showing the card.
+app.post<{
+  Params: { conversationId: string }
+  Body: {
+    requestId: string
+    behavior: 'allow' | 'deny'
+    updatedInput?: Record<string, unknown>
+    message?: string
+  }
+}>('/answer/:conversationId', async (req, reply) => {
+  const { requestId, behavior, updatedInput, message } = req.body || ({} as any)
+  if (!requestId || (behavior !== 'allow' && behavior !== 'deny')) {
+    return reply.code(400).send({ error: 'requestId and behavior (allow|deny) are required' })
+  }
+  const answered = answerSession(
+    req.params.conversationId,
+    requestId,
+    behavior === 'allow' ? { behavior, updatedInput } : { behavior, message },
+  )
+  if (!answered) return reply.code(404).send({ error: 'no such pending prompt' })
+  return { ok: true }
+})
+
 // SSE for a persistent session. Unlike a legacy invocation stream — which ends
 // at the turn's done/error — a session stream spans turns and only ends when
 // the session itself closes (idle reap, eviction, process exit).
@@ -749,6 +776,16 @@ app.post<{
       finish({ ok: false, error: `Could not write to claude: ${err?.message ?? err}` })
     }
   })
+})
+
+// POST /restart — exit so the container's restart policy brings the process
+// back on the current source. What deploy.sh does to prod with a pkill from
+// inside; this is the same thing reachable over HTTP, for the `next` engine
+// (a separate container the agent cannot signal). Every live session ends.
+app.post('/restart', async () => {
+  console.warn('[engine] restart requested — exiting')
+  setTimeout(() => process.exit(0), 300).unref()
+  return { ok: true, restarting: true }
 })
 
 // POST /recycle — close idle sessions so the next turn spawns with fresh

@@ -337,7 +337,7 @@ export function initDb(): void {
       conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       run_key TEXT,
       inherit_context INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL CHECK(status IN ('running', 'done', 'error', 'stopped', 'interrupted')),
+      status TEXT NOT NULL CHECK(status IN ('running', 'needs_you', 'done', 'error', 'stopped', 'interrupted')),
       started_at INTEGER NOT NULL DEFAULT (unixepoch()),
       ended_at INTEGER,
       result TEXT,
@@ -345,8 +345,45 @@ export function initDb(): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_runs_conv ON runs(conversation_id, started_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_runs_running ON runs(status) WHERE status = 'running';
+    CREATE INDEX IF NOT EXISTS idx_runs_running ON runs(status) WHERE status IN ('running', 'needs_you');
   `)
+
+  // Migration: `needs_you` joined the run statuses. SQLite cannot alter a CHECK
+  // constraint in place, so a table created before it is rebuilt — same
+  // columns, copied across, indexes recreated. Detected from the stored DDL.
+  const runsDdl = (db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'runs'`).get() as { sql: string } | undefined)?.sql ?? ''
+  if (!runsDdl.includes('needs_you')) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE runs_v2 (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL CHECK(kind IN ('cron', 'webhook')),
+          source_id TEXT,
+          source_name TEXT NOT NULL,
+          conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+          run_key TEXT,
+          inherit_context INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL CHECK(status IN ('running', 'needs_you', 'done', 'error', 'stopped', 'interrupted')),
+          started_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          ended_at INTEGER,
+          result TEXT,
+          error TEXT
+        );
+        INSERT INTO runs_v2 (id, kind, source_id, source_name, conversation_id, run_key, inherit_context, status, started_at, ended_at, result, error)
+          SELECT id, kind, source_id, source_name, conversation_id, run_key, inherit_context, status, started_at, ended_at, result, error FROM runs;
+        DROP TABLE runs;
+        ALTER TABLE runs_v2 RENAME TO runs;
+        CREATE INDEX IF NOT EXISTS idx_runs_conv ON runs(conversation_id, started_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_runs_running ON runs(status) WHERE status IN ('running', 'needs_you');
+      `)
+    })()
+    console.log('[db] runs table rebuilt with the needs_you status')
+  }
+
+  // Migration: what a conversation is waiting on (see PendingQuestion).
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN pending_question TEXT DEFAULT NULL`)
+  } catch { /* already exists */ }
 
   // Connectors — one row per connector holding its definition AND its values.
   // Unified from the former three-way split (hardcoded catalog + custom_connectors

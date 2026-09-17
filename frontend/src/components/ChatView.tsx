@@ -8,6 +8,8 @@ import remarkGfm from 'remark-gfm'
 import { Clock, Link2, Earth, Loader2, ArrowUp, EyeOff } from 'lucide-react'
 import {
   api,
+  pendingQuestionOf,
+  questionsOf,
   type Message,
   type Attachment,
   type Conversation,
@@ -24,6 +26,7 @@ import { useIsDesktop } from '../hooks/useIsDesktop'
 import { ContentTitle } from './ContentLayout'
 import BackgroundRuns from './BackgroundRuns'
 import RunCard from './RunCard'
+import { answerFromComposer } from './AnswerCard'
 
 /** Shared so the jump button can find the divider without threading a ref
  *  through the day-grouping list. */
@@ -130,6 +133,11 @@ export default function ChatView({
 
   const title = conv?.title ?? ''
   const hasApp = !!conv?.app_path
+  // The turn is parked on this until it is answered — the card at the bottom.
+  const pending = useMemo(() => pendingQuestionOf(conv), [conv?.pending_question])
+  // While a question (not an approval) is open, the composer answers it: what
+  // is typed or dictated is the free-form option, files included.
+  const composerAnswers = !!pending && questionsOf(pending).length > 0
 
   // Share link for the conversation's app: a token scoped to this app alone,
   // rotatable, and carrying none of the account rights the session JWT does.
@@ -315,8 +323,14 @@ export default function ChatView({
   useEffect(() => () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current) }, [])
 
   function sendMessage(text: string, attachments: Attachment[] = []) {
-    if (!text.trim() && attachments.length === 0) return
     if (!conversationId) return
+
+    // An empty send is allowed here: it confirms the options picked in the strip.
+    if (composerAnswers && pending) {
+      void answerFromComposer(conversationId, pending, text.trim(), attachments)
+      return
+    }
+    if (!text.trim() && attachments.length === 0) return
 
     api
       .sendMessage(conversationId, text, attachments.length > 0 ? attachments : undefined)
@@ -327,6 +341,12 @@ export default function ChatView({
 
   async function sendAudio(audioBlob: Blob) {
     if (!conversationId) return
+    if (composerAnswers && pending) {
+      // Dictated answer: transcribe here, then answer with the words.
+      const { transcript } = await api.transcribeAudio(audioBlob)
+      if (transcript.trim()) await answerFromComposer(conversationId, pending, transcript.trim(), [])
+      return
+    }
     await api.sendAudio(conversationId, audioBlob)
   }
 
@@ -574,7 +594,9 @@ export default function ChatView({
                       ),
                     )}
                     <LiveTurn conversationId={conversationId} />
-                    <JarvisIndicator isThinking={isProcessing} />
+                    {/* Parked is not thinking: the loader rests while he waits on you.
+                        The question itself sits on the composer, below. */}
+                    <JarvisIndicator isThinking={isProcessing && !pending} />
                   </>
                 )}
                 <div ref={bottomRef} />
@@ -591,6 +613,7 @@ export default function ChatView({
             isProcessing={isProcessing}
             conversationId={conversationId}
             autoFocus={!showSkeleton && messages.length === 0}
+            question={!shared?.readOnly && pending ? pending : undefined}
             initialText={initialMessage || undefined}
             initialFiles={initialFiles || undefined}
             onInitialFilesConsumed={onInitialFilesConsumed}

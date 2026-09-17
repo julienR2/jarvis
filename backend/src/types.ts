@@ -16,8 +16,28 @@ export interface ConvRow {
   share_mode: 'read' | 'write' | null
   share_token: string | null
   app_token: string | null
+  /** JSON of a PendingQuestion while Jarvis waits on the person; else NULL. */
+  pending_question: string | null
   created_at: number
   updated_at: number
+}
+
+/**
+ * What a conversation is waiting on: a question Jarvis asked (AskUserQuestion,
+ * `input.questions`) or a tool call its permission rules escalated (any other
+ * tool_name, `input` = the call's arguments). One at a time per conversation;
+ * the engine queues the rest.
+ */
+export interface PendingQuestion {
+  request_id: string
+  tool_name: string
+  tool_use_id: string | null
+  input: Record<string, unknown>
+  /** Engine session key to answer on: the run's own key, or the conversation id. */
+  session_key: string
+  /** The run whose turn is parked, when a cron/webhook asked. */
+  run_id: string | null
+  asked_at: number
 }
 
 export interface SectionRow {
@@ -77,8 +97,15 @@ export interface WebhookRow {
 
 export type RunKind = 'cron' | 'webhook'
 
-/** Terminal states a run can reach. `interrupted` = lost, not cancelled. */
-export type RunStatus = 'running' | 'done' | 'error' | 'stopped' | 'interrupted'
+/**
+ * `running` and `needs_you` are the live states — the latter is a turn parked on
+ * a question or approval, still stoppable, back to `running` once answered.
+ * The rest are terminal; `interrupted` = lost, not cancelled.
+ */
+export type RunStatus = 'running' | 'needs_you' | 'done' | 'error' | 'stopped' | 'interrupted'
+
+/** The states in which a run is still going and can be stopped. */
+export const ACTIVE_RUN_STATUSES: RunStatus[] = ['running', 'needs_you']
 
 export interface RunRow {
   id: string

@@ -5,6 +5,7 @@ import {
   type Conversation,
   type ConversationWithMessages,
   type Message,
+  type PendingQuestion,
   type Run,
   type Section,
 } from '../api'
@@ -96,6 +97,8 @@ interface ChatState {
    */
   touchConversation: (convId: string) => void
   setTitleFromEvent: (convId: string, title: string) => void
+  /** What the conversation waits on changed (SSE `question`, or our own answer). */
+  setPendingQuestion: (convId: string, question: PendingQuestion | null) => void
   setContextUsage: (convId: string, tokens: number, windowTokens: number | null) => void
   setActiveRuns: (convId: string, runs: Run[]) => void
   loadRuns: (convId: string) => Promise<void>
@@ -492,6 +495,13 @@ export const useChatStore = create<ChatState>()(
         // A turn that just ended leaves no live state behind — covers the
         // interrupt and stream-died paths, which emit no final message.
         if (!value) delete s.streaming[convId]
+      })
+    },
+
+    setPendingQuestion(convId, question) {
+      set((s) => {
+        const c = s.conversations[convId]
+        if (c) c.pending_question = question ? JSON.stringify(question) : null
       })
     },
 

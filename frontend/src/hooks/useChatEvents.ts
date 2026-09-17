@@ -48,6 +48,9 @@ export function useChatEvents(conversationId: string | undefined): {
         case 'runs':
           s.setActiveRuns(cid, ev.runs)
           break
+        case 'question':
+          s.setPendingQuestion(cid, ev.question)
+          break
         case 'usage':
           s.setContextUsage(cid, ev.contextTokens, ev.contextWindow)
           break

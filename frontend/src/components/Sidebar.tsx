@@ -618,14 +618,16 @@ function NavItem({
 }
 
 /**
- * The way into Activity, carrying its two signals: something is running now
- * (accent, pulsing), something failed today (red). Read from the shared recent
- * runs feed, which moves with the log.
+ * The way into Activity, carrying its signals in order of urgency: something
+ * waits on you (amber), something is running now (accent, pulsing), something
+ * failed today (red). Read from the shared recent runs feed, which moves with
+ * the log.
  */
 function ActivityEntry({ active, onClick }: { active: boolean; onClick: () => void }) {
   const { runs } = useRecentRuns()
   const startOfDay = startOfToday()
-  const running = !!runs?.some((r) => r.status === 'running')
+  const waiting = !!runs?.some((r) => r.status === 'needs_you')
+  const running = !waiting && !!runs?.some((r) => r.status === 'running')
   const failedToday = !!runs?.some((r) => r.status === 'error' && r.started_at >= startOfDay)
 
   return (
@@ -635,10 +637,13 @@ function ActivityEntry({ active, onClick }: { active: boolean; onClick: () => vo
     >
       <Activity size={16} />
       <span>Activity</span>
+      {waiting && (
+        <span className='ml-auto h-2 w-2 rounded-full bg-warning' title='Jarvis is waiting for you' data-testid='activity-waiting' />
+      )}
       {running && (
         <span className='ml-auto h-2 w-2 rounded-full bg-accent animate-pulse' title='Something is running' data-testid='activity-running' />
       )}
-      {!running && failedToday && (
+      {!waiting && !running && failedToday && (
         <span className='ml-auto h-2 w-2 rounded-full bg-danger' title='Something failed today' data-testid='activity-failed' />
       )}
     </button>

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Clock, Link2, MessageSquare, RotateCcw, Settings2, Sparkles, Square } from 'lucide-react'
+import { Clock, Link2, MessageCircleQuestion, MessageSquare, RotateCcw, Settings2, Sparkles, Square } from 'lucide-react'
 import ChatInput from '../components/ChatInput'
 import StatusPill from '../components/StatusPill'
+import NeedsYouCard from '../components/NeedsYouCard'
 import { SidebarToggle } from '../components/ContentLayout'
-import { api, type Attachment, type RunListItem, type UpcomingCron } from '../api'
+import { api, pendingQuestionOf, type Attachment, type RunListItem, type UpcomingCron } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { firstLine, formatTime, reloadRecentRuns, startOfToday, upcomingLabel, useRecentRuns, useRunsNudge } from '../lib/runs'
 
@@ -34,7 +35,18 @@ export default function TodayPage() {
   useRunsNudge(loadUpcoming)
   const load = () => Promise.all([reloadRecentRuns(), loadUpcoming()])
 
-  const { needsYou, running, doneToday } = useMemo(() => partition(runs ?? []), [runs])
+  const { waiting, needsYou, running, doneToday } = useMemo(() => partition(runs ?? []), [runs])
+
+  // Questions asked in an ordinary chat have no run behind them (they are not a
+  // cron or webhook), so the runs feed never carries them. Read them straight
+  // off the conversations: whatever is waiting on you, with no run of its own.
+  const interactiveWaiting = useMemo(
+    () => Object.values(conversations).filter((c) => {
+      const q = pendingQuestionOf(c)
+      return !!q && !q.run_id
+    }),
+    [conversations],
+  )
 
   // A running row shows its elapsed time; keep it moving without a refetch.
   const [, setTick] = useState(0)
@@ -127,32 +139,50 @@ export default function TodayPage() {
             </div>
           )}
 
-          {needsYou.length > 0 && (
-            <Section title='Needs you' count={needsYou.length} testId='today-needs'>
-              {needsYou.map(({ run, attempts }) => (
-                <Row
-                  key={run.id}
-                  run={run}
-                  summary={run.error}
-                  tone='danger'
-                  meta={[formatTime(run.started_at), attempts > 1 ? `${attempts} attempts` : null]}
-                  chat={convTitle(run.conversation_id)}
-                  onChat={() => open(run.conversation_id)}
-                  actions={
-                    <>
-                      <ActionButton onClick={() => open(run.conversation_id)}>{openLabel(run.conversation_id)}</ActionButton>
-                      {run.kind === 'cron' && run.source_id && (
-                        <ActionButton primary disabled={!!busy[run.id]} onClick={() => act(run, 'retry')} title='Fire this cron again'>
-                          <RotateCcw size={11} /> Retry
-                        </ActionButton>
-                      )}
-                    </>
-                  }
-                />
-              ))}
-            </Section>
+          {(interactiveWaiting.length > 0 || waiting.length > 0 || needsYou.length > 0) && (
+            <section className='mt-5' data-testid='today-needs'>
+              <h2 className='mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted'>
+                Needs you<span className='font-normal'> · {interactiveWaiting.length + waiting.length + needsYou.length}</span>
+              </h2>
+              <div className='flex flex-col gap-3'>
+                {/* Questions first — a decision to make, each its own little chat. */}
+                {interactiveWaiting.map((conv) => (
+                  <NeedsYouCard key={conv.id} conversation={conv} onOpen={() => open(conv.id)} />
+                ))}
+                {waiting.map((run) => {
+                  const conv = conversations[run.conversation_id]
+                  if (!conv) return null
+                  return <NeedsYouCard key={run.id} conversation={conv} run={run} onOpen={() => open(run.conversation_id)} />
+                })}
+                {/* Then failures that need a fix — grouped, since they read as a list. */}
+                {needsYou.length > 0 && (
+                  <div className='rounded-xl border border-border bg-surface divide-y divide-border'>
+                    {needsYou.map(({ run, attempts }) => (
+                      <Row
+                        key={run.id}
+                        run={run}
+                        summary={run.error}
+                        tone='danger'
+                        meta={[formatTime(run.started_at), attempts > 1 ? `${attempts} attempts` : null]}
+                        chat={convTitle(run.conversation_id)}
+                        onChat={() => open(run.conversation_id)}
+                        actions={
+                          <>
+                            <ActionButton onClick={() => open(run.conversation_id)}>{openLabel(run.conversation_id)}</ActionButton>
+                            {run.kind === 'cron' && run.source_id && (
+                              <ActionButton primary disabled={!!busy[run.id]} onClick={() => act(run, 'retry')} title='Fire this cron again'>
+                                <RotateCcw size={11} /> Retry
+                              </ActionButton>
+                            )}
+                          </>
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
           )}
-
           {running.length > 0 && (
             <Section title='Happening now' testId='today-now'>
               {running.map((run) => (
@@ -249,8 +279,9 @@ const UPCOMING_SHOWN = 8
  */
 function partition(runs: RunListItem[]) {
   const dayStart = startOfToday()
+  const waiting = runs.filter((r) => r.status === 'needs_you')
   const running = runs.filter((r) => r.status === 'running')
-  const doneToday = runs.filter((r) => r.status !== 'running' && r.status !== 'error' && r.started_at >= dayStart)
+  const doneToday = runs.filter((r) => r.status !== 'running' && r.status !== 'needs_you' && r.status !== 'error' && r.started_at >= dayStart)
 
   const needsYou: { run: RunListItem; attempts: number }[] = []
   const seen = new Set<string>()
@@ -264,7 +295,7 @@ function partition(runs: RunListItem[]) {
     const attempts = runs.filter((r) => r.status === 'error' && (r.source_id ?? r.id) === key).length
     needsYou.push({ run, attempts })
   }
-  return { needsYou, running, doneToday }
+  return { waiting, needsYou, running, doneToday }
 }
 
 function Section({ title, count, testId, children }: { title: string; count?: number; testId: string; children: React.ReactNode }) {

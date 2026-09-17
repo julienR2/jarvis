@@ -15,7 +15,10 @@
 import { getDb, uuid } from './db.js'
 import { emitConversationEvent , emitGlobalEvent } from './sse.js'
 import { interruptConversation } from './engine.js'
-import type { RunRow, RunKind, RunStatus } from './types.js'
+import { ACTIVE_RUN_STATUSES, type RunRow, type RunKind, type RunStatus } from './types.js'
+
+const ACTIVE_SQL = `(${ACTIVE_RUN_STATUSES.map((s) => `'${s}'`).join(', ')})`
+const isActive = (status: RunStatus) => ACTIVE_RUN_STATUSES.includes(status)
 
 const RUNS_PAGE_SIZE = 50
 
@@ -82,17 +85,33 @@ export function startRun(opts: {
  */
 export function finishRun(
   id: string,
-  status: Exclude<RunStatus, 'running'>,
+  status: Exclude<RunStatus, 'running' | 'needs_you'>,
   detail?: { result?: string; error?: string },
 ): void {
   const run = getRun(id)
-  if (!run || run.status !== 'running') return
+  if (!run || !isActive(run.status)) return
   getDb()
     .prepare(
       `UPDATE runs SET status = ?, ended_at = unixepoch(), result = ?, error = ?
-        WHERE id = ? AND status = 'running'`,
+        WHERE id = ? AND status IN ${ACTIVE_SQL}`,
     )
     .run(status, detail?.result ?? null, detail?.error ?? null, id)
+  emitRuns(run.conversation_id)
+}
+
+/**
+ * The run's turn is parked on a question or approval — or, with `false`, the
+ * answer came and it is working again. Only moves between the two live states;
+ * a run that finished meanwhile is left alone.
+ */
+export function setRunWaiting(id: string, waiting: boolean): void {
+  const run = getRun(id)
+  if (!run || !isActive(run.status)) return
+  const status: RunStatus = waiting ? 'needs_you' : 'running'
+  if (run.status === status) return
+  getDb()
+    .prepare(`UPDATE runs SET status = ? WHERE id = ? AND status IN ${ACTIVE_SQL}`)
+    .run(status, id)
   emitRuns(run.conversation_id)
 }
 
@@ -101,7 +120,7 @@ export function activeRuns(conversationId: string): RunRow[] {
   return getDb()
     .prepare(
       `SELECT * FROM runs
-        WHERE conversation_id = ? AND status = 'running'
+        WHERE conversation_id = ? AND status IN ${ACTIVE_SQL}
         ORDER BY started_at ASC`,
     )
     .all(conversationId) as RunRow[]
@@ -179,7 +198,7 @@ export function listRuns(opts: {
  */
 export async function stopRun(id: string): Promise<boolean> {
   const run = getRun(id)
-  if (!run || run.status !== 'running') return false
+  if (!run || !isActive(run.status)) return false
   finishRun(id, 'stopped')
   await interruptConversation(runSessionKey(run))
   return true
@@ -200,6 +219,9 @@ export async function stopRunsFor(conversationId: string): Promise<number> {
  * behind it and would otherwise show a Stop button forever.
  */
 export function reconcileStaleRuns(): void {
+  // `needs_you` rows are left alone: the engine keeps a parked turn alive
+  // indefinitely, and a re-attach replays its question. One whose session is
+  // truly gone is closed by the first answer to it (see questions.ts).
   const stale = getDb()
     .prepare(`SELECT * FROM runs WHERE status = 'running'`)
     .all() as RunRow[]
@@ -228,6 +250,6 @@ export function runStatus(id: string): RunStatus | undefined {
 /** The run behind an engine session key, for the restart-reconnect path. */
 export function runByKey(runKey: string): RunRow | undefined {
   return getDb()
-    .prepare(`SELECT * FROM runs WHERE run_key = ? AND status = 'running'`)
+    .prepare(`SELECT * FROM runs WHERE run_key = ? AND status IN ${ACTIVE_SQL}`)
     .get(runKey) as RunRow | undefined
 }

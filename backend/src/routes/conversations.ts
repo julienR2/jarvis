@@ -13,7 +13,15 @@ import {
   streamConversation,
   interruptConversation,
   isRunning,
+  answerPrompt,
 } from '../engine.js'
+import {
+  getPendingQuestion,
+  setPendingQuestion,
+  dropPendingQuestion,
+  describePending,
+  questionsOf,
+} from '../questions.js'
 import { generateTitle } from '../titles.js'
 import { resolveModel } from '../models.js'
 import { modelKind } from '../catalogue.js'
@@ -26,7 +34,7 @@ import {
 } from '../sse.js'
 import { config } from '../config.js'
 import { getConnectorValues } from '../connectors.js'
-import type { ConvRow, MessageRow, EffortLevel } from '../types.js'
+import type { ConvRow, MessageRow, EffortLevel, PendingQuestion } from '../types.js'
 import { userForApiKey } from '../api-keys.js'
 
 export interface Attachment {
@@ -175,6 +183,22 @@ class TranscriptionError extends Error {
 }
 
 /** Insert an assistant-side error message and push it to any connected clients. */
+/**
+ * The block that tells Claude where attached files landed, appended to the
+ * text it goes with. Shared by a normal message and an answer to a question.
+ */
+function attachmentRefs(attachments: Attachment[]): string {
+  if (attachments.length === 0) return ''
+  const fileRefs = attachments
+    .map((a) => {
+      const isImage = a.mimetype.startsWith('image/')
+      return `- ${a.originalName} (${a.mimetype}): ${a.path}${isImage ? ' [use Read tool to view this image]' : ''}`
+    })
+    .join('\n')
+  const prefix = attachments.length === 1 ? 'Attached file' : 'Attached files'
+  return `\n\n[${prefix}:\n${fileRefs}\n]`
+}
+
 function emitConversationError(conversationId: string, content: string) {
   const errorMsgId = uuid()
   getDb()
@@ -239,14 +263,7 @@ export function processMessage(
 
   // Append attachment references for Claude
   if (attachments.length > 0 && !isCommand) {
-    const fileRefs = attachments
-      .map((a) => {
-        const isImage = a.mimetype.startsWith('image/')
-        return `- ${a.originalName} (${a.mimetype}): ${a.path}${isImage ? ' [use Read tool to view this image]' : ''}`
-      })
-      .join('\n')
-    const prefix = attachments.length === 1 ? 'Attached file' : 'Attached files'
-    claudePrompt = `${claudePrompt}\n\n[${prefix}:\n${fileRefs}\n]`
+    claudePrompt = `${claudePrompt}${attachmentRefs(attachments)}`
   }
 
   // Save user message (unless skipped, e.g. for crons)
@@ -444,6 +461,10 @@ const attachedConversations = new Map<
     // The `runs` rows this stream is serving. Usually zero (a human turn) or
     // one; more when several inherited runs were steered into the same turn.
     runIds: Set<string>
+    // Prompts the engine raised that are not yet the conversation's pending
+    // question — the model asked several things in one message. Shown one at
+    // a time, in order, as each is answered.
+    askQueue: PendingQuestion[]
   }
 >()
 
@@ -508,6 +529,7 @@ export function attachConversationStream(
     onDoneQueue: options?.onDone ? [options.onDone] : [],
     steerPending: false,
     runIds: new Set<string>(options?.runId ? [options.runId] : []),
+    askQueue: [] as PendingQuestion[],
   }
   attachedConversations.set(streamKey, attached)
 
@@ -538,6 +560,32 @@ export function attachConversationStream(
   ) => {
     for (const id of attached.runIds) finishRun(id, status, detail)
     attached.runIds.clear()
+  }
+
+  /**
+   * A turn ended one way or another: nothing it was waiting on can be answered
+   * any more. Clears the card (and the queue behind it) if this stream owned it.
+   */
+  const closeQuestions = () => {
+    attached.askQueue.length = 0
+    const current = getPendingQuestion(conversationId)
+    if (current && current.session_key === streamKey) setPendingQuestion(conversationId, null)
+  }
+
+  /** Make `q` the conversation's pending question and say so everywhere. */
+  const raiseQuestion = (q: PendingQuestion) => {
+    setPendingQuestion(conversationId, q)
+    const summary = describePending(q)
+    // The pause is part of the record: the transcript keeps a line saying what
+    // was asked, and the answer lands under it as the person's message.
+    appendLine('note', `Waiting for you: ${summary}`)
+    // A question with nobody looking is the one case where a push is always
+    // worth it — short of the person having asked never to be told.
+    if (conv.notify !== 'unsubscribe') {
+      sendPushToAll(`${conv.title} · needs you`, summary.slice(0, 200), `/c/${conversationId}`).catch(
+        (err) => console.error('[push] sendPushToAll failed:', err),
+      )
+    }
   }
 
   // Per-turn assembly state — one assistant message, progressively updated,
@@ -687,6 +735,42 @@ export function attachConversationStream(
         appendLine('chunk', ev.text.trim(), ev.group)
       }
 
+      if (ev.type === 'ask') {
+        const ids = [...attached.runIds]
+        const q: PendingQuestion = {
+          request_id: ev.requestId,
+          tool_name: ev.toolName,
+          tool_use_id: ev.toolUseId,
+          input: ev.input,
+          session_key: streamKey,
+          run_id: ids.length ? ids[ids.length - 1] : null,
+          asked_at: Math.floor(Date.now() / 1000),
+        }
+        const current = getPendingQuestion(conversationId)
+        if (current && current.request_id === q.request_id) {
+          // Replayed after a re-attach: already on record.
+        } else if (current && current.session_key === streamKey) {
+          console.log(`[msg] a question is already open — queueing ${q.tool_name} (${q.request_id})`)
+          attached.askQueue.push(q)
+        } else {
+          console.log(`[msg] waiting for you: ${q.tool_name} (${q.request_id})`)
+          raiseQuestion(q)
+        }
+      }
+
+      if (ev.type === 'ask_done') {
+        attached.askQueue = attached.askQueue.filter((q) => q.request_id !== ev.requestId)
+        const current = getPendingQuestion(conversationId)
+        if (current && current.request_id === ev.requestId) {
+          const next = attached.askQueue.shift()
+          if (next) raiseQuestion(next)
+          else setPendingQuestion(conversationId, null)
+          // The answer itself was written to the transcript by answerQuestion,
+          // which is the only path that resolves a prompt as `answered`.
+          if (ev.outcome === 'withdrawn') appendLine('note', 'The question was withdrawn.')
+        }
+      }
+
       if (ev.type === 'usage') {
         // The window is stored as sent, nulls included. Carrying the previous
         // value over would be wrong, not merely stale: the engine only reports
@@ -775,6 +859,7 @@ export function attachConversationStream(
         // A soft interrupt resolves as a normal done — clear the suppression
         // flag so it doesn't swallow a genuine error later in the session.
         cancelledConversations.delete(conversationId)
+        closeQuestions()
         if (!ev.pending) closeRuns('done', { result: resultText })
         for (const cb of attached.onDoneQueue.splice(0)) cb(resultText)
         // Reset the per-turn state: the stream stays attached and the next
@@ -844,6 +929,7 @@ export function attachConversationStream(
         // Close out the turn either way — a new one may follow on this stream.
         msgId = null
         lines = []
+        closeQuestions()
 
         // Skip error message if this was a user-initiated cancellation.
         // stopRun already marked its own run `stopped`, and finishRun won't
@@ -910,12 +996,111 @@ export function attachConversationStream(
     // the safety net that turns it off.
     dropLive()
     attachedConversations.delete(streamKey)
+    closeQuestions()
     // The session is gone, so nothing will ever report on these runs again.
     // Anything still open here died with it — say so rather than leave a Stop
     // button wired to a session that no longer exists.
     closeRuns('interrupted', { error: 'The engine session ended mid-run' })
     emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
   })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// answerQuestion — the person decides, the turn resumes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AnswerBody {
+  request_id: string
+  /** AskUserQuestion: answer per question, keyed by the question text. */
+  answers?: Record<string, string>
+  /** Any other tool: approve or deny the call. */
+  behavior?: 'allow' | 'deny'
+  /** Free text — a reason for a denial, or an answer typed instead of picked. */
+  message?: string
+  /** Files sent with a typed answer, already uploaded — referenced for Claude like a message's. */
+  attachments?: Attachment[]
+}
+
+/**
+ * Answer the conversation's pending question. The answer goes to the engine as
+ * the control response the CLI is waiting for, and into the transcript as the
+ * person's message — so the record reads question, answer, what happened next.
+ *
+ * `answered: false` with a reason when the engine has nothing to answer any
+ * more (its session died, or the prompt was withdrawn); the pending state is
+ * dropped and the run closed as lost, since nobody will consume the answer.
+ */
+export async function answerQuestion(
+  conversationId: string,
+  body: AnswerBody,
+): Promise<{ answered: boolean; error?: string }> {
+  const q = getPendingQuestion(conversationId)
+  if (!q) return { answered: false, error: 'Nothing is waiting for an answer.' }
+  if (q.request_id !== body.request_id) {
+    return { answered: false, error: 'That question is no longer the one being asked.' }
+  }
+
+  const questions = questionsOf(q)
+  let answer: Parameters<typeof answerPrompt>[2]
+  let said: string
+  if (questions.length) {
+    const answers: Record<string, string> = { ...(body.answers ?? {}) }
+    // A typed answer to a single question needs no key from the client.
+    if (questions.length === 1 && Object.keys(answers).length === 0 && body.message?.trim()) {
+      answers[questions[0].question ?? ''] = body.message.trim()
+    }
+    if (Object.keys(answers).length === 0) return { answered: false, error: 'No answer given.' }
+    said = questions.length === 1
+      ? Object.values(answers)[0]
+      : questions.map((x) => `${x.header || x.question}: ${answers[x.question ?? ''] ?? '—'}`).join('\n')
+    // Files ride along on the last answered question's text, where the model
+    // reads them next to the words they came with.
+    const refs = attachmentRefs(body.attachments ?? [])
+    if (refs) {
+      const last = questions[questions.length - 1].question ?? ''
+      answers[last] = `${answers[last] ?? ''}${refs}`
+    }
+    answer = { behavior: 'allow', updatedInput: { ...q.input, answers } }
+  } else if (body.behavior === 'allow') {
+    answer = { behavior: 'allow' }
+    said = 'Approved.'
+  } else if (body.behavior === 'deny') {
+    answer = { behavior: 'deny', message: body.message?.trim() || undefined }
+    said = body.message?.trim() ? `Denied: ${body.message.trim()}` : 'Denied.'
+  } else {
+    return { answered: false, error: 'Approve or deny it.' }
+  }
+
+  const res = await answerPrompt(q.session_key, q.request_id, answer)
+  if (!res.ok) {
+    if (res.gone) {
+      console.warn(`[msg] ${conversationId}: prompt ${q.request_id} is gone — dropping it`)
+      dropPendingQuestion(conversationId, q)
+      return { answered: false, error: 'Jarvis is no longer waiting for this — the run it belonged to is gone.' }
+    }
+    return { answered: false, error: res.error }
+  }
+
+  // The person's message, in the transcript where the question was asked.
+  // Stamped with the run like everything else the run wrote, so it stays inside
+  // its card. Not through processMessage: the answer went by the control
+  // channel, it must not also be sent as a new prompt.
+  const msgId = uuid()
+  const stamp = JSON.stringify({
+    ...(q.run_id ? { run_id: q.run_id, isolated: q.session_key !== conversationId } : {}),
+    answer_to: q.request_id,
+    ...(body.attachments?.length ? { attachments: body.attachments } : {}),
+  })
+  getDb()
+    .prepare('INSERT INTO messages (id, conversation_id, role, content, metadata) VALUES (?, ?, ?, ?, ?)')
+    .run(msgId, conversationId, 'user', said, stamp)
+  emitConversationEvent(conversationId, { type: 'message', message: getMessageRow(msgId) })
+  // What follows belongs below the answer, in a new assistant message.
+  markSteerPending(q.session_key)
+  // The engine's ask_done clears the pending state through the stream; doing it
+  // here too covers a stream that is not attached at the moment.
+  setPendingQuestion(conversationId, null)
+  return { answered: true }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1452,6 +1637,21 @@ export async function conversationRoutes(app: FastifyInstance) {
       return { id: userMsgId }
     },
   )
+
+  // ── Answer a question / approve a tool call ────────────────────────────────
+
+  // Owner only: a share link can talk to the chat, not decide on its behalf.
+  app.post<{ Params: { id: string } }>('/:id/answer', auth, async (req, reply) => {
+    const conv = getDb()
+      .prepare('SELECT id FROM conversations WHERE id = ?')
+      .get(req.params.id) as { id: string } | undefined
+    if (!conv) return reply.code(404).send({ error: 'Not found' })
+    const body = (req.body ?? {}) as Partial<AnswerBody>
+    if (typeof body.request_id !== 'string') {
+      return reply.code(400).send({ error: 'request_id is required' })
+    }
+    return answerQuestion(req.params.id, body as AnswerBody)
+  })
 
   // ── Cancel ─────────────────────────────────────────────────────────────────
 

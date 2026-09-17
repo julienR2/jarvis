@@ -11,6 +11,7 @@ import { processMessage, type Attachment } from './conversations.js'
 import { getAllConnectors, getConnector } from '../connectors.js'
 import { archiveAppDir } from '../app-archive.js'
 import { schedule, rescheduleAll } from '../crons.js'
+import { seedFixtures } from '../fixtures.js'
 import { emitConversationEvent } from '../sse.js'
 import { sendPushToAll } from '../push.js'
 import { config } from '../config.js'
@@ -94,6 +95,19 @@ export async function internalRoutes(app: FastifyInstance) {
     }
     const mode = scheduleRestart()
     return { ok: true, reset: true, restarting: true, mode }
+  })
+
+  // Put the fixtures back without touching anything else — what the e2e run
+  // does before it starts, so it can share the instance with a person using it.
+  // Only where fixtures are seeded at all (the `next` stack).
+  app.post('/fixtures', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    if (process.env.SEED_FIXTURES !== '1') {
+      return reply.code(403).send({ error: 'fixtures are not enabled on this instance' })
+    }
+    seedFixtures({ rearm: true })
+    rescheduleAll()
+    return { ok: true, rearmed: true }
   })
 
   app.post('/crons', async (req, reply) => {

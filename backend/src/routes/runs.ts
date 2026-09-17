@@ -4,7 +4,7 @@ import { listRuns, stopRun } from '../runs.js'
 import { fireCron } from '../crons.js'
 import type { CronRow, RunRow, RunStatus } from '../types.js'
 
-const RUN_STATUSES: RunStatus[] = ['running', 'done', 'error', 'stopped', 'interrupted']
+const RUN_STATUSES: RunStatus[] = ['running', 'needs_you', 'done', 'error', 'stopped', 'interrupted']
 
 /** `<started_at>:<seq>`, as the client got it from the last row of the previous page. */
 function parseCursor(raw?: string): { startedAt: number; seq: number } | undefined {

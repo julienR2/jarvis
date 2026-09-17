@@ -37,6 +37,16 @@ export type ClaudeEvent =
   // contextWindow is null when the engine doesn't know it — stored and shown
   // as-is, never backfilled from a previous model's value.
   | { type: 'usage'; contextTokens: number; contextWindow: number | null }
+  // The turn is parked on a question (AskUserQuestion) or a permission prompt
+  // until someone answers through answerPrompt(). Replayed on re-attach.
+  | {
+      type: 'ask'
+      requestId: string
+      toolName: string
+      toolUseId: string | null
+      input: Record<string, unknown>
+    }
+  | { type: 'ask_done'; requestId: string; outcome: 'answered' | 'withdrawn' }
 
 const ENGINE_URL = process.env.ENGINE_URL || 'http://engine:3010'
 
@@ -231,6 +241,37 @@ export async function interruptConversation(conversationId: string): Promise<voi
   })
 }
 
+// ── answerPrompt ─────────────────────────────────────────────────────────────
+
+export type PromptAnswer =
+  | { behavior: 'allow'; updatedInput?: Record<string, unknown> }
+  | { behavior: 'deny'; message?: string }
+
+/**
+ * Answer a parked prompt on `sessionKey` (a run's key or a conversation id).
+ * `gone` means the engine has nothing by that request id — the session died,
+ * the prompt was withdrawn, or it was answered already — and nothing will ever
+ * consume an answer: the caller should drop the pending state.
+ */
+export async function answerPrompt(
+  sessionKey: string,
+  requestId: string,
+  answer: PromptAnswer,
+): Promise<{ ok: true } | { ok: false; gone: boolean; error: string }> {
+  try {
+    const res = await fetch(`${ENGINE_URL}/answer/${sessionKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ requestId, ...answer }),
+    })
+    if (res.ok) return { ok: true }
+    const text = await res.text().catch(() => '')
+    return { ok: false, gone: res.status === 404, error: `engine /answer failed: ${res.status} ${text}` }
+  } catch (err: any) {
+    return { ok: false, gone: false, error: `could not reach engine: ${err?.message ?? err}` }
+  }
+}
+
 // ── isRunning / status ───────────────────────────────────────────────────────
 
 export async function isRunning(conversationId: string): Promise<boolean> {
@@ -326,17 +367,26 @@ export async function recycleSessions(): Promise<{ recycled: string[]; busy: str
 }
 
 export async function listBusyConversations(): Promise<string[]> {
+  return (await engineStatus())?.busy ?? []
+}
+
+/**
+ * The engine's view of what is alive: which session keys are mid-turn (a turn
+ * parked on a question counts). Null when the engine cannot be reached —
+ * distinct from "nothing is running".
+ */
+export async function engineStatus(): Promise<{ busy: string[] } | null> {
   try {
     const res = await fetch(`${ENGINE_URL}/status`, { headers: authHeader() })
-    if (!res.ok) return []
+    if (!res.ok) return null
     const data = (await res.json()) as {
       conversations?: Array<{ conversationId: string; busy: boolean }>
     }
-    return (data.conversations ?? [])
-      .filter((c) => c.busy)
-      .map((c) => c.conversationId)
+    return {
+      busy: (data.conversations ?? []).filter((c) => c.busy).map((c) => c.conversationId),
+    }
   } catch (err) {
-    console.error('[engine client] listBusyConversations failed:', err)
-    return []
+    console.error('[engine client] status failed:', err)
+    return null
   }
 }

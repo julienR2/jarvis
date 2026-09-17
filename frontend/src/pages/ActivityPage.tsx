@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Check, Clock, Copy, Link2, Loader2, MessageSquare, Plus, RotateCcw, Settings2, Square, Trash2, Zap,
+  Check, Clock, Copy, Link2, Loader2, MessageCircleQuestion, MessageSquare, Plus, RotateCcw, Settings2, Square, Trash2, Zap,
 } from 'lucide-react'
 import { CronForm, WebhookForm, Drawer } from '../components/RoutineForm'
 import ContentLayout from '../components/ContentLayout'
 import StatusPill from '../components/StatusPill'
-import { api, type Cron, type RunListItem, type Webhook } from '../api'
+import { api, describePending, pendingQuestionOf, type Cron, type RunListItem, type Webhook } from '../api'
 import { describeSchedule, firstLine, formatTime, groupByDay, relative, useRunsNudge } from '../lib/runs'
 import { useChatStore } from '../stores/chatStore'
 import { useShallow } from 'zustand/react/shallow'
@@ -83,7 +83,8 @@ function RunLog({ onOpenRoutine }: { onOpenRoutine: (id: string) => void }) {
   const query = useCallback(
     (before?: string) =>
       api.listRunsAll({
-        status: filter === 'running' ? ['running'] : filter === 'failed' ? ['error'] : undefined,
+        // A run parked on a question is still running, from where you sit.
+        status: filter === 'running' ? ['running', 'needs_you'] : filter === 'failed' ? ['error'] : undefined,
         kind: filter === 'cron' || filter === 'webhook' ? filter : undefined,
         sectionId: sectionId || undefined,
         before,
@@ -207,7 +208,12 @@ function RunRow({
   onSettings: () => void
 }) {
   const Icon = run.kind === 'webhook' ? Link2 : Clock
-  const summary = run.status === 'error' ? run.error : run.result
+  // A waiting run's one line is the question itself, read off its conversation.
+  // Select the stored string, not the parsed object: a fresh object per read
+  // would re-render this row without end.
+  const pendingRaw = useChatStore((s) => (run.status === 'needs_you' ? s.conversations[run.conversation_id]?.pending_question ?? null : null))
+  const pending = useMemo(() => pendingQuestionOf({ pending_question: pendingRaw }), [pendingRaw])
+  const summary = run.status === 'error' ? run.error : pending ? describePending(pending) : run.result
   return (
     <div className='flex items-start gap-3 px-3 py-2.5' data-testid='run-row' data-status={run.status}>
       <div className='mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-surface2 text-text-muted'>
@@ -219,7 +225,7 @@ function RunRow({
           <StatusPill run={run} />
         </div>
         {summary && (
-          <div className={`mt-0.5 text-[13px] leading-snug line-clamp-2 ${run.status === 'error' ? 'text-danger' : 'text-text-secondary'}`}>
+          <div className={`mt-0.5 text-[13px] leading-snug line-clamp-2 ${run.status === 'error' ? 'text-danger' : run.status === 'needs_you' ? 'text-text-primary' : 'text-text-secondary'}`}>
             {firstLine(summary)}
           </div>
         )}
@@ -236,7 +242,12 @@ function RunRow({
         </div>
       </div>
       <div className='flex shrink-0 items-center gap-1'>
-        {run.status === 'running' && (
+        {run.status === 'needs_you' && (
+          <button onClick={onOpen} title='Answer in the chat' className='flex items-center gap-1 rounded-md border border-warning/50 px-2 py-1 text-[11px] font-medium text-warning hover:bg-warning/10'>
+            <MessageCircleQuestion size={10} /> Answer
+          </button>
+        )}
+        {(run.status === 'running' || run.status === 'needs_you') && (
           <button onClick={onStop} disabled={busy} title='Stop this run' className='flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-text-muted hover:bg-surface2 hover:text-danger disabled:opacity-40'>
             <Square size={10} fill='currentColor' /> Stop
           </button>

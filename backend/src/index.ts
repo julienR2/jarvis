@@ -38,7 +38,7 @@ import { startCronScheduler } from './crons.js'
 import { startFrontendWatch } from './frontend-watch.js'
 import { initPush } from './push.js'
 import { subscribeGlobal, addGlobalClient, removeGlobalClient } from './sse.js'
-import { listBusyConversations } from './engine.js'
+import { engineStatus } from './engine.js'
 import type { ConvRow } from './types.js'
 
 // ── Fastify type augmentation ────────────────────────────────────────────────
@@ -271,7 +271,7 @@ startFrontendWatch()
 
 async function reconnectActiveSessions(): Promise<void> {
   try {
-    const busy = await listBusyConversations()
+    const busy = (await engineStatus())?.busy ?? []
     if (busy.length === 0) return
 
     console.log(

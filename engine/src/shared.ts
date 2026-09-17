@@ -57,6 +57,19 @@ export type ClaudeEvent =
   // yet confirmed by a result event) — consumers should show no gauge rather
   // than fall back to a window learned for some earlier model.
   | { type: 'usage'; contextTokens: number; contextWindow: number | null }
+  // The CLI parked its turn on a question (AskUserQuestion) or a permission
+  // prompt and waits for the person. Replayed like tool/note events, so a
+  // backend re-attaching after a restart learns what is being waited on.
+  | {
+      type: 'ask'
+      requestId: string
+      toolName: string
+      toolUseId: string | null
+      input: Record<string, unknown>
+    }
+  // The prompt was answered (by the person, through the backend) or withdrawn
+  // (the CLI cancelled it — an interrupt, or the turn ended another way).
+  | { type: 'ask_done'; requestId: string; outcome: 'answered' | 'withdrawn' }
 
 export const WORKSPACE_DIR =
   process.env.WORKSPACE_DIR || '/jarvis/agent/workspace'

@@ -223,6 +223,9 @@ export const api = {
     return request<RunListItem[]>('GET', `/runs?${q}`)
   },
   retryRun: (runId: string) => request<{ ok: boolean }>('POST', `/runs/${runId}/retry`),
+  /** Answer the conversation's pending question or decide on its tool call. */
+  answerQuestion: (conversationId: string, body: AnswerBody) =>
+    request<{ answered: boolean; error?: string }>('POST', `/conversations/${conversationId}/answer`, body),
 
   // Fire-and-forget: the server transcribes and posts the message in the
   // background (survives the client navigating away), so there's nothing to
@@ -521,8 +524,76 @@ export interface Conversation {
   share_mode: 'read' | 'write' | null
   has_cron?: number
   has_webhook?: number
+  /** JSON of a PendingQuestion while Jarvis waits on you — see pendingQuestionOf. */
+  pending_question?: string | null
   created_at: number
   updated_at: number
+}
+
+/**
+ * What a conversation is waiting on: a question Jarvis asked (AskUserQuestion —
+ * `input.questions`) or a tool call awaiting approval (any other tool_name).
+ */
+export interface PendingQuestion {
+  request_id: string
+  tool_name: string
+  tool_use_id: string | null
+  input: Record<string, unknown>
+  session_key: string
+  run_id: string | null
+  asked_at: number
+}
+
+export interface AskOption {
+  label: string
+  description?: string
+}
+
+export interface AskQuestion {
+  question: string
+  header?: string
+  options: AskOption[]
+  multiSelect?: boolean
+}
+
+export function pendingQuestionOf(conv: Pick<Conversation, 'pending_question'> | undefined): PendingQuestion | null {
+  if (!conv?.pending_question) return null
+  try {
+    return JSON.parse(conv.pending_question) as PendingQuestion
+  } catch {
+    return null
+  }
+}
+
+/** The questions of an AskUserQuestion prompt; empty for a tool approval. */
+export function questionsOf(q: PendingQuestion): AskQuestion[] {
+  if (q.tool_name !== 'AskUserQuestion') return []
+  const list = (q.input as { questions?: unknown }).questions
+  return Array.isArray(list) ? (list as AskQuestion[]).filter((x) => x && typeof x.question === 'string') : []
+}
+
+/** One line saying what is being waited on — the row summary outside the chat. */
+export function describePending(q: PendingQuestion): string {
+  const questions = questionsOf(q)
+  if (questions.length) return questions.map((x) => x.question).join(' · ')
+  const input = q.input as Record<string, unknown>
+  const detail =
+    typeof input.description === 'string' ? input.description
+    : typeof input.command === 'string' ? input.command
+    : typeof input.file_path === 'string' ? input.file_path
+    : typeof input.url === 'string' ? input.url
+    : ''
+  const name = q.tool_name.replace(/^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/, '$1: $2').replace(/_/g, ' ')
+  return detail ? `Approve ${name}: ${detail}` : `Approve ${name}`
+}
+
+export interface AnswerBody {
+  request_id: string
+  answers?: Record<string, string>
+  behavior?: 'allow' | 'deny'
+  message?: string
+  /** Files sent with a typed answer, already uploaded. */
+  attachments?: Attachment[]
 }
 
 export interface Message {
@@ -563,7 +634,7 @@ export interface Run {
   error: string | null
 }
 
-export type RunStatus = 'running' | 'done' | 'error' | 'stopped' | 'interrupted'
+export type RunStatus = 'running' | 'needs_you' | 'done' | 'error' | 'stopped' | 'interrupted'
 
 /** A run as the Activity page lists it. */
 export interface RunListItem extends Run {
@@ -780,6 +851,9 @@ export type ChatEvent =
   // The conversation's in-flight cron/webhook runs, whole list on every change
   // (and once on connect). An empty array is meaningful: it clears the pill.
   | { type: 'runs'; runs: Run[] }
+  // What the conversation waits on changed: a question opened (payload) or
+  // closed (null).
+  | { type: 'question'; question: PendingQuestion | null }
   | { type: 'app_updated' }
   | { type: 'usage'; contextTokens: number; contextWindow: number | null }
   // Live-only, never persisted: answer text as it is written (append). Dropped
@@ -795,6 +869,9 @@ export type GlobalEvent =
   // A run started or ended somewhere. A nudge, not a payload: whoever shows
   // runs outside a conversation refetches.
   | { type: 'runs'; conversation_id: string }
+  // A conversation started or stopped waiting on you. Carries the payload so
+  // the loaded list can be patched in place.
+  | { type: 'question'; conversation_id: string; question: PendingQuestion | null }
 
 // ── Global SSE connection ────────────────────────────────────────────────────
 

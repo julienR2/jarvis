@@ -41,6 +41,15 @@ export function useGlobalEvents() {
         window.dispatchEvent(new CustomEvent(RUNS_NUDGE_EVENT))
         return
       }
+      if (ev.type === 'question') {
+        // Today's card and the sidebar read the question off the loaded list;
+        // patch it in place. A conversation not loaded yet is a new one — the
+        // full reload brings it in with the question already on it.
+        const s = useChatStore.getState()
+        if (s.conversations[ev.conversation_id]) s.setPendingQuestion(ev.conversation_id, ev.question)
+        else s.loadConversations()
+        return
+      }
       if (ev.type === 'new_message') {
         // "Viewing" is route *and* foreground. Route alone was wrong: leaving
         // the app mid-answer keeps the route pointed at the conversation, so

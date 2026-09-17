@@ -29,6 +29,20 @@ import {
 
 export type SessionEvent = ClaudeEvent | { type: 'end' }
 
+/**
+ * A prompt the CLI parked its turn on, waiting for the person: a question it
+ * asked on purpose (AskUserQuestion) or a tool call its permission rules would
+ * not decide alone. Answered through answerSession(); until then the turn is
+ * suspended and the session counts as busy.
+ */
+export interface PendingAsk {
+  requestId: string
+  toolName: string
+  toolUseId: string | null
+  input: Record<string, unknown>
+  askedAt: number
+}
+
 export interface Session {
   conversationId: string
   proc: ChildProcess
@@ -53,6 +67,12 @@ export interface Session {
   // Pass the live-streaming CLI flags on spawn. Cleared and retried once if the
   // CLI rejects them — see the unknown-option branch in the close handler.
   streamingFlags: boolean
+  // Route permission prompts to us (`--permission-prompt-tool stdio`) instead
+  // of auto-denying them. Same retry treatment as the streaming flags.
+  hostPrompts: boolean
+  // Prompts the CLI is waiting on, oldest first. Usually empty or one; several
+  // when the model called more than one gated tool in the same message.
+  pending: PendingAsk[]
   // One-shot sessions (title generation, isolated cron/webhook runs) close
   // stdin after the first result — or after the wake-up turn, when background
   // subagents were still running.
@@ -120,6 +140,7 @@ export function listSessions(): Array<{
   startedAt: number
   lastActivityAt: number
   model?: string
+  pending: PendingAsk[]
 }> {
   return [...sessions.values()].map((s) => ({
     conversationId: s.conversationId,
@@ -127,6 +148,7 @@ export function listSessions(): Array<{
     startedAt: s.startedAt,
     lastActivityAt: s.lastActivityAt,
     model: s.model,
+    pending: s.pending,
   }))
 }
 
@@ -240,6 +262,8 @@ function createSession(opts: EnsureOptions): Session {
     unanswered: [],
     allowResumeRetry: true,
     streamingFlags: true,
+    hostPrompts: true,
+    pending: [],
     oneShot: opts.oneShot ?? false,
     closing: false,
     killTimer: null,
@@ -335,6 +359,16 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
   // it the first text of a turn only lands once the model has finished the whole
   // assistant message — i.e. the entire answer for a one-message reply.
   if (sess.streamingFlags) args.push('--include-partial-messages')
+
+  // Permission prompts come to us as `can_use_tool` control requests instead
+  // of being denied on the spot, which is how a headless CLI treats an "ask"
+  // with nobody to ask. This is what makes AskUserQuestion work at all: the
+  // tool is the prompt, and its answers travel back in the control response.
+  // It is NOT in --allowedTools on purpose — pre-approving it would skip the
+  // prompt and run the tool with no answers. Anything else the permission
+  // rules escalate (auto mode's classifier balking at a tool call) now waits
+  // for an Approve/Deny too, rather than failing the turn silently.
+  if (sess.hostPrompts) args.push('--permission-prompt-tool', 'stdio')
 
   const mcpConfig = `${process.env.CLAUDE_CONFIG_DIR || '/jarvis/agent'}/mcp.json`
   if (existsSync(mcpConfig)) args.push('--mcp-config', mcpConfig)
@@ -459,6 +493,23 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
         `[session] ${sess.conversationId}: CLI rejected a streaming flag — retrying without live streaming`,
       )
       sess.streamingFlags = false
+      spawnProcess(sess, resumeSessionId)
+      for (const text of sess.unanswered) writeUserLine(sess, text)
+      return
+    }
+
+    // Same for the prompt routing flag: hidden from --help, so the least
+    // guaranteed of the lot. Without it questions are auto-denied again — a
+    // degraded turn, not a dead session.
+    if (
+      code !== 0 &&
+      sess.hostPrompts &&
+      /unknown option .--permission-prompt-tool/.test(sess.stderrTail)
+    ) {
+      console.warn(
+        `[session] ${sess.conversationId}: CLI rejected --permission-prompt-tool — retrying without host prompts`,
+      )
+      sess.hostPrompts = false
       spawnProcess(sess, resumeSessionId)
       for (const text of sess.unanswered) writeUserLine(sess, text)
       return
@@ -664,6 +715,18 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
         if (ev.session_id) sess.claudeSessionId = ev.session_id
         sess.lastActivityAt = Date.now()
 
+        // The CLI asking US something: a parked permission prompt or question.
+        if (ev.type === 'control_request') {
+          handleControlRequest(sess, ev)
+          continue
+        }
+        // …and withdrawing one it no longer needs answered (the turn was
+        // interrupted, typically).
+        if (ev.type === 'control_cancel_request' && ev.request_id) {
+          resolveAsk(sess, String(ev.request_id), 'withdrawn')
+          continue
+        }
+
         // Track sub-agent lifecycle for progress detection
         if (ev.type === 'system') {
           if (ev.subtype === 'task_started' && ev.task_id) {
@@ -802,6 +865,10 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
           // One result answers every message steered into the turn, so clear
           // rather than shift — a leftover entry would read as a pending turn.
           sess.unanswered.length = 0
+          // A turn cannot end with a prompt still open; anything left here was
+          // abandoned by the CLI without a cancel (an interrupt racing the
+          // answer, say). Say so, or the backend keeps a card up for nothing.
+          for (const ask of [...sess.pending]) resolveAsk(sess, ask.requestId, 'withdrawn')
           // Background subagents keep the session busy: a wake-up turn is
           // coming, the idle reaper must not kill it, and a backend restart
           // must re-attach to it.
@@ -836,6 +903,88 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
       }
     }
   })
+}
+
+// ── Prompts (control protocol) ───────────────────────────────────────────────
+
+/**
+ * A `control_request` from the CLI. The one we serve is `can_use_tool`: the
+ * turn is parked until someone answers, so record it and tell subscribers.
+ * Anything else is refused outright — an unanswered request would hang the
+ * turn, and none of the other subtypes (hook callbacks, MCP bridging) apply to
+ * a session we started without registering for them.
+ */
+function handleControlRequest(sess: Session, ev: any): void {
+  const requestId = typeof ev.request_id === 'string' ? ev.request_id : null
+  const req = ev.request
+  if (!requestId || !req) return
+  if (req.subtype !== 'can_use_tool') {
+    console.warn(`[session] ${sess.conversationId}: refusing control request ${req.subtype}`)
+    writeControl(sess, {
+      type: 'control_response',
+      response: { subtype: 'error', request_id: requestId, error: `unsupported control request: ${req.subtype}` },
+    })
+    return
+  }
+  const ask: PendingAsk = {
+    requestId,
+    toolName: String(req.tool_name ?? 'unknown'),
+    toolUseId: typeof req.tool_use_id === 'string' ? req.tool_use_id : null,
+    input: req.input && typeof req.input === 'object' ? req.input : {},
+    askedAt: Date.now(),
+  }
+  sess.pending.push(ask)
+  markBusy(sess)
+  console.log(`[session] ${sess.conversationId}: waiting on ${ask.toolName} (${requestId})`)
+  pushEvent(sess, {
+    type: 'ask',
+    requestId,
+    toolName: ask.toolName,
+    toolUseId: ask.toolUseId,
+    input: ask.input,
+  })
+}
+
+/** Forget a pending prompt and tell subscribers how it ended. */
+function resolveAsk(sess: Session, requestId: string, outcome: 'answered' | 'withdrawn'): boolean {
+  const idx = sess.pending.findIndex((a) => a.requestId === requestId)
+  if (idx === -1) return false
+  sess.pending.splice(idx, 1)
+  pushEvent(sess, { type: 'ask_done', requestId, outcome })
+  return true
+}
+
+function writeControl(sess: Session, frame: object): void {
+  sess.proc.stdin!.write(JSON.stringify(frame) + '\n')
+}
+
+export type AskAnswer =
+  | { behavior: 'allow'; updatedInput?: Record<string, unknown> }
+  | { behavior: 'deny'; message?: string }
+
+/**
+ * Answer a parked prompt. `allow` lets the tool run — with `updatedInput` in
+ * place of what the model sent, which is how AskUserQuestion's answers travel
+ * (`{...input, answers}`); `deny` fails the tool call with `message` as the
+ * reason the model reads. Returns false when nothing by that id is waiting.
+ */
+export function answerSession(conversationId: string, requestId: string, answer: AskAnswer): boolean {
+  const sess = sessions.get(conversationId)
+  if (!sess) return false
+  const ask = sess.pending.find((a) => a.requestId === requestId)
+  if (!ask) return false
+  const response =
+    answer.behavior === 'allow'
+      ? { behavior: 'allow', updatedInput: answer.updatedInput ?? ask.input }
+      : { behavior: 'deny', message: answer.message || 'Denied by the user.' }
+  console.log(`[session] ${conversationId}: ${answer.behavior} ${ask.toolName} (${requestId})`)
+  writeControl(sess, {
+    type: 'control_response',
+    response: { subtype: 'success', request_id: requestId, response },
+  })
+  sess.lastActivityAt = Date.now()
+  resolveAsk(sess, requestId, 'answered')
+  return true
 }
 
 // ── Messages in ──────────────────────────────────────────────────────────────
