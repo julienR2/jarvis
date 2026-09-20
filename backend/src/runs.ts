@@ -140,6 +140,18 @@ export function setRunWaiting(id: string, waiting: boolean): void {
   emitRuns(run.conversation_id)
 }
 
+/**
+ * Put a finished run away: Today stops listing it. The chat keeps what it
+ * wrote — this is about the inbox, not the record.
+ */
+export function dismissRun(id: string): boolean {
+  const run = getRun(id)
+  if (!run || isActive(run.status)) return false
+  getDb().prepare('UPDATE runs SET dismissed = 1 WHERE id = ?').run(id)
+  emitGlobalEvent({ type: 'runs', conversation_id: run.conversation_id })
+  return true
+}
+
 /** Runs still in flight for a conversation, oldest first. */
 export function activeRuns(conversationId: string): RunRow[] {
   return getDb()

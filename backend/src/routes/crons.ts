@@ -4,6 +4,10 @@ import { getDb, uuid, normalizeEffort } from '../db.js'
 import { schedule, rescheduleAll, fireCron, nextRun } from '../crons.js'
 import type { CronRow } from '../types.js'
 
+function conversationExists(id: string): boolean {
+  return !!getDb().prepare('SELECT 1 FROM conversations WHERE id = ?').get(id)
+}
+
 export async function cronRoutes(app: FastifyInstance) {
   const auth = { onRequest: [app.authenticate] }
 
@@ -35,6 +39,8 @@ export async function cronRoutes(app: FastifyInstance) {
       model?: string
       effort?: string
       inherit_context?: boolean
+      /** Where the runs post. Omitted: a chat is opened on the first fire. */
+      conversation_id?: string | null
     }
 
     if (!body.name || !body.schedule || !body.prompt) {
@@ -42,6 +48,9 @@ export async function cronRoutes(app: FastifyInstance) {
     }
     if (!cron.validate(body.schedule)) {
       return reply.code(400).send({ error: 'Invalid cron schedule expression' })
+    }
+    if (body.conversation_id && !conversationExists(body.conversation_id)) {
+      return reply.code(400).send({ error: 'Unknown conversation' })
     }
 
     const id = uuid()
@@ -55,8 +64,8 @@ export async function cronRoutes(app: FastifyInstance) {
     const inheritContext = body.inherit_context ? 1 : 0
 
     getDb()
-      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, model, effort, inherit_context) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, body.schedule, body.prompt, enabled, once, model, effort, inheritContext)
+      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, model, effort, inherit_context, conversation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, body.schedule, body.prompt, enabled, once, model, effort, inheritContext, body.conversation_id || null)
 
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(id) as CronRow
     schedule(row)
@@ -73,10 +82,14 @@ export async function cronRoutes(app: FastifyInstance) {
       model: string
       effort: string
       inherit_context: boolean
+      conversation_id: string | null
     }>
 
     if (body.schedule && !cron.validate(body.schedule)) {
       return reply.code(400).send({ error: 'Invalid cron schedule expression' })
+    }
+    if (body.conversation_id && !conversationExists(body.conversation_id)) {
+      return reply.code(400).send({ error: 'Unknown conversation' })
     }
 
     const existing = getDb()
@@ -97,11 +110,13 @@ export async function cronRoutes(app: FastifyInstance) {
         body.inherit_context !== undefined
           ? (body.inherit_context ? 1 : 0)
           : existing.inherit_context,
+      // null unlinks it: the next fire opens a fresh chat.
+      conversation_id: 'conversation_id' in body ? (body.conversation_id || null) : existing.conversation_id,
     }
 
     getDb()
-      .prepare('UPDATE crons SET name=?, schedule=?, prompt=?, enabled=?, once=?, model=?, effort=?, inherit_context=? WHERE id=?')
-      .run(updated.name, updated.schedule, updated.prompt, updated.enabled, updated.once, updated.model, updated.effort, updated.inherit_context, req.params.id)
+      .prepare('UPDATE crons SET name=?, schedule=?, prompt=?, enabled=?, once=?, model=?, effort=?, inherit_context=?, conversation_id=? WHERE id=?')
+      .run(updated.name, updated.schedule, updated.prompt, updated.enabled, updated.once, updated.model, updated.effort, updated.inherit_context, updated.conversation_id, req.params.id)
 
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(req.params.id) as CronRow
     schedule(row)

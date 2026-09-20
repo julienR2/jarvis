@@ -34,6 +34,7 @@ import {
 } from '../sse.js'
 import { config } from '../config.js'
 import { getConnectorValues } from '../connectors.js'
+import { topicContextFor } from '../topics.js'
 import type { ConvRow, MessageRow, EffortLevel, PendingQuestion } from '../types.js'
 import { userForApiKey } from '../api-keys.js'
 
@@ -223,6 +224,8 @@ export function processMessage(
     onDone?: (text: string) => void
     model?: string
     effort?: EffortLevel
+    // A routine's own reasoning setting; the conversation's applies otherwise.
+    reasoning?: boolean
     // Run under a throwaway engine session instead of the conversation's own.
     // The messages still persist and stream into `conversationId`; what the run
     // does NOT get is the conversation's history, and what the conversation does
@@ -259,6 +262,14 @@ export function processMessage(
       '</article>',
     ].join('\n')
     claudePrompt = notifyInstruction + '\n' + claudePrompt
+  }
+
+  // The topic's brief, when this chat is filed under one and its session has
+  // not seen the current text yet. Ephemeral like the notify block: the saved
+  // message is what the person typed, not what the model was told around it.
+  if (!isCommand) {
+    const brief = topicContextFor(conv, { freshSession: !!options?.runKey })
+    if (brief) claudePrompt = brief + '\n' + claudePrompt
   }
 
   // Append attachment references for Claude
@@ -330,6 +341,7 @@ export function processMessage(
     conversationId: runKey ?? conversationId,
     model: resolveModel(options?.model),
     effort: options?.effort,
+    reasoning: options?.reasoning ?? !!conv.thinking,
     // The engine derives JARVIS_CONVERSATION_ID from the session key, which for
     // an isolated run is the throwaway runKey. Point it back at the real
     // conversation: skills write uploads and apps under that id and read the
@@ -1271,9 +1283,10 @@ export async function conversationRoutes(app: FastifyInstance) {
       notify?: string
       model?: string
       effort?: string
+      thinking?: boolean | number
       section_id?: string | null
     }
-    const { title, notify, model, effort } = body
+    const { title, notify, model, effort, thinking } = body
 
     const sets: string[] = []
     const params: unknown[] = []
@@ -1281,6 +1294,10 @@ export async function conversationRoutes(app: FastifyInstance) {
     if (title !== undefined) {
       sets.push('title = ?')
       params.push(title)
+    }
+    if (thinking !== undefined) {
+      sets.push('thinking = ?')
+      params.push(thinking ? 1 : 0)
     }
     if (notify !== undefined) {
       if (!['subscribe', 'unsubscribe', 'auto'].includes(notify)) {

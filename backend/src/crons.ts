@@ -79,6 +79,7 @@ export function fireCron(entry: CronRow): void {
     skipUserMessage: true,
     model: entry.model ?? undefined,
     effort: entry.effort,
+    reasoning: !!entry.thinking,
     runKey,
     runId: run.id,
     onDone: (text) => {

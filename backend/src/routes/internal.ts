@@ -12,6 +12,7 @@ import { getAllConnectors, getConnector } from '../connectors.js'
 import { archiveAppDir } from '../app-archive.js'
 import { schedule, rescheduleAll } from '../crons.js'
 import { seedFixtures } from '../fixtures.js'
+import { getSection, setSectionContext, topicConversations, MAX_CONTEXT_CHARS } from '../topics.js'
 import { emitConversationEvent } from '../sse.js'
 import { sendPushToAll } from '../push.js'
 import { config } from '../config.js'
@@ -177,6 +178,52 @@ export async function internalRoutes(app: FastifyInstance) {
   app.get('/crons', async (req, reply) => {
     if (!checkSecret(req, reply)) return
     return getDb().prepare('SELECT * FROM crons ORDER BY created_at ASC').all()
+  })
+
+  // ── Where am I? ─────────────────────────────────────────────────────────
+  //
+  // The conversation the agent runs in, with the topic it is filed under —
+  // what the `topic` skill reads before updating a brief.
+  app.get<{ Params: { id: string } }>('/conversations/:id', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    const conv = getDb()
+      .prepare('SELECT id, title, section_id, app_path, created_at, updated_at FROM conversations WHERE id = ?')
+      .get(req.params.id) as Pick<ConvRow, 'id' | 'title' | 'section_id' | 'app_path' | 'created_at' | 'updated_at'> | undefined
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' })
+    const section = conv.section_id ? getSection(conv.section_id) : undefined
+    return {
+      ...conv,
+      topic: section ? { id: section.id, name: section.name, context: section.context, context_updated_at: section.context_updated_at } : null,
+    }
+  })
+
+  // ── Topics ──────────────────────────────────────────────────────────────
+
+  app.get('/topics', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    return getDb().prepare('SELECT id, name, context, context_updated_at FROM sections ORDER BY position ASC, created_at ASC').all()
+  })
+
+  app.get<{ Params: { id: string } }>('/topics/:id', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    const section = getSection(req.params.id)
+    if (!section) return reply.code(404).send({ error: 'Topic not found' })
+    return { ...section, conversations: topicConversations(section.id) }
+  })
+
+  // Rewrite a topic's brief. The whole text, not a patch: the brief is meant
+  // to be re-read and re-written as one piece, which is also what keeps it
+  // short.
+  app.patch<{ Params: { id: string } }>('/topics/:id/context', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    const { context } = (req.body ?? {}) as { context?: unknown }
+    if (typeof context !== 'string') return reply.code(400).send({ error: 'context (string) is required' })
+    if (context.length > MAX_CONTEXT_CHARS * 2) {
+      return reply.code(400).send({ error: `context is too long (max ${MAX_CONTEXT_CHARS} characters)` })
+    }
+    const section = setSectionContext(req.params.id, context)
+    if (!section) return reply.code(404).send({ error: 'Topic not found' })
+    return { ok: true, topic: { id: section.id, name: section.name, context: section.context, context_updated_at: section.context_updated_at } }
   })
 
   // ── Conversation history ───────────────────────────────────────────────

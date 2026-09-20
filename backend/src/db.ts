@@ -394,6 +394,29 @@ export function initDb(): void {
     db.exec(`ALTER TABLE conversations ADD COLUMN pending_question TEXT DEFAULT NULL`)
   } catch { /* already exists */ }
 
+  // Migration: an inbox row that has been read. Today lists a finished run once
+  // under "Worth telling you"; dismissing it (POST /api/runs/:id/dismiss) takes
+  // it off the page without touching the chat it wrote into.
+  if (!runCols.includes('dismissed')) {
+    db.exec(`ALTER TABLE runs ADD COLUMN dismissed INTEGER NOT NULL DEFAULT 0`)
+    console.log('[db] runs.dismissed column added')
+  }
+
+  // Migration: topics. A section is more than a sidebar group — it carries a
+  // shared context (what the topic is, what was decided, what is open) that
+  // every chat filed under it starts from. `context_updated_at` lets a warm
+  // session learn about a rewrite; `topic_context_at` on the conversation is
+  // when it last got the text (see topics.ts).
+  try {
+    db.exec(`ALTER TABLE sections ADD COLUMN context TEXT NOT NULL DEFAULT ''`)
+  } catch { /* already exists */ }
+  try {
+    db.exec(`ALTER TABLE sections ADD COLUMN context_updated_at INTEGER`)
+  } catch { /* already exists */ }
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN topic_context_at INTEGER`)
+  } catch { /* already exists */ }
+
   // Connectors — one row per connector holding its definition AND its values.
   // Unified from the former three-way split (hardcoded catalog + custom_connectors
   // definitions + connectors secrets). See connectors.ts.

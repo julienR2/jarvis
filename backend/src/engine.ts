@@ -58,6 +58,8 @@ export interface SendMessageOptions {
   conversationId: string
   model?: string
   effort?: EffortLevel
+  // Show the model's summarized reasoning as notes in the trail. Off by default.
+  reasoning?: boolean
   envVars?: Record<string, string>
   // One-shot sessions (title generation) close after the first result instead
   // of lingering until the idle reaper gets them.

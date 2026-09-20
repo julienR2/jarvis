@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { getDb } from '../db.js'
-import { listRuns, stopRun } from '../runs.js'
+import { dismissRun, listRuns, stopRun } from '../runs.js'
 import { fireCron } from '../crons.js'
 import type { CronRow, RunRow, RunStatus } from '../types.js'
 
@@ -68,6 +68,15 @@ export async function runRoutes(app: FastifyInstance) {
       .get(req.params.id) as { id: string } | undefined
     if (!run) return reply.code(404).send({ error: 'Run not found' })
     return { stopped: await stopRun(req.params.id) }
+  })
+
+  /** Read and put away — Today's inbox drops it. Only a finished run can be. */
+  app.post<{ Params: { id: string } }>('/:id/dismiss', auth, async (req, reply) => {
+    const run = getDb()
+      .prepare('SELECT id FROM runs WHERE id = ?')
+      .get(req.params.id) as { id: string } | undefined
+    if (!run) return reply.code(404).send({ error: 'Run not found' })
+    return { dismissed: dismissRun(req.params.id) }
   })
 
   /**

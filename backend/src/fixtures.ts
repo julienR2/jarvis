@@ -100,6 +100,21 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     }
     for (const s of sections) if (!s.exists) insSection.run(s.id, s.name, s.position)
     const [fixtures, daily, projects] = sections
+    // Projects is a topic: it carries a brief that every chat under it starts
+    // from. Rewritten on every rearm so a hand-edit on next does not stick.
+    db.prepare('UPDATE sections SET context = ?, context_updated_at = ? WHERE id = ?').run([
+      '**What this is** — side projects and the tooling around them: the fixture app, the blog, whatever is being built this month.',
+      '',
+      '**Decided**',
+      '- The blog publishes from the `publish-post` webhook; a push to main goes live.',
+      '- Apps live in the side pane, one per chat.',
+      '',
+      '**Open**',
+      '- Trip idea: beach or city still undecided.',
+      '',
+      '**How to work here**',
+      '- Use the `apps` skill for anything with a UI; keep drafts under the drive.',
+    ].join('\n'), t(60 * 24), projects.id)
 
     // 1. Markdown — every construct the bubble renders.
     const md = ID.markdown

@@ -8,6 +8,8 @@ export interface ConvRow {
   notify: 'subscribe' | 'unsubscribe' | 'auto'
   model: string | null
   effort: EffortLevel
+  /** 1 = show the model's summarized reasoning as notes between the steps. */
+  thinking: number
   section_id: string | null
   context_tokens: number | null
   context_window: number | null
@@ -18,6 +20,8 @@ export interface ConvRow {
   app_token: string | null
   /** JSON of a PendingQuestion while Jarvis waits on the person; else NULL. */
   pending_question: string | null
+  /** When the topic's context was last handed to this conversation's session. */
+  topic_context_at: number | null
   created_at: number
   updated_at: number
 }
@@ -44,6 +48,9 @@ export interface SectionRow {
   id: string
   name: string
   position: number
+  /** The topic's shared context, markdown. Empty for a plain group. */
+  context: string
+  context_updated_at: number | null
   created_at: number
 }
 
@@ -70,6 +77,8 @@ export interface CronRow {
   once: number
   model: string | null
   effort: EffortLevel
+  /** 1 = show reasoning notes in the runs it fires. */
+  thinking: number
   /** 0 = run in a throwaway session, reporting into the linked conversation. */
   inherit_context: number
   last_run: number | null
@@ -86,6 +95,8 @@ export interface WebhookRow {
   enabled: number
   model: string | null
   effort: EffortLevel
+  /** 1 = show reasoning notes in the runs it fires. */
+  thinking: number
   notify: 'auto' | 'never' | 'always'
   user_message_key: string | null
   /** 0 = run in a throwaway session, reporting into the linked conversation. */
@@ -124,6 +135,8 @@ export interface RunRow {
   error: string | null
   /** 1 = it ran and had nothing to report; the chat folds these away. */
   quiet: number
+  /** 1 = read and put away on Today. */
+  dismissed: number
 }
 
 export interface UserRow {

@@ -95,6 +95,7 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
     userMessageOverride: displayMessage,
     model: entry.model ?? undefined,
     effort: entry.effort,
+    reasoning: !!entry.thinking,
     runKey,
     runId: run.id,
   }

@@ -4,6 +4,10 @@ import { fireWebhook, fireWebhookSync } from '../webhooks.js'
 import { cancelConversation } from './conversations.js'
 import type { WebhookRow } from '../types.js'
 
+function conversationExists(id: string): boolean {
+  return !!getDb().prepare('SELECT 1 FROM conversations WHERE id = ?').get(id)
+}
+
 export async function webhookRoutes(app: FastifyInstance) {
   const auth = { onRequest: [app.authenticate] }
 
@@ -21,10 +25,15 @@ export async function webhookRoutes(app: FastifyInstance) {
       notify?: 'auto' | 'never' | 'always'
       user_message_key?: string
       inherit_context?: boolean
+      /** Where the runs post. Omitted: a chat is opened on the first trigger. */
+      conversation_id?: string | null
     }
 
     if (!body.name || !body.prompt) {
       return reply.code(400).send({ error: 'name and prompt are required' })
+    }
+    if (body.conversation_id && !conversationExists(body.conversation_id)) {
+      return reply.code(400).send({ error: 'Unknown conversation' })
     }
 
     const id = uuid()
@@ -39,8 +48,8 @@ export async function webhookRoutes(app: FastifyInstance) {
     const inheritContext = body.inherit_context ? 1 : 0
 
     getDb()
-      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, model, effort, notify, user_message_key, inherit_context) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, token, body.prompt, enabled, model, effort, notify, user_message_key, inheritContext)
+      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, model, effort, notify, user_message_key, inherit_context, conversation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, token, body.prompt, enabled, model, effort, notify, user_message_key, inheritContext, body.conversation_id || null)
 
     return getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(id)
   })
@@ -55,6 +64,7 @@ export async function webhookRoutes(app: FastifyInstance) {
       notify: 'auto' | 'never' | 'always'
       user_message_key: string | null
       inherit_context: boolean
+      conversation_id: string | null
     }>
 
     const existing = getDb()
@@ -62,6 +72,9 @@ export async function webhookRoutes(app: FastifyInstance) {
       .get(req.params.id) as WebhookRow | undefined
 
     if (!existing) return reply.code(404).send({ error: 'Not found' })
+    if (body.conversation_id && !conversationExists(body.conversation_id)) {
+      return reply.code(400).send({ error: 'Unknown conversation' })
+    }
 
     const updated = {
       name: body.name ?? existing.name,
@@ -75,11 +88,12 @@ export async function webhookRoutes(app: FastifyInstance) {
         body.inherit_context !== undefined
           ? (body.inherit_context ? 1 : 0)
           : existing.inherit_context,
+      conversation_id: 'conversation_id' in body ? (body.conversation_id || null) : existing.conversation_id,
     }
 
     getDb()
-      .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=?, model=?, effort=?, notify=?, user_message_key=?, inherit_context=? WHERE id=?')
-      .run(updated.name, updated.prompt, updated.enabled, updated.model, updated.effort, updated.notify, updated.user_message_key, updated.inherit_context, req.params.id)
+      .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=?, model=?, effort=?, notify=?, user_message_key=?, inherit_context=?, conversation_id=? WHERE id=?')
+      .run(updated.name, updated.prompt, updated.enabled, updated.model, updated.effort, updated.notify, updated.user_message_key, updated.inherit_context, updated.conversation_id, req.params.id)
 
     return getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(req.params.id)
   })

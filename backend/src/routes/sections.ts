@@ -1,5 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { getDb, uuid } from '../db.js'
+import { processMessage } from './conversations.js'
+import { consolidationPrompt, ensureDossierConversation, getSection, MAX_CONTEXT_CHARS, setSectionContext } from '../topics.js'
+import { emitGlobalEvent } from '../sse.js'
 import type { SectionRow } from '../types.js'
 
 const MAX_NAME = 60
@@ -37,17 +40,53 @@ export async function sectionRoutes(app: FastifyInstance) {
     return getDb().prepare('SELECT * FROM sections WHERE id = ?').get(id) as SectionRow
   })
 
-  app.patch<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
-    const name = cleanName((req.body as { name?: string })?.name)
-    if (!name) return reply.code(400).send({ error: 'name is required' })
+  app.get<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
+    const section = getSection(req.params.id)
+    if (!section) return reply.code(404).send({ error: 'Not found' })
+    return section
+  })
 
-    const result = getDb()
-      .prepare('UPDATE sections SET name = ? WHERE id = ?')
-      .run(name, req.params.id)
-    if (result.changes === 0) return reply.code(404).send({ error: 'Not found' })
-    return getDb()
-      .prepare('SELECT * FROM sections WHERE id = ?')
-      .get(req.params.id) as SectionRow
+  // Rename, rewrite the brief, or both. A rewrite stamps context_updated_at so
+  // the topic's warm chats pick the new text up on their next turn.
+  app.patch<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
+    const body = (req.body ?? {}) as { name?: unknown; context?: unknown }
+    const name = body.name !== undefined ? cleanName(body.name) : undefined
+    if (body.name !== undefined && !name) return reply.code(400).send({ error: 'name is required' })
+    if (body.context !== undefined && typeof body.context !== 'string') {
+      return reply.code(400).send({ error: 'context must be a string' })
+    }
+    if (name === undefined && body.context === undefined) {
+      return reply.code(400).send({ error: 'Nothing to update' })
+    }
+    if (!getSection(req.params.id)) return reply.code(404).send({ error: 'Not found' })
+
+    if (name) {
+      getDb().prepare('UPDATE sections SET name = ? WHERE id = ?').run(name, req.params.id)
+      emitGlobalEvent({ type: 'sections' })
+    }
+    if (typeof body.context === 'string') {
+      if (body.context.length > MAX_CONTEXT_CHARS * 2) {
+        return reply.code(400).send({ error: `context is too long (max ${MAX_CONTEXT_CHARS} characters)` })
+      }
+      setSectionContext(req.params.id, body.context)
+    }
+    return getSection(req.params.id) as SectionRow
+  })
+
+  /**
+   * Ask Jarvis to rewrite the topic's brief from its recent chats. Runs as an
+   * ordinary turn in the topic's dossier chat, so it streams, can be stopped,
+   * and leaves a record; the caller gets the chat to watch it in.
+   */
+  app.post<{ Params: { id: string } }>('/:id/consolidate', auth, async (req, reply) => {
+    const section = getSection(req.params.id)
+    if (!section) return reply.code(404).send({ error: 'Not found' })
+    const conv = ensureDossierConversation(section)
+    processMessage(conv.id, conv, consolidationPrompt(section, conv.id), [], {
+      userMessageOverride: `Consolidate the brief of ${section.name}.`,
+    })
+    emitGlobalEvent({ type: 'sections' })
+    return { conversation_id: conv.id }
   })
 
   // Full ordered list of ids rather than one position at a time — idempotent, and
@@ -79,6 +118,7 @@ export async function sectionRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
     const result = getDb().prepare('DELETE FROM sections WHERE id = ?').run(req.params.id)
     if (result.changes === 0) return reply.code(404).send({ error: 'Not found' })
+    emitGlobalEvent({ type: 'sections' })
     return { ok: true }
   })
 }
