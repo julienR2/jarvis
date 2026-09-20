@@ -7,6 +7,9 @@ allowed-tools: Bash, Read
 # Webhook Skill
 
 Manage webhooks (HTTP-triggered automations) via the internal API using `curl`.
+In the interface a webhook is a **routine** that runs when its link is called
+(page `/routines`; the ⟳ control in a chat's title bar lists the ones posting
+there). A webhook whose chat is filed under a topic runs with that topic's brief.
 
 ## API
 

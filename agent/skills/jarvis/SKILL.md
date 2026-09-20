@@ -31,13 +31,14 @@ You can edit Jarvis's own source. Two facts shape how:
    ```bash
    mkdir -p "$WORKSPACE_DIR/apps/$JARVIS_CONVERSATION_ID"
    cat > "$WORKSPACE_DIR/apps/$JARVIS_CONVERSATION_ID/index.html" <<HTML
-   <!doctype html><html><body style="margin:0"><iframe src="/next/crons" allow="microphone" style="border:0;width:100%;height:100vh"></iframe></body></html>
+   <!doctype html><html><body style="margin:0"><iframe src="/next/routines" allow="microphone" style="border:0;width:100%;height:100vh"></iframe></body></html>
    HTML
    curl -s -X POST "$BACKEND_URL/internal/apps" -H 'Content-Type: application/json' -H "X-Internal-Secret: $INTERNAL_SECRET" -d "{\"conversation_id\":\"$JARVIS_CONVERSATION_ID\"}"
    curl -s -X POST "$BACKEND_URL/internal/apps/$JARVIS_CONVERSATION_ID/notify" -H "X-Internal-Secret: $INTERNAL_SECRET"
    ```
-   Replace `/next/crons` with the route being changed (`/next/` for the chat
-   itself, `/next/c/<id>` for a fixture conversation, `/next/settings`…).
+   Replace `/next/routines` with the route being changed (`/next/` for Today,
+   `/next/c/<id>` for a fixture conversation, `/next/t/<id>` for a topic,
+   `/next/settings`…).
    Register once per conversation; later edits appear on their own through HMR.
    If next is down, say so and describe the change instead — do not deploy to
    show it.
@@ -45,9 +46,10 @@ You can edit Jarvis's own source. Two facts shape how:
 5. On approval: commit (multi-file changes wait for this review), then run the
    **`deploy` skill**. The prod tab then shows the reload banner.
 
-Next's data is fixtures, not the user's: sections "🧪 Fixtures / ☀️ Daily /
-🏗️ Projects", a markdown showcase, an activity conversation, a morning-brief
-run, a fixture app, a disabled cron, a webhook, an API key. `POST
+Next's data is fixtures, not the user's: topics "🧪 Fixtures / ☀️ Daily /
+🏗️ Projects" (Projects carries a brief), a markdown showcase, an activity
+conversation, a morning-brief run, a fixture app, three crons, two webhooks, two
+runs waiting on an answer, an API key. `POST
 http://next-backend:3005/internal/fixtures` (same secret) puts the fixture rows
 back without touching anything else — do this if a test made a mess of them.
 **Never `POST /internal/reset` on your own**: it wipes next's whole database,

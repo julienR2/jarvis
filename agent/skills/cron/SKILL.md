@@ -6,7 +6,10 @@ allowed-tools: Bash, Read
 
 # Cron Skill
 
-Manage scheduled tasks (crons) via the internal API using `curl`.
+Manage scheduled tasks (crons) via the internal API using `curl`. In the
+interface a cron is a **routine** that runs on a schedule (page `/routines`; the
+⟳ control in a chat's title bar lists the ones posting there). A cron whose chat
+is filed under a topic runs with that topic's brief.
 
 ## API
 
