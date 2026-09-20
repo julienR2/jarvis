@@ -7,6 +7,7 @@ import NeedsYouCard from '../components/NeedsYouCard'
 import { SidebarToggle } from '../components/ContentLayout'
 import { api, pendingQuestionOf, type Attachment, type RunListItem, type UpcomingCron } from '../api'
 import { useChatStore } from '../stores/chatStore'
+import { BASE_PATH } from '../base'
 import { firstLine, formatTime, reloadRecentRuns, startOfToday, upcomingLabel, useRecentRuns, useRunsNudge } from '../lib/runs'
 
 /**
@@ -35,7 +36,7 @@ export default function TodayPage() {
   useRunsNudge(loadUpcoming)
   const load = () => Promise.all([reloadRecentRuns(), loadUpcoming()])
 
-  const { waiting, needsYou, running, doneToday } = useMemo(() => partition(runs ?? []), [runs])
+  const { waiting, needsYou, running, doneToday, quietToday } = useMemo(() => partition(runs ?? []), [runs])
 
   // Questions asked in an ordinary chat have no run behind them (they are not a
   // cron or webhook), so the runs feed never carries them. Read them straight
@@ -122,7 +123,17 @@ export default function TodayPage() {
       </div>
 
       <div className='flex-1 overflow-y-auto'>
-        <div className='pt-3'>
+        {/* Hero — Jarvis waving, as home always opened. The composer right under it. */}
+        <div className='flex flex-col items-center px-4 pt-8 pb-1'>
+          <img
+            src={`${BASE_PATH}/images/jarvis_wave.gif`}
+            alt='Jarvis'
+            className='mb-3 h-20 w-20 mix-blend-multiply dark:mix-blend-screen'
+          />
+          <h2 className='text-2xl font-light text-text-primary'>{getGreeting()}</h2>
+          <p className='mt-1 text-sm text-text-muted'>How can I help you today?</p>
+        </div>
+        <div className='pt-2'>
           <ChatInput
             onSend={start}
             onSendAudio={startWithAudio}
@@ -156,7 +167,7 @@ export default function TodayPage() {
                 })}
                 {/* Then failures that need a fix — grouped, since they read as a list. */}
                 {needsYou.length > 0 && (
-                  <div className='rounded-xl border border-border bg-surface divide-y divide-border'>
+                  <div className='divide-y divide-border'>
                     {needsYou.map(({ run, attempts }) => (
                       <Row
                         key={run.id}
@@ -184,7 +195,7 @@ export default function TodayPage() {
             </section>
           )}
           {running.length > 0 && (
-            <Section title='Happening now' testId='today-now'>
+            <Section title='Running' testId='today-now'>
               {running.map((run) => (
                 <Row
                   key={run.id}
@@ -207,7 +218,7 @@ export default function TodayPage() {
           )}
 
           {doneToday.length > 0 && (
-            <Section title='Done today' testId='today-done'>
+            <Section title='Worth telling you' testId='today-done'>
               {doneToday.map((run) => (
                 <Row
                   key={run.id}
@@ -221,14 +232,21 @@ export default function TodayPage() {
               ))}
             </Section>
           )}
+          {quietToday.length > 0 && (
+            <div className='mt-4 flex items-center gap-2 text-[11.5px] text-text-muted' data-testid='today-quiet'>
+              <span>{quietToday.length} {quietToday.length === 1 ? 'run' : 'runs'} had nothing to report</span>
+              <span className='h-px flex-1 border-t border-dashed border-border' />
+              <span>{[...new Set(quietToday.map((r) => r.source_name))].join(', ')}</span>
+            </div>
+          )}
 
           {upcoming.length > 0 && (
-            <Section title='Coming up' testId='today-upcoming'>
+            <Section title='Later today' testId='today-upcoming'>
               {upcoming.slice(0, UPCOMING_SHOWN).map((cron) => (
                 <div key={cron.id} className='flex items-center gap-3 px-3 py-2' data-testid='today-row'>
-                  <div className='grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-surface2 text-text-muted'><Clock size={13} /></div>
                   <div className='min-w-0 flex-1'>
                     <div className='flex flex-wrap items-center gap-x-2'>
+                      <Clock size={12} className='shrink-0 text-text-muted' />
                       <span className='truncate text-sm font-medium text-text-primary'>{cron.name}</span>
                       <span className='text-[12px] text-text-secondary'>{cron.next_run ? upcomingLabel(cron.next_run) : 'not scheduled'}</span>
                     </div>
@@ -271,6 +289,13 @@ export default function TodayPage() {
 
 const UPCOMING_SHOWN = 8
 
+function getGreeting(): string {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
+}
+
 /**
  * Sort the day's runs into the page's sections. A failure "needs you" until a
  * later run of the same routine succeeds — a retry that worked, or the next
@@ -281,7 +306,10 @@ function partition(runs: RunListItem[]) {
   const dayStart = startOfToday()
   const waiting = runs.filter((r) => r.status === 'needs_you')
   const running = runs.filter((r) => r.status === 'running')
-  const doneToday = runs.filter((r) => r.status !== 'running' && r.status !== 'needs_you' && r.status !== 'error' && r.started_at >= dayStart)
+  const finished = runs.filter((r) => r.status !== 'running' && r.status !== 'needs_you' && r.status !== 'error' && r.started_at >= dayStart)
+  // A run that had nothing to report is counted, not listed.
+  const doneToday = finished.filter((r) => !r.quiet)
+  const quietToday = finished.filter((r) => !!r.quiet)
 
   const needsYou: { run: RunListItem; attempts: number }[] = []
   const seen = new Set<string>()
@@ -295,7 +323,7 @@ function partition(runs: RunListItem[]) {
     const attempts = runs.filter((r) => r.status === 'error' && (r.source_id ?? r.id) === key).length
     needsYou.push({ run, attempts })
   }
-  return { waiting, needsYou, running, doneToday }
+  return { waiting, needsYou, running, doneToday, quietToday }
 }
 
 function Section({ title, count, testId, children }: { title: string; count?: number; testId: string; children: React.ReactNode }) {
@@ -304,7 +332,7 @@ function Section({ title, count, testId, children }: { title: string; count?: nu
       <h2 className='mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted'>
         {title}{count != null && <span className='font-normal'> · {count}</span>}
       </h2>
-      <div className='rounded-xl border border-border bg-surface divide-y divide-border'>{children}</div>
+      <div className='divide-y divide-border'>{children}</div>
     </section>
   )
 }
@@ -329,9 +357,9 @@ function Row({
   return (
     <div className='flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-start sm:gap-3' data-testid='today-row' data-status={run.status}>
       <div className='flex min-w-0 flex-1 items-start gap-3'>
-        <div className='mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-surface2 text-text-muted'><Icon size={13} /></div>
         <div className='min-w-0 flex-1'>
           <div className='flex flex-wrap items-center gap-x-2 gap-y-0.5'>
+            <Icon size={12} className='shrink-0 text-text-muted' />
             <span className='truncate text-sm font-medium text-text-primary'>{run.source_name}</span>
             <StatusPill run={run} />
           </div>
@@ -350,7 +378,7 @@ function Row({
           </div>
         </div>
       </div>
-      <div className='grid grid-cols-2 gap-2 pl-10 sm:flex sm:shrink-0 sm:items-center sm:gap-1.5 sm:pl-0 sm:pt-0.5'>{actions}</div>
+      <div className='grid grid-cols-2 gap-2 pl-5 sm:flex sm:shrink-0 sm:items-center sm:gap-1.5 sm:pl-0 sm:pt-0.5'>{actions}</div>
     </div>
   )
 }

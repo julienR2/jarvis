@@ -40,19 +40,31 @@ test.describe('chat rendering', () => {
     await expect(note).toBeHidden()
   })
 
-  test('background run: one card — what ran, how it went, its one paragraph', async ({ page }) => {
+  test('background run: a normal message under one line of provenance', async ({ page }) => {
     await openConversation(page, 'Morning brief')
-    const card = page.getByTestId('run-card')
-    await expect(card).toHaveCount(1)
-    await expect(card.getByText('Cron: morning-brief')).toBeVisible()
-    await expect(card.getByText(/done · (\d+s|\d+ min)/)).toBeVisible()
-    // The summary is the body; the automation's prompt and steps are behind details.
-    await expect(card.getByText('Three todos due today')).toBeVisible()
-    await expect(card.getByText('Write the morning brief.')).toBeHidden()
-    await card.getByRole('button', { name: /details · 2 messages/ }).click()
-    await expect(card.getByText('Write the morning brief.')).toBeVisible()
-    // The conversation's own messages stay outside the card.
+    const block = page.getByTestId('run-card')
+    await expect(block).toHaveCount(1)
+    // Provenance: which routine, when. A finished run says nothing about its state.
+    await expect(block.getByText('morning-brief')).toBeVisible()
+    await expect(block.getByText(/done ·/)).toHaveCount(0)
+    // The answer reads like any other; the routine's prompt is behind a click.
+    await expect(block.getByText('Three todos due today')).toBeVisible()
+    await expect(block.getByText('Write the morning brief.')).toBeHidden()
+    await block.getByRole('button', { name: 'prompt' }).click()
+    await expect(block.getByText('Write the morning brief.')).toBeVisible()
+    // The conversation's own messages stay outside the block.
     await expect(page.getByText('Court booking opens')).toBeVisible()
+  })
+
+  test('background runs with nothing to report fold into one line', async ({ page }) => {
+    await openConversation(page, 'Activity steps')
+    const quiet = page.getByTestId('quiet-runs')
+    await expect(quiet).toHaveCount(1)
+    await expect(quiet.getByText(/fixture-hook · 3 runs, nothing to report/)).toBeVisible()
+    // The one that had something to say is a normal block, not folded.
+    await expect(page.getByTestId('run-card').getByText('Filed under Projects.')).toBeVisible()
+    await quiet.getByRole('button').first().click()
+    await expect(quiet.getByText(/JavaScript Weekly/)).toBeVisible()
   })
 
   test("background run: the gear opens the cron's definition in edit mode", async ({ page }) => {

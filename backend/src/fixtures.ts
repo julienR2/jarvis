@@ -177,17 +177,36 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     // 6. More run shapes for the Activity page — none of these wrote messages,
     // so they add rows to the log without adding cards to a chat.
     const insRun = db.prepare(
-      'INSERT INTO runs (id, kind, source_id, source_name, conversation_id, run_key, inherit_context, status, started_at, ended_at, result, error) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)',
+      'INSERT INTO runs (id, kind, source_id, source_name, conversation_id, run_key, inherit_context, status, started_at, ended_at, result, error, quiet) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)',
     )
     // yesterday's brief failed
     insRun.run(uuid(), 'cron', cronId, 'morning-brief', bg, `cron-${cronId}-y`, 'error', t(60 * 24 + 62), t(60 * 24 + 61), null,
-      'PocketBase returned 401 while reading the transactions collection — token expired?')
-    // the hook handled something three hours ago
-    insRun.run(uuid(), 'webhook', hookId, 'fixture-hook', act, `hook-${hookId}-1`, 'done', t(180), t(179),
-      'Filed under Projects. One attachment, saved to the drive.', null)
+      'PocketBase returned 401 while reading the transactions collection — token expired?', 0)
+    // the hook handled something three hours ago — and said so in the chat
+    const hookRunId = uuid()
+    insRun.run(hookRunId, 'webhook', hookId, 'fixture-hook', act, `hook-${hookId}-1`, 'done', t(180), t(179),
+      'Filed under Projects. One attachment, saved to the drive.', null, 0)
+    const hookStamp = JSON.stringify({ run_id: hookRunId, isolated: true })
+    insMsg.run(uuid(), act, 'user', 'Handle the payload.', hookStamp, null, null, t(180))
+    insMsg.run(uuid(), act, 'assistant', '[note:1] An invoice from the school, so it goes under Projects.\n\n[tool:1] Bash: curl copyparty/projects/', hookStamp, 'activity',
+      '**Filed under Projects.** One attachment — the school invoice, 48 € — saved to the drive.', t(179))
+    // Three more fires since that had nothing to report — the newsletter case.
+    // Quiet runs still write their messages; the chat folds them into one line.
+    const skips: [number, string][] = [
+      [50, '| Action | From | Subject |\n|---|---|---|\n| ⏭️ Skipped | JavaScript Weekly | Issue 703 |'],
+      [35, '| Action | From | Subject |\n|---|---|---|\n| ⏭️ Skipped | GOG.com | Your order is complete |'],
+      [20, 'RAS — a "sign in with Google" notice, nothing to do.'],
+    ]
+    for (const [ago, result] of skips) {
+      const id = uuid()
+      insRun.run(id, 'webhook', hookId, 'fixture-hook', act, `hook-${hookId}-q${ago}`, 'done', t(ago), t(ago) + 6, result, null, 1)
+      const stamp = JSON.stringify({ run_id: id, isolated: true })
+      insMsg.run(uuid(), act, 'user', 'Handle the payload.', stamp, null, null, t(ago))
+      insMsg.run(uuid(), act, 'assistant', '[tool:1] Read skills/email-processor/SKILL.md', stamp, 'activity', result, t(ago) + 0)
+    }
     // and a brief from two days ago, for the day grouping
     insRun.run(uuid(), 'cron', cronId, 'morning-brief', bg, `cron-${cronId}-2d`, 'done', t(60 * 48 + 62), t(60 * 48 + 60),
-      'Overcast, no surf. Two todos due.', null)
+      'Overcast, no surf. Two todos due.', null, 0)
     // 7. A cron that IS enabled, so Today's "Coming up" has a row — scheduled
     // once a year, on New Year's night, so a throwaway instance all but never
     // fires it. Its run this morning failed and nothing succeeded since: that
@@ -196,7 +215,7 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     db.prepare('INSERT INTO crons (id, name, schedule, prompt, conversation_id, enabled) VALUES (?, ?, ?, ?, ?, 1)')
       .run(yearlyId, 'new-year-wish', '0 4 1 1 *', 'Wish the user a happy new year.', appConv)
     insRun.run(uuid(), 'cron', yearlyId, 'new-year-wish', appConv, `cron-${yearlyId}-t`, 'error', t(45), t(44), null,
-      'The greetings API answered 503 three times — gave up.')
+      'The greetings API answered 503 three times — gave up.', 0)
     // 8. Two runs parked on the person — what "Needs you" is for. Their turns are
     // still in flight (no result on the last assistant message), the run is
     // `needs_you`, and the conversation carries the question. Neither has a
@@ -211,7 +230,7 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
       .run(askCronId, 'reply-marta', '0 9 * * 1-5', "Draft a reply to Marta's last email and ask me before sending.", askConv)
     const askRunId = uuid()
     const askKey = `cron-${askCronId}-w`
-    insRun.run(askRunId, 'cron', askCronId, 'reply-marta', askConv, askKey, 'needs_you', t(12), null, null, null)
+    insRun.run(askRunId, 'cron', askCronId, 'reply-marta', askConv, askKey, 'needs_you', t(12), null, null, null, 0)
     const askStamp = JSON.stringify({ run_id: askRunId, isolated: true })
     insMsg.run(uuid(), askConv, 'user', "Draft a reply to Marta's last email and ask me before sending.", askStamp, null, null, t(12))
     insMsg.run(uuid(), askConv, 'assistant', [
@@ -247,7 +266,7 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
       .run(okHookId, 'publish-post', randomBytes(24).toString('base64url'), 'Publish the draft named in the payload.', okConv)
     const okRunId = uuid()
     const okKey = `hook-${okHookId}-w`
-    insRun.run(okRunId, 'webhook', okHookId, 'publish-post', okConv, okKey, 'needs_you', t(6), null, null, null)
+    insRun.run(okRunId, 'webhook', okHookId, 'publish-post', okConv, okKey, 'needs_you', t(6), null, null, null, 0)
     const okStamp = JSON.stringify({ run_id: okRunId, isolated: true })
     insMsg.run(uuid(), okConv, 'user', 'Publish the draft named in the payload.', okStamp, null, null, t(6))
     insMsg.run(uuid(), okConv, 'assistant', [

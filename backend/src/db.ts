@@ -380,6 +380,15 @@ export function initDb(): void {
     console.log('[db] runs table rebuilt with the needs_you status')
   }
 
+  // Migration: a run that had nothing to report. Set when the run closes (see
+  // runs.ts isQuietResult) so the chat can fold a day's silent fires into one
+  // line instead of one card each — most email triages end in "skipped".
+  const runCols = (db.prepare('PRAGMA table_info(runs)').all() as { name: string }[]).map((c) => c.name)
+  if (!runCols.includes('quiet')) {
+    db.exec(`ALTER TABLE runs ADD COLUMN quiet INTEGER NOT NULL DEFAULT 0`)
+    console.log('[db] runs.quiet column added')
+  }
+
   // Migration: what a conversation is waiting on (see PendingQuestion).
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN pending_question TEXT DEFAULT NULL`)

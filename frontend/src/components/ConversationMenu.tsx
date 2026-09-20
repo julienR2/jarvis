@@ -7,7 +7,7 @@ import {
   useCallback,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Clock, Link2, Pencil, Brain, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2, ChevronRight } from 'lucide-react'
+import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Repeat, Pencil, Brain, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2, ChevronRight } from 'lucide-react'
 import { useModelCatalogue, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, modelSupportsEffort } from './ModelSelector'
 import GatewayModelPicker from './GatewayModelPicker'
 import { isGatewayModel, modalityLabel } from './ModelSelector'
@@ -221,29 +221,14 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                   </div>
                 </div>
 
-                {(hasCron || hasWebhook) && (
-                  <>
-                    <div className='h-px bg-border my-1' />
-                    {hasCron && (
-                      <button
-                        onClick={() => { setOpen(false); navigate(`/activity?tab=routines&conversation_id=${conversationId}`) }}
-                        className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
-                      >
-                        <Clock size={14} />
-                        View crons
-                      </button>
-                    )}
-                    {hasWebhook && (
-                      <button
-                        onClick={() => { setOpen(false); navigate(`/activity?tab=routines&conversation_id=${conversationId}`) }}
-                        className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
-                      >
-                        <Link2 size={14} />
-                        View webhooks
-                      </button>
-                    )}
-                  </>
-                )}
+                <div className='h-px bg-border my-1' />
+                <button
+                  onClick={() => { setOpen(false); navigate(`/activity?tab=routines&conversation_id=${conversationId}`) }}
+                  className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+                >
+                  <Repeat size={14} />
+                  Routines{(hasCron || hasWebhook) ? '' : ' (none yet)'}
+                </button>
 
                 <div className='h-px bg-border my-1' />
               </>

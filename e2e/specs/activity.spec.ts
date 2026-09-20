@@ -12,16 +12,16 @@ test.describe('activity', () => {
   test('log: every run, newest first, grouped by day, with its one line', async ({ page }) => {
     // Fixture rows only, by name: next is also used by hand, and the log may hold more.
     const rows = page.getByTestId('run-row').filter({ hasText: FIXTURE_RUNS })
-    // 7 seeded runs: two parked on the person, today's brief and the yearly cron's failure, the hook, yesterday's failed brief, a brief from 2 days ago
-    await expect(rows).toHaveCount(7)
+    // 10 seeded runs: two parked on the person, today's brief and the yearly cron's failure, the hook (once with news, three times quiet), yesterday's failed brief, a brief from 2 days ago
+    await expect(rows).toHaveCount(10)
     // Grouped by day: the fixtures span several, so there are at least two day
     // headings. Not asserting 'Today' by name — right after midnight the runs
     // from "minutes ago" fall under Yesterday, and there is no Today group.
     expect(await page.getByRole('heading', { level: 2 }).count()).toBeGreaterThanOrEqual(2)
     await expect(page.getByRole('heading', { name: 'Yesterday' })).toBeVisible()
-    // Newest first: the publish approval (6 min ago), then the question (12 min), then the yearly cron's failure (45 min).
+    // Newest first: the publish approval (6 min ago), the question (12), two quiet hook fires (20, 35), then the yearly cron's failure (45 min).
     await expect(rows.first().getByText('publish-post')).toBeVisible()
-    await expect(rows.nth(2).getByText('new-year-wish')).toBeVisible()
+    await expect(rows.nth(4).getByText('new-year-wish')).toBeVisible()
     await expect(rows.filter({ hasText: 'morning-brief' }).first().getByText(/done · \d+ min/)).toBeVisible()
     await expect(page.getByText('Filed under Projects.')).toBeVisible()
   })
@@ -39,12 +39,12 @@ test.describe('activity', () => {
   test('log: filters narrow by kind, and a row opens its chat', async ({ page }) => {
     await page.getByRole('button', { name: 'Webhooks' }).click()
     const rows = page.getByTestId('run-row').filter({ hasText: FIXTURE_RUNS })
-    // The hook's run and the publish approval — both webhooks, no cron.
-    await expect(rows).toHaveCount(2)
+    // The hook's four runs and the publish approval — all webhooks, no cron.
+    await expect(rows).toHaveCount(5)
     await expect(rows.filter({ hasText: 'morning-brief' })).toHaveCount(0)
     const hook = rows.filter({ hasText: 'fixture-hook' })
-    await expect(hook).toHaveCount(1)
-    await hook.getByRole('button', { name: /Activity steps/ }).click()
+    await expect(hook).toHaveCount(4)
+    await hook.first().getByRole('button', { name: /Activity steps/ }).click()
     await expect(page).toHaveURL(/\/c\/00000000-0000-4000-8000-000000000002$/)
   })
 

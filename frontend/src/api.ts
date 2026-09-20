@@ -632,6 +632,8 @@ export interface Run {
   ended_at: number | null
   result: string | null
   error: string | null
+  /** 1 = it ran and had nothing to report; the chat folds these away. */
+  quiet: number
 }
 
 export type RunStatus = 'running' | 'needs_you' | 'done' | 'error' | 'stopped' | 'interrupted'

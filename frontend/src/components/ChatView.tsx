@@ -25,7 +25,7 @@ import ResizeHandle from './ResizeHandle'
 import { useIsDesktop } from '../hooks/useIsDesktop'
 import { ContentTitle } from './ContentLayout'
 import BackgroundRuns from './BackgroundRuns'
-import RunCard from './RunCard'
+import RunBlock, { QuietRuns } from './RunBlock'
 import { answerFromComposer } from './AnswerCard'
 
 /** Shared so the jump button can find the divider without threading a ref
@@ -524,7 +524,7 @@ export default function ChatView({
                     <BackgroundRuns conversationId={conversationId} />
                 <ConvStatusIcons conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} shareMode={shareMode} />
                     <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-                    <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} />
+                        <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} />
                   </span>
                 ) : undefined}
               >
@@ -569,13 +569,15 @@ export default function ChatView({
                         <Loader2 size={16} className='animate-spin text-text-muted' />
                       </div>
                     )}
-                    {groupMessagesByDay(messages, unreadAnchor).map((item) =>
+                    {foldQuietRuns(groupMessagesByDay(messages, unreadAnchor), runsById).map((item) =>
                       item.type === 'separator' ? (
                         <DateSeparator key={item.key} label={item.label} />
                       ) : item.type === 'unread' ? (
                         <UnreadSeparator key={item.key} onDismiss={dismissUnread} />
+                      ) : item.type === 'quietRuns' ? (
+                        <QuietRuns key={item.key} blocks={item.blocks} />
                       ) : item.type === 'runBlock' ? (
-                        <RunCard
+                        <RunBlock
                           key={item.key}
                           run={runsById.get(item.runId)}
                           msgs={item.msgs}
@@ -773,6 +775,27 @@ type MessageItem =
   | { type: 'separator'; key: string; label: string }
   | { type: 'unread'; key: string }
   | { type: 'runBlock'; key: string; runId: string; isolated: boolean; msgs: Message[] }
+  | { type: 'quietRuns'; key: string; blocks: { run: Run; msgs: Message[] }[] }
+
+/**
+ * Consecutive runs that had nothing to report fold into one line. Needs the
+ * run rows, so it is a pass over the grouped items rather than part of the
+ * grouping: a block whose run is unknown (too old for the list) stays as is.
+ */
+function foldQuietRuns(items: MessageItem[], runsById: Map<string, Run>): MessageItem[] {
+  const out: MessageItem[] = []
+  for (const item of items) {
+    const run = item.type === 'runBlock' ? runsById.get(item.runId) : undefined
+    if (item.type === 'runBlock' && run?.quiet && run.status === 'done') {
+      const last = out[out.length - 1]
+      if (last?.type === 'quietRuns') last.blocks.push({ run, msgs: item.msgs })
+      else out.push({ type: 'quietRuns', key: `quiet-${item.key}`, blocks: [{ run, msgs: item.msgs }] })
+      continue
+    }
+    out.push(item)
+  }
+  return out
+}
 
 /** The run a message was written by, from the metadata the backend stamps on. */
 function messageRun(msg: Message): { runId: string; isolated: boolean } | null {

@@ -39,10 +39,9 @@ test.describe('needs you', () => {
     await expect(composerInput).toHaveValue('')
     await expect(card).toBeVisible()
     await expect(page.getByPlaceholder('How can I help you today?')).toBeHidden()
-    // The run card says so too, and keeps the pause in its transcript.
+    // The run's provenance line says so too.
     const run = page.getByTestId('run-card')
     await expect(run.getByText('waiting for you', { exact: true })).toBeVisible()
-    await expect(run.getByText('Waiting for your answer below.')).toBeVisible()
     // The question is the head of the composer: same box, options above the input.
     const composer = page.getByPlaceholder('Or type your own answer…')
     const [c, o] = await Promise.all([card.boundingBox(), composer.boundingBox()])

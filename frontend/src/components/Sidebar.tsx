@@ -3,9 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Plus,
   Clock,
-  Activity,
+  Repeat,
   AppWindow,
-  Sunrise,
   Link2,
   Earth,
   ChevronUp,
@@ -149,8 +148,9 @@ export default function Sidebar({
           onClick={() => handleNav('/')}
           className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${location.pathname === '/' ? 'text-text-primary bg-selected' : 'text-text-secondary hover:bg-surface2'}`}
         >
-          <Sunrise size={16} />
+          <Sun size={16} />
           <span>Today</span>
+          <StatusDot />
         </button>
         <button
           onClick={onNew}
@@ -159,7 +159,6 @@ export default function Sidebar({
           <Plus size={16} />
           <span>New chat</span>
         </button>
-        <ActivityEntry active={location.pathname === '/activity'} onClick={() => handleNav('/activity')} />
         {/* Same shape as New chat, one step dimmer. Kept out of the scroll area
             so it stays reachable however many chats are in the list. */}
         <button
@@ -213,6 +212,12 @@ export default function Sidebar({
       {/* Bottom nav: Settings, plus the three one-click toggles kept at hand.
           Logout moved into Settings › Overview. */}
       <div className='border-t border-border p-2'>
+        <NavItem
+          label='Routines'
+          icon={<Repeat size={15} />}
+          active={location.pathname === '/activity'}
+          onClick={() => handleNav('/activity?tab=routines')}
+        />
         <div className='flex items-center gap-1'>
           <div className='flex-1'>
             <NavItem
@@ -290,6 +295,7 @@ function SectionGroup({
   const deleteSection = useChatStore((s) => s.deleteSection)
   const moveSection = useChatStore((s) => s.moveSection)
   const [renaming, setRenaming] = useState(false)
+  const navigate = useNavigate()
 
   const unread = convs.reduce((n, c) => n + (c.unread_count || 0), 0)
   // Collapsed groups still show the open conversation, so navigating into one
@@ -325,6 +331,7 @@ function SectionGroup({
           <SectionMenu
             canMoveUp={canMoveUp}
             canMoveDown={canMoveDown}
+            onRoutines={() => navigate(`/activity?tab=routines&section_id=${section.id}`)}
             onRename={() => setRenaming(true)}
             onMoveUp={() => moveSection(section.id, -1)}
             onMoveDown={() => moveSection(section.id, 1)}
@@ -371,6 +378,7 @@ function SectionGroup({
 function SectionMenu({
   canMoveUp,
   canMoveDown,
+  onRoutines,
   onRename,
   onMoveUp,
   onMoveDown,
@@ -378,6 +386,7 @@ function SectionMenu({
 }: {
   canMoveUp: boolean
   canMoveDown: boolean
+  onRoutines: () => void
   onRename: () => void
   onMoveUp: () => void
   onMoveDown: () => void
@@ -417,6 +426,14 @@ function SectionMenu({
       </button>
       {open && (
         <div className='absolute right-0 top-full mt-1 z-[200] min-w-[150px] bg-surface border border-border rounded-xl shadow-md/5 p-1'>
+          <MenuButton
+            icon={<Repeat size={14} />}
+            label='Routines'
+            onClick={() => {
+              setOpen(false)
+              onRoutines()
+            }}
+          />
           <MenuButton
             icon={<Pencil size={14} />}
             label='Rename'
@@ -618,34 +635,19 @@ function NavItem({
 }
 
 /**
- * The way into Activity, carrying its signals in order of urgency: something
- * waits on you (amber), something is running now (accent, pulsing), something
- * failed today (red). Read from the shared recent runs feed, which moves with
- * the log.
+ * Today's signal, in order of urgency: something waits on you (amber),
+ * something is running now (accent, pulsing), something failed today (red).
+ * Read from the shared recent runs feed. Today is where all three are acted on,
+ * so the dot sits on its entry — there is no Activity page to point at.
  */
-function ActivityEntry({ active, onClick }: { active: boolean; onClick: () => void }) {
+function StatusDot() {
   const { runs } = useRecentRuns()
   const startOfDay = startOfToday()
   const waiting = !!runs?.some((r) => r.status === 'needs_you')
   const running = !waiting && !!runs?.some((r) => r.status === 'running')
   const failedToday = !!runs?.some((r) => r.status === 'error' && r.started_at >= startOfDay)
-
-  return (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${active ? 'text-text-primary bg-selected' : 'text-text-secondary hover:bg-surface2'}`}
-    >
-      <Activity size={16} />
-      <span>Activity</span>
-      {waiting && (
-        <span className='ml-auto h-2 w-2 rounded-full bg-warning' title='Jarvis is waiting for you' data-testid='activity-waiting' />
-      )}
-      {running && (
-        <span className='ml-auto h-2 w-2 rounded-full bg-accent animate-pulse' title='Something is running' data-testid='activity-running' />
-      )}
-      {!waiting && !running && failedToday && (
-        <span className='ml-auto h-2 w-2 rounded-full bg-danger' title='Something failed today' data-testid='activity-failed' />
-      )}
-    </button>
-  )
+  if (waiting) return <span className='ml-auto h-2 w-2 rounded-full bg-warning' title='Jarvis is waiting for you' data-testid='activity-waiting' />
+  if (running) return <span className='ml-auto h-2 w-2 rounded-full bg-accent animate-pulse' title='Something is running' data-testid='activity-running' />
+  if (failedToday) return <span className='ml-auto h-2 w-2 rounded-full bg-danger' title='Something failed today' data-testid='activity-failed' />
+  return null
 }

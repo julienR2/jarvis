@@ -37,7 +37,9 @@ test.describe('today', () => {
     // midnight they belong to yesterday and the section is rightly absent.
     test.skip(new Date().getHours() < 4, 'fixture runs fall on yesterday this close to midnight')
     const done = page.getByTestId('today-done')
-    await expect(done.getByRole('heading', { name: 'Done today' })).toBeVisible()
+    await expect(done.getByRole('heading', { name: 'Worth telling you' })).toBeVisible()
+    // The three skipped triages are counted on one line, not listed.
+    await expect(page.getByTestId('today-quiet')).toContainText('3 runs had nothing to report')
     await expect(done.getByText('morning-brief')).toBeVisible()
     await expect(done.getByText('fixture-hook')).toBeVisible()
     await expect(done.getByText(/done · \d+ min/).first()).toBeVisible()
@@ -53,7 +55,7 @@ test.describe('today', () => {
 
   test('coming up: only enabled crons, soonest first, gear opens the definition', async ({ page }) => {
     const up = page.getByTestId('today-upcoming')
-    await expect(up.getByRole('heading', { name: 'Coming up' })).toBeVisible()
+    await expect(up.getByRole('heading', { name: 'Later today' })).toBeVisible()
     // The yearly fixture cron is here, the disabled daily one is not; a person's
     // own enabled crons may sit alongside.
     const rows = up.getByTestId('today-row').filter({ hasText: 'new-year-wish' })

@@ -122,6 +122,8 @@ export interface RunRow {
   ended_at: number | null
   result: string | null
   error: string | null
+  /** 1 = it ran and had nothing to report; the chat folds these away. */
+  quiet: number
 }
 
 export interface UserRow {

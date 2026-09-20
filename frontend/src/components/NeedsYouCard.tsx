@@ -65,18 +65,18 @@ export default function NeedsYouCard({
 
   return (
     <div
-      className='rounded-xl border border-warning/40 bg-surface overflow-hidden'
+      className='rounded-xl border border-border bg-surface overflow-hidden'
       data-testid='today-row'
       data-status='needs_you'
     >
       <div className='flex items-center gap-2.5 px-3 py-2.5'>
         <button onClick={() => setOpen((v) => !v)} className='flex min-w-0 flex-1 items-center gap-2.5 text-left' aria-expanded={open}>
           <span className='shrink-0 text-text-muted'>{open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
-          <span className='grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-warning/10 text-warning'><Icon size={13} /></span>
+          <span className='shrink-0 text-text-muted'><Icon size={13} /></span>
           <span className='min-w-0 flex-1'>
             <span className='flex flex-wrap items-center gap-x-2 gap-y-0.5'>
               <span className='truncate text-sm font-medium text-text-primary'>{run?.source_name ?? conversation.title}</span>
-              {run ? <StatusPill run={run} /> : <span className='inline-flex items-center gap-1 rounded-full border border-warning/40 px-1.5 py-px text-[10.5px] font-medium text-warning'>waiting for you</span>}
+              {run ? <StatusPill run={run} /> : <span className='inline-flex items-center gap-1 rounded-full border border-border px-1.5 py-px text-[10.5px] font-medium text-text-muted'>waiting for you</span>}
             </span>
             {/* Collapsed: a one-line hint of what is asked. Open: the composer says it. */}
             {!open && hint && <span className='mt-0.5 block truncate text-[12px] text-text-muted'>{hint}</span>}

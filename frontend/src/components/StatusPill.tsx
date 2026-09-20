@@ -9,7 +9,7 @@ export default function StatusPill({ run }: { run: Pick<Run, 'status' | 'started
     case 'running':
       return <span className={`${base} border-accent/30 text-accent`}><Loader2 size={9} className='animate-spin' /> running · {duration(run.started_at, null)}</span>
     case 'needs_you':
-      return <span className={`${base} border-warning/40 text-warning`}><MessageCircleQuestion size={9} /> waiting for you</span>
+      return <span className={`${base} border-border text-text-secondary`}><MessageCircleQuestion size={9} /> waiting for you</span>
     case 'done':
       return <span className={`${base} border-success/40 text-success`}><Check size={9} /> done · {duration(run.started_at, run.ended_at)}</span>
     case 'error':

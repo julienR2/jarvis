@@ -90,13 +90,38 @@ export function finishRun(
 ): void {
   const run = getRun(id)
   if (!run || !isActive(run.status)) return
+  const quiet = status === 'done' && isQuietResult(detail?.result) ? 1 : 0
   getDb()
     .prepare(
-      `UPDATE runs SET status = ?, ended_at = unixepoch(), result = ?, error = ?
+      `UPDATE runs SET status = ?, ended_at = unixepoch(), result = ?, error = ?, quiet = ?
         WHERE id = ? AND status IN ${ACTIVE_SQL}`,
     )
-    .run(status, detail?.result ?? null, detail?.error ?? null, id)
+    .run(status, detail?.result ?? null, detail?.error ?? null, quiet, id)
   emitRuns(run.conversation_id)
+}
+
+/**
+ * Did the run have nothing to say?
+ *
+ * Most fires of a triage routine end in "skipped": recorded, but not worth a
+ * message in the chat. The convention is deliberately explicit — the routine
+ * opens its answer with one of these markers, or answers with a triage table
+ * whose every row is a skip — rather than a judgement call on the prose, so a
+ * silence is always one the routine chose.
+ */
+const QUIET_OPENERS = /^(?:\[quiet\]|ras\b|rien à signaler|nothing to report|no news|⏭️)/iu
+export function isQuietResult(result: string | null | undefined): boolean {
+  if (!result) return false
+  const lines = result.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (lines.length === 0) return false
+  if (QUIET_OPENERS.test(lines[0])) return true
+  // A markdown table of triage rows, all skipped.
+  const rows = lines.filter((l) => l.startsWith('|') && !/^\|[\s:-|]+\|$/.test(l))
+  if (rows.length >= 2) {
+    const body = rows.slice(1) // header row first
+    return body.every((r) => /^\|\s*⏭️/.test(r))
+  }
+  return false
 }
 
 /**

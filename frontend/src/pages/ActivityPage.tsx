@@ -280,6 +280,8 @@ function Routines() {
   const [params, setParams] = useSearchParams()
   const filterConvId = params.get('conversation_id')
   const conversations = useChatStore((s) => s.conversations)
+  const filterSectionId = params.get('section_id')
+  const sections = useChatStore((s) => s.sections)
   const navigate = useNavigate()
 
   const load = useCallback(async () => {
@@ -327,15 +329,20 @@ function Routines() {
     setTimeout(() => setCopied(null), 2000)
   }
 
-  const displayed = (items ?? []).filter((r) => !filterConvId || r.row.conversation_id === filterConvId)
+  const displayed = (items ?? []).filter((r) => {
+    if (filterConvId) return r.row.conversation_id === filterConvId
+    if (filterSectionId) return !!r.row.conversation_id && conversations[r.row.conversation_id]?.section_id === filterSectionId
+    return true
+  })
+  const filterSection = filterSectionId ? sections.find((x) => x.id === filterSectionId) : undefined
 
   return (
     <div>
       <div className='flex flex-wrap items-center gap-2 mb-3'>
-        {filterConvId && (
+        {(filterConvId || filterSectionId) && (
           <span className='flex items-center gap-2 text-xs text-text-muted'>
-            Routines of one chat
-            <button onClick={() => setParams((p) => { p.delete('conversation_id'); return p })} className='text-accent hover:opacity-80'>Show all</button>
+            {filterConvId ? 'Routines of one chat' : `Routines of ${filterSection?.name ?? 'one section'}`}
+            <button onClick={() => setParams((p) => { p.delete('conversation_id'); p.delete('section_id'); return p })} className='text-accent hover:opacity-80'>Show all</button>
           </span>
         )}
         <span className='flex-1' />
