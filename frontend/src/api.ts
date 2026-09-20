@@ -154,7 +154,7 @@ export const api = {
     ),
   updateConversation: (
     id: string,
-    data: { title?: string; notify?: string; model?: string; effort?: Effort; section_id?: string | null },
+    data: { title?: string; notify?: string; model?: string; effort?: Effort; thinking?: boolean; section_id?: string | null },
   ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
   deleteConversation: (id: string) =>
     request<{ ok: boolean }>('DELETE', `/conversations/${id}`),
@@ -165,6 +165,13 @@ export const api = {
   createSection: (name: string) => request<Section>('POST', '/sections', { name }),
   renameSection: (id: string, name: string) =>
     request<Section>('PATCH', `/sections/${id}`, { name }),
+  getSection: (id: string) => request<Section>('GET', `/sections/${id}`),
+  /** Rewrite a topic's brief (and/or rename it). */
+  updateSection: (id: string, data: { name?: string; context?: string }) =>
+    request<Section>('PATCH', `/sections/${id}`, data),
+  /** Ask Jarvis to rewrite the brief from the topic's chats; answers with the chat it runs in. */
+  consolidateSection: (id: string) =>
+    request<{ conversation_id: string }>('POST', `/sections/${id}/consolidate`),
   reorderSections: (ids: string[]) =>
     request<Section[]>('PUT', '/sections/order', { ids }),
   deleteSection: (id: string) => request<{ ok: boolean }>('DELETE', `/sections/${id}`),
@@ -223,6 +230,8 @@ export const api = {
     return request<RunListItem[]>('GET', `/runs?${q}`)
   },
   retryRun: (runId: string) => request<{ ok: boolean }>('POST', `/runs/${runId}/retry`),
+  /** Put a finished run away: Today stops listing it. */
+  dismissRun: (runId: string) => request<{ dismissed: boolean }>('POST', `/runs/${runId}/dismiss`),
   /** Answer the conversation's pending question or decide on its tool call. */
   answerQuestion: (conversationId: string, body: AnswerBody) =>
     request<{ answered: boolean; error?: string }>('POST', `/conversations/${conversationId}/answer`, body),
@@ -515,6 +524,8 @@ export interface Conversation {
   notify: 'subscribe' | 'unsubscribe' | 'auto'
   model: string | null
   effort: Effort
+  /** 1 = Jarvis shows its reasoning as notes between the steps. Off by default. */
+  thinking: number
   section_id: string | null
   /** Context fill as of the last assistant message — null until the first turn. */
   context_tokens: number | null
@@ -634,6 +645,8 @@ export interface Run {
   error: string | null
   /** 1 = it ran and had nothing to report; the chat folds these away. */
   quiet: number
+  /** 1 = read and put away on Today. */
+  dismissed: number
 }
 
 export type RunStatus = 'running' | 'needs_you' | 'done' | 'error' | 'stopped' | 'interrupted'
@@ -650,6 +663,9 @@ export interface Section {
   id: string
   name: string
   position: number
+  /** The topic's shared brief, markdown — empty for a plain group. */
+  context: string
+  context_updated_at: number | null
   created_at: number
 }
 
@@ -688,6 +704,8 @@ export interface CronInput {
   inherit_context?: boolean
   model?: string
   effort?: Effort
+  /** The chat the runs post into; null = open one on the first fire. */
+  conversation_id?: string | null
 }
 
 export interface Webhook {
@@ -713,6 +731,8 @@ export interface WebhookInput {
   inherit_context?: boolean
   model?: string
   effort?: Effort
+  /** The chat the runs post into; null = open one on the first trigger. */
+  conversation_id?: string | null
 }
 
 export interface ApiKey {
@@ -874,6 +894,8 @@ export type GlobalEvent =
   // A conversation started or stopped waiting on you. Carries the payload so
   // the loaded list can be patched in place.
   | { type: 'question'; conversation_id: string; question: PendingQuestion | null }
+  // A topic was renamed, rewritten or removed — refetch the sections.
+  | { type: 'sections' }
 
 // ── Global SSE connection ────────────────────────────────────────────────────
 

@@ -41,6 +41,12 @@ export function useGlobalEvents() {
         window.dispatchEvent(new CustomEvent(RUNS_NUDGE_EVENT))
         return
       }
+      if (ev.type === 'sections') {
+        // A topic's brief was rewritten (by Jarvis, or from another tab): the
+        // topic page and the sidebar read the list, so refetch it.
+        useChatStore.getState().loadSections()
+        return
+      }
       if (ev.type === 'question') {
         // Today's card and the sidebar read the question off the loaded list;
         // patch it in place. A conversation not loaded yet is a new one — the

@@ -13,7 +13,7 @@ interface Props {
 }
 
 /**
- * "Move to section" picker. A centered modal rather than a nested dropdown: the
+ * "Move to topic" picker. A centered modal rather than a nested dropdown: the
  * sidebar is only 256px wide, and the same component then works for the chat
  * header and for long-press on mobile.
  */
@@ -31,8 +31,8 @@ export default function SectionPicker({ currentId, onPick, onClose }: Props) {
   if (creating) {
     return (
       <NameModal
-        title='New section'
-        placeholder='Apps, Crons, Work…'
+        title='New topic'
+        placeholder='Work, Home, a project…'
         confirmLabel='Create'
         onSubmit={createAndPick}
         onClose={onClose}
@@ -55,7 +55,7 @@ export default function SectionPicker({ currentId, onPick, onClose }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className='text-sm font-medium text-text-primary px-2 py-2'>
-          Move to section
+          Move to topic
         </h3>
         <div className='flex-1 overflow-y-auto'>
           {sections.map((section) => (
@@ -78,7 +78,7 @@ export default function SectionPicker({ currentId, onPick, onClose }: Props) {
           className='w-full flex items-center gap-2.5 px-2 py-2 text-sm text-text-secondary hover:bg-surface2 hover:text-text-primary rounded-lg transition-colors'
         >
           <FolderPlus size={14} />
-          New section…
+          New topic…
         </button>
       </div>
     </div>,

@@ -466,9 +466,10 @@ app.post<{
     effort?: string
     envVars?: Record<string, string>
     oneShot?: boolean
+    reasoning?: boolean
   }
 }>('/message', async (req, reply) => {
-  const { prompt, sessionId, conversationId, model, effort, envVars, oneShot } =
+  const { prompt, sessionId, conversationId, model, effort, envVars, oneShot, reasoning } =
     req.body || ({} as any)
 
   if (!prompt || !conversationId) {
@@ -490,6 +491,7 @@ app.post<{
     resumeSessionId: sessionId ?? null,
     model,
     effort,
+    reasoning: !!reasoning,
     envVars,
     oneShot,
   })

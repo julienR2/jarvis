@@ -90,18 +90,14 @@ test.describe('needs you', () => {
     await expect(page.getByTitle('Answer', { exact: true })).toBeEnabled()
   })
 
-  test('the activity log marks the run as waiting for you, and Answer opens the chat', async ({ page }) => {
-    await page.goto('activity')
-    const row = page.getByTestId('run-row').filter({ hasText: 'reply-marta' })
-    await expect(row).toHaveAttribute('data-status', 'needs_you')
-    await expect(row.getByText('waiting for you')).toBeVisible()
-    await expect(row.getByText('Send this reply to Marta?')).toBeVisible()
-    await expect(row.getByRole('button', { name: /Stop/ })).toBeVisible()
-    // The Running filter keeps it: from where you sit, it is still going.
-    await page.getByRole('button', { name: 'Running', exact: true }).click()
-    await expect(page.getByTestId('run-row').filter({ hasText: /reply-marta|publish-post/ })).toHaveCount(2)
-    await page.getByTestId('run-row').filter({ hasText: 'reply-marta' }).getByRole('button', { name: 'Answer' }).click()
-    await expect(page).toHaveURL(/\/c\/00000000-0000-4000-8000-000000000005$/)
+  test('the chat title bar shows the parked run and offers Stop', async ({ page }) => {
+    await openConversation(page, 'Reply to Marta')
+    const pill = page.getByRole('main').getByTestId('routines-pill').locator('visible=true').first()
+    await expect(pill).toContainText('1 running')
+    await pill.click()
+    const pop = page.getByTestId('routines-popover')
+    await expect(pop.getByText('waiting for you')).toBeVisible()
+    await expect(pop.getByRole('button', { name: /Stop/ })).toBeVisible()
   })
 
   test('a tool call waits for an approval; deciding clears it everywhere', async ({ page }) => {

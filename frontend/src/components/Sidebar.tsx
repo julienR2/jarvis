@@ -9,6 +9,7 @@ import {
   Earth,
   ChevronUp,
   ChevronDown,
+  ChevronRight,
   MoreHorizontal,
   Pencil,
   Trash2,
@@ -166,12 +167,12 @@ export default function Sidebar({
           className='w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-muted hover:bg-surface2 transition-colors'
         >
           <FolderPlus size={16} />
-          <span>New section</span>
+          <span>New topic</span>
         </button>
         {creatingSection && (
           <NameModal
-            title='New section'
-            placeholder='Apps, Crons, Work…'
+            title='New topic'
+            placeholder='Work, Home, a project…'
             confirmLabel='Create'
             onSubmit={(name) => createSection(name)}
             onClose={() => setCreatingSection(false)}
@@ -215,8 +216,8 @@ export default function Sidebar({
         <NavItem
           label='Routines'
           icon={<Repeat size={15} />}
-          active={location.pathname === '/activity'}
-          onClick={() => handleNav('/activity?tab=routines')}
+          active={location.pathname === '/routines'}
+          onClick={() => handleNav('/routines')}
         />
         <div className='flex items-center gap-1'>
           <div className='flex-1'>
@@ -264,7 +265,8 @@ export default function Sidebar({
 
 /**
  * One collapsible sidebar group. `section` is null for the default "Chats" group,
- * which can't be renamed, moved, or deleted.
+ * which can't be renamed, moved, or deleted — and has no page: a topic's name
+ * opens its page, the chevron beside it folds the list.
  */
 function SectionGroup({
   section,
@@ -312,10 +314,19 @@ function SectionGroup({
         collapsed ? 'py-1.5' : 'pt-1.5 pb-4'
       }`}
     >
-      <div className='flex items-center group/section pr-1'>
+      <div className={`flex items-center group/section pr-1 rounded-lg ${section && activePath === `/t/${section.id}` ? 'bg-selected' : ''}`}>
         <button
           onClick={onToggle}
-          className='flex-1 flex items-center px-3 py-1 min-w-0 text-[11px] font-semibold text-text-muted uppercase tracking-wider hover:text-text-secondary transition-colors'
+          title={collapsed ? 'Show the chats' : 'Fold the chats'}
+          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${section ? section.name : 'Chats'}`}
+          className='shrink-0 pl-1.5 py-1 text-text-muted/50 hover:text-text-secondary transition-colors'
+        >
+          <ChevronRight size={11} className={`transition-transform ${collapsed ? '' : 'rotate-90'}`} />
+        </button>
+        <button
+          onClick={section ? () => onNav(`/t/${section.id}`) : onToggle}
+          title={section ? 'Open the topic' : undefined}
+          className={`flex-1 flex items-center pl-1.5 pr-3 py-1 min-w-0 text-[11px] font-semibold uppercase tracking-wider transition-colors ${section && activePath === `/t/${section.id}` ? 'text-text-primary' : 'text-text-muted hover:text-text-secondary'}`}
         >
           <span className='truncate'>{section ? section.name : 'Chats'}</span>
         </button>
@@ -331,14 +342,14 @@ function SectionGroup({
           <SectionMenu
             canMoveUp={canMoveUp}
             canMoveDown={canMoveDown}
-            onRoutines={() => navigate(`/activity?tab=routines&section_id=${section.id}`)}
+            onRoutines={() => navigate(`/routines?section_id=${section.id}`)}
             onRename={() => setRenaming(true)}
             onMoveUp={() => moveSection(section.id, -1)}
             onMoveDown={() => moveSection(section.id, 1)}
             onDelete={() => {
               if (
                 confirm(
-                  `Delete the "${section.name}" section? Its chats move back to Chats.`,
+                  `Delete the topic "${section.name}"? Its chats move back to Chats; its brief is lost.`,
                 )
               )
                 deleteSection(section.id)
@@ -348,7 +359,7 @@ function SectionGroup({
       </div>
       {renaming && section && (
         <NameModal
-          title='Rename section'
+          title='Rename topic'
           initialValue={section.name}
           onSubmit={(name) => renameSection(section.id, name)}
           onClose={() => setRenaming(false)}
@@ -413,7 +424,7 @@ function SectionMenu({
     <div ref={containerRef} className='relative shrink-0'>
       <button
         onClick={() => setOpen((o) => !o)}
-        title='Section options'
+        title='Topic options'
         className={`p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors ${
           open
             ? 'bg-surface2 text-text-primary'
@@ -570,7 +581,7 @@ function ConvItem({
             <span
               title='Cron'
               className='hover:text-accent transition-colors cursor-pointer'
-              onClick={(e) => { e.stopPropagation(); navigate(`/activity?tab=routines&conversation_id=${conv.id}`) }}
+              onClick={(e) => { e.stopPropagation(); navigate(`/routines?conversation_id=${conv.id}`) }}
             >
               <Clock size={11} className='text-text-muted hover:text-accent' />
             </span>
@@ -579,7 +590,7 @@ function ConvItem({
             <span
               title='Webhook'
               className='hover:text-accent transition-colors cursor-pointer'
-              onClick={(e) => { e.stopPropagation(); navigate(`/activity?tab=routines&conversation_id=${conv.id}`) }}
+              onClick={(e) => { e.stopPropagation(); navigate(`/routines?conversation_id=${conv.id}`) }}
             >
               <Link2 size={11} className='text-text-muted hover:text-accent' />
             </span>

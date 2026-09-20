@@ -59,8 +59,8 @@ export default function RunBlock({
         {run?.source_id && (
           <button
             type='button'
-            onClick={() => navigate(`/activity?tab=routines&edit=${run.source_id}`)}
-            title={`Open this ${run.kind}'s settings`}
+            onClick={() => navigate(`/routines?edit=${run.source_id}`)}
+            title='Open this routine'
             className='rounded p-0.5 opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100 focus:opacity-100'
           >
             <Settings2 size={11} />

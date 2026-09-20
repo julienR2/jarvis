@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import ActivityPage from './ActivityPage'
+import RoutinesPage from './RoutinesPage'
+import TopicPage from './TopicPage'
 import TodayPage from './TodayPage'
 import { Routes, Route, useNavigate, useLocation, useSearchParams, Navigate } from 'react-router-dom'
 import { Plus, MessageSquare, FileText, X, AppWindow, AudioLines, Mic } from 'lucide-react'
@@ -208,8 +209,11 @@ export default function ChatPage() {
                 />
               }
             />
-            <Route path='/activity' element={<ActivityPage />} />
-            {/* The definitions moved into Activity › Routines; old links still land. */}
+            <Route path='/routines' element={<RoutinesPage />} />
+            <Route path='/t/:id' element={<TopicPage />} />
+            {/* Crons and webhooks became routines, and the Activity page folded into
+                Today and the chats; the old addresses still land. */}
+            <Route path='/activity' element={<LegacyRoutinesRedirect />} />
             <Route path='/crons' element={<LegacyRoutinesRedirect />} />
             <Route path='/webhooks' element={<LegacyRoutinesRedirect />} />
             <Route path='/settings' element={<SettingsPage />} />
@@ -594,10 +598,11 @@ function ShareHandler({
   )
 }
 
-/** /crons and /webhooks, carrying their ?conversation_id= or ?edit= into Activity. */
+/** /activity, /crons and /webhooks, carrying their ?conversation_id= or ?edit= into Routines. */
 function LegacyRoutinesRedirect() {
   const { search } = useLocation()
   const p = new URLSearchParams(search)
-  p.set('tab', 'routines')
-  return <Navigate to={`/activity?${p}`} replace />
+  p.delete('tab')
+  const qs = p.toString()
+  return <Navigate to={`/routines${qs ? `?${qs}` : ''}`} replace />
 }

@@ -57,6 +57,9 @@ export interface Session {
   subscribers: Set<(ev: SessionEvent) => void>
   model?: string
   effort?: string
+  // Surface the model's summarized reasoning as notes between the steps.
+  // Off by default: the notes are what makes a turn read as machinery.
+  reasoning: boolean
   envVars?: Record<string, string>
   startedAt: number
   lastActivityAt: number
@@ -178,6 +181,7 @@ export interface EnsureOptions {
   resumeSessionId?: string | null
   model?: string
   effort?: string
+  reasoning?: boolean
   envVars?: Record<string, string>
   oneShot?: boolean
   // Respawn only: the replaced session's subscriber set, adopted by reference
@@ -188,11 +192,13 @@ export interface EnsureOptions {
 export function ensureSession(opts: EnsureOptions): Session {
   const existing = sessions.get(opts.conversationId)
   if (existing) {
-    // Model or effort changed mid-conversation: the flags are argv-only, so
-    // the process has to be replaced. Resume from its own live session id.
+    // Model, effort or reasoning display changed mid-conversation: the flags
+    // are argv-only, so the process has to be replaced. Resume from its own
+    // live session id.
     if (
       (opts.model ?? existing.model) !== existing.model ||
-      (opts.effort ?? existing.effort) !== existing.effort
+      (opts.effort ?? existing.effort) !== existing.effort ||
+      (opts.reasoning ?? existing.reasoning) !== existing.reasoning
     ) {
       // Crossing between Anthropic and a gateway means the transcript can't be
       // resumed: the CLI references the previous response's message id, and the
@@ -212,7 +218,7 @@ export function ensureSession(opts: EnsureOptions): Session {
         )
       }
       console.log(
-        `[session] ${opts.conversationId}: model/effort change, respawning`,
+        `[session] ${opts.conversationId}: model/effort/reasoning change, respawning`,
       )
       closeSession(existing, { graceful: false })
       // Hand the subscriber SET ITSELF (not a copy) to the replacement. The
@@ -256,6 +262,7 @@ function createSession(opts: EnsureOptions): Session {
     subscribers: opts.inheritSubscribers ?? new Set(),
     model: opts.model,
     effort: opts.effort,
+    reasoning: opts.reasoning ?? false,
     envVars: opts.envVars,
     startedAt: Date.now(),
     lastActivityAt: Date.now(),
@@ -392,15 +399,17 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
   if (sess.effort && !/haiku/i.test(sess.model ?? '')) {
     args.push('--effort', sess.effort)
   }
-  // Reasoning summaries. Opt-in: the API default is `omitted`, which streams
-  // thinking blocks with empty text.
+  // Reasoning summaries. Opt-in per conversation (`reasoning`, off by default —
+  // a chat reads as a conversation, not as a trail of "let me check the skill
+  // first"). The API default is `omitted`, which streams thinking blocks with
+  // empty text.
   //
   // These are surfaced as persisted `note` lines from the complete-message
   // handler, NOT streamed to a live status line. That was tried first and
   // dropped: the model moves through its reasoning far faster than anyone can
   // read it, so a self-replacing line just flickered. A note stays put and can
   // actually be read — before or after the fact.
-  if (sess.streamingFlags && !/haiku/i.test(sess.model ?? '')) {
+  if (sess.streamingFlags && sess.reasoning && !/haiku/i.test(sess.model ?? '')) {
     args.push('--thinking-display', 'summarized')
   }
 

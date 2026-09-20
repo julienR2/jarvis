@@ -225,16 +225,17 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
     { notes: 0, tools: 0 },
   )
   const lastGroupIsSteps = groups.length > 0 && groups[groups.length - 1].kind === 'steps'
-  const latestNote = (() => {
+  const latest = (key: 'notes' | 'tools'): string | null => {
     for (let i = stepGroups.length - 1; i >= 0; i--) {
       for (let j = stepGroups[i].cycles.length - 1; j >= 0; j--) {
-        const notes = stepGroups[i].cycles[j].notes
-        if (notes.length) return notes[notes.length - 1]
+        const list = stepGroups[i].cycles[j][key]
+        if (list.length) return list[list.length - 1]
       }
     }
     return null
-  })()
-  let quietLineDrawn = false
+  }
+  const latestNote = latest('notes')
+  const latestTool = latest('tools')
 
   // A turn that only ever called tools gets no timestamp row, as before — there
   // is nothing to date but the steps themselves.
@@ -264,22 +265,10 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
           // moves on to the next cycle, or ends.
           const liveCycle =
             !!live && i === groups.length - 1 ? g.cycles.length - 1 : -1
-          if (folded) {
-            // All the step groups of this message collapse into one line, drawn
-            // where the first of them would have been.
-            if (quietLineDrawn) return null
-            quietLineDrawn = true
-            return (
-              <QuietLine
-                key={i}
-                live={!!live && lastGroupIsSteps}
-                latestNote={latestNote}
-                tools={totals.tools}
-                notes={totals.notes}
-                onOpen={() => setUnfolded(true)}
-              />
-            )
-          }
+          // Folded: the machinery is not drawn where it happened but as one
+          // line under the answer (see below) — the answer is the message, the
+          // steps are a footnote to it.
+          if (folded) return null
           return (
             <StepsBlock
               key={i}
@@ -292,6 +281,16 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
             />
           )
         })}
+        {folded && stepGroups.length > 0 && (
+          <QuietLine
+            live={!!live && lastGroupIsSteps}
+            latestNote={latestNote}
+            latestTool={latestTool}
+            tools={totals.tools}
+            notes={totals.notes}
+            onOpen={() => setUnfolded(true)}
+          />
+        )}
         {msg.created_at && hasText && (
           <div className='text-[10px] text-text-muted/50 mt-1 flex items-center gap-1.5'>
             {formatTime(msg.created_at)}
@@ -322,28 +321,33 @@ function isPlainClick(e: React.MouseEvent): boolean {
 const NOTE_CLAMP_PX = 54
 
 /**
- * The folded form of a message's machinery.
+ * The folded form of a message's machinery — a footnote under the answer, not
+ * a box in the middle of it.
  *
- * While the turn runs it is a bubble carrying the latest note in full — what
- * Jarvis says he is doing, in his words — with a spinner and a step count.
- * Once it is over it shrinks to one line: a count you can open. Either way a
- * click unfolds the notes and their steps.
+ * While the turn runs it is one muted line with a spinner: the latest note in
+ * Jarvis's words when reasoning is on, otherwise the step he is on ("Reading
+ * skills/email-processor/SKILL.md"). Once it is over it shrinks to a count you
+ * can open. No frame either way: a chat reads as a conversation, and the trail
+ * is one click away for whoever wants it.
  */
 function QuietLine({
   live,
   latestNote,
+  latestTool,
   tools,
   notes,
   onOpen,
 }: {
   live: boolean
   latestNote: string | null
+  latestTool: string | null
   tools: number
   notes: number
   onOpen: () => void
 }) {
   const count = `${tools} step${tools !== 1 ? 's' : ''}`
   if (live) {
+    const doing = latestNote ?? latestTool
     return (
       <div
         role='button'
@@ -351,13 +355,17 @@ function QuietLine({
         onClick={onOpen}
         onKeyDown={(e) => e.key === 'Enter' && onOpen()}
         title='Show all the steps'
-        className='mb-3 flex max-w-full cursor-pointer items-start gap-2.5 rounded-xl border border-border bg-surface px-3 py-2.5 text-[14px] leading-relaxed text-text-secondary transition-colors hover:bg-surface2'
+        className='mb-2 flex max-w-full cursor-pointer items-start gap-2 text-[13px] leading-relaxed text-text-muted transition-colors hover:text-text-secondary'
       >
-        <Loader2 size={14} className='mt-1 shrink-0 animate-spin text-accent' />
+        <Loader2 size={13} className='mt-1 shrink-0 animate-spin text-accent' />
         <div className='min-w-0 flex-1'>
-          {latestNote ? <Markdown text={latestNote} /> : <span>Working…</span>}
-          {tools > 0 && (
-            <div className='mt-1 text-[11px] text-text-muted/60'>{count} so far ▾</div>
+          {doing ? (
+            latestNote ? <Markdown text={doing} /> : <span className='line-clamp-1'>{doing}</span>
+          ) : (
+            <span>Working…</span>
+          )}
+          {tools > 1 && (
+            <div className='text-[11px] text-text-muted/60'>{count} so far ▾</div>
           )}
         </div>
       </div>
@@ -368,14 +376,13 @@ function QuietLine({
       type='button'
       onClick={onOpen}
       title='Show the steps'
-      className='mb-3 flex max-w-full items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-left text-[12.5px] text-text-secondary transition-colors hover:bg-surface2'
+      className='mb-1 flex max-w-full items-center gap-1 text-left text-[11.5px] text-text-muted/70 transition-colors hover:text-text-secondary'
     >
-      <Check size={12} className='shrink-0 text-text-muted/60' />
+      <ChevronRight size={10} className='shrink-0' />
       <span className='min-w-0 truncate'>
         {count}
         {notes ? ` · ${notes} note${notes !== 1 ? 's' : ''}` : ''}
       </span>
-      <span className='shrink-0 text-[10.5px] text-text-muted/60'>▾</span>
     </button>
   )
 }

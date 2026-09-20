@@ -173,11 +173,26 @@ export function describeSchedule(expr: string): string {
   const [min, hour, dom, mon, dow] = parts
   const time = /^\d+$/.test(min) && /^\d+$/.test(hour) ? `${hour.padStart(2, '0')}:${min.padStart(2, '0')}` : null
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  if (time && dom === '*' && mon === '*') {
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th'}`
+  // Every N minutes / hours.
+  const everyMin = /^\*\/(\d+)$/.exec(min)
+  if (everyMin && hour === '*' && dom === '*' && mon === '*' && dow === '*') return `every ${everyMin[1]} min`
+  const everyHour = /^\*\/(\d+)$/.exec(hour)
+  if (everyHour && /^\d+$/.test(min) && dom === '*' && mon === '*' && dow === '*') {
+    return everyHour[1] === '1' ? 'every hour' : `every ${everyHour[1]} hours`
+  }
+  if (!time) return expr
+  if (dom === '*' && mon === '*') {
     if (dow === '*') return `daily at ${time}`
     if (dow === '1-5') return `weekdays at ${time}`
+    if (dow === '0,6' || dow === '6,0') return `weekends at ${time}`
     const days = dow.split(',').map((d) => DAYS[Number(d)] ?? d).join(', ')
     return `${days} at ${time}`
+  }
+  if (/^\d+$/.test(dom) && mon === '*' && dow === '*') return `monthly on the ${ordinal(Number(dom))} at ${time}`
+  if (/^\d+$/.test(dom) && /^\d+$/.test(mon) && dow === '*') {
+    return `every ${dom} ${MONTHS[Number(mon) - 1] ?? mon} at ${time}`
   }
   return expr
 }

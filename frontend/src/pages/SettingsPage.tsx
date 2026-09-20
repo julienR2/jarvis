@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Bell, BellOff, Blocks, Brain, Check, Code2, Copy, Globe, KeyRound, LogOut, Plug, RefreshCw, Smartphone,
+  Bell, BellOff, Blocks, Brain, Check, Code2, Copy, Globe, KeyRound, LogOut, Plug, RefreshCw, Smartphone, Sparkles,
 } from 'lucide-react'
 import ContentLayout from '../components/ContentLayout'
 import ConnectorsPanel from '../components/ConnectorsPage'
@@ -17,8 +17,8 @@ import { api } from '../api'
 /**
  * Everything that is set once and checked rarely, in one place.
  *
- * Eight sidebar entries became one: crons and webhooks moved to Activity as
- * routines, and what is left folds into four tabs behind an overview. Nothing
+ * Eight sidebar entries became one: crons and webhooks became routines with a
+ * page of their own, and what is left folds into four tabs behind an overview. Nothing
  * was removed — the connectors, the API keys, the plugins are the same panels
  * as before, minus their own page chrome — there is just less surface to scan
  * before finding the one setting you came for. The tab lives in the URL so the
@@ -136,6 +136,9 @@ function Overview({ onOpen }: { onOpen: (t: Tab) => void }) {
         <Card>
           <Row label='Reload the app' hint='Drops cached assets — use it after Jarvis updated itself.'>
             <SmallButton onClick={reloadApp} icon={<RefreshCw size={13} />}>Reload</SmallButton>
+          </Row>
+          <Row label='Setup wizard' hint='The first-run tour: connection, connectors, a first chat.'>
+            <SmallButton onClick={() => navigate('/onboarding')} icon={<Sparkles size={13} />}>Open</SmallButton>
           </Row>
           <Row label='Signed in on this device'>
             <SmallButton onClick={logout} icon={<LogOut size={13} />}>Log out</SmallButton>

@@ -7,7 +7,7 @@ import {
   useCallback,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Repeat, Pencil, Brain, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2, ChevronRight } from 'lucide-react'
+import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Repeat, Pencil, Brain, MessageSquareText, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2, ChevronRight } from 'lucide-react'
 import { useModelCatalogue, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, modelSupportsEffort } from './ModelSelector'
 import GatewayModelPicker from './GatewayModelPicker'
 import { isGatewayModel, modalityLabel } from './ModelSelector'
@@ -31,6 +31,9 @@ interface Props {
   effort?: Effort
   onModelChange?: (model: string) => void
   onEffortChange?: (effort: Effort) => void
+  /** Show Jarvis's reasoning as notes between the steps. */
+  thinking?: boolean
+  onThinkingChange?: (on: boolean) => void
   conversationId?: string
   hasCron?: boolean
   hasWebhook?: boolean
@@ -54,6 +57,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     onDelete, onRename,
     notify = 'subscribe', onNotifyChange,
     model, effort = DEFAULT_EFFORT, onModelChange, onEffortChange,
+    thinking = false, onThinkingChange,
     conversationId, hasCron, hasWebhook,
     onMove,
     onRefreshApp, appUrl, onRotateAppToken,
@@ -197,6 +201,20 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                   </div>
                 </div>
 
+                {/* Reasoning notes — off by default, so a chat reads as a conversation */}
+                <button
+                  role='switch'
+                  aria-checked={thinking}
+                  onClick={() => onThinkingChange?.(!thinking)}
+                  className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
+                >
+                  <MessageSquareText size={14} />
+                  <span className='flex-1 text-left'>Show reasoning</span>
+                  <span className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${thinking ? 'bg-accent' : 'bg-border'}`}>
+                    <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${thinking ? 'left-[14px]' : 'left-0.5'}`} />
+                  </span>
+                </button>
+
                 <div className='h-px bg-border my-1' />
 
                 {/* Notify toggle */}
@@ -223,7 +241,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
 
                 <div className='h-px bg-border my-1' />
                 <button
-                  onClick={() => { setOpen(false); navigate(`/activity?tab=routines&conversation_id=${conversationId}`) }}
+                  onClick={() => { setOpen(false); navigate(`/routines?conversation_id=${conversationId}`) }}
                   className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
                 >
                   <Repeat size={14} />
@@ -310,7 +328,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                 className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg whitespace-nowrap'
               >
                 <FolderInput size={14} />
-                Move to section
+                Move to topic
               </button>
             )}
 
@@ -325,7 +343,9 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
             <button
               onClick={() => {
                 setOpen(false)
-                if (confirm('Delete this conversation?')) onDelete()
+                // A routine survives its chat: the next fire opens a new one. Say so.
+                const note = (hasCron || hasWebhook) ? '\n\nRoutines posting here keep running and will open a new chat.' : ''
+                if (confirm(`Delete this conversation?${note}`)) onDelete()
               }}
               className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-danger hover:bg-surface2 transition-colors rounded-lg'
             >

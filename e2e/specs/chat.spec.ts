@@ -67,12 +67,42 @@ test.describe('chat rendering', () => {
     await expect(quiet.getByText(/JavaScript Weekly/)).toBeVisible()
   })
 
-  test("background run: the gear opens the cron's definition in edit mode", async ({ page }) => {
+  test('reasoning notes are off by default, and the ⋯ menu turns them on per chat', async ({ page }) => {
     await openConversation(page, 'Morning brief')
-    await page.getByTestId('run-card').getByTitle("Open this cron's settings").click()
-    await expect(page).toHaveURL(/\/activity\?tab=routines/)
-    await expect(page.getByRole('heading', { name: 'Edit cron' })).toBeVisible()
-    await expect(page.getByPlaceholder(/Name/)).toHaveValue('morning-brief')
+    await page.getByRole('main').locator('button[title*="onversation options"]:visible').first().click()
+    const sw = page.getByRole('switch', { name: 'Show reasoning' })
+    await expect(sw).toHaveAttribute('aria-checked', 'false')
+    await sw.click()
+    await expect(sw).toHaveAttribute('aria-checked', 'true')
+    // Persisted: reopening the menu after a reload finds it on.
+    await page.reload()
+    await page.getByRole('main').locator('button[title*="onversation options"]:visible').first().click()
+    await expect(page.getByRole('switch', { name: 'Show reasoning' })).toHaveAttribute('aria-checked', 'true')
+  })
+
+  test('background run: the gear opens the routine in edit mode', async ({ page }) => {
+    await openConversation(page, 'Morning brief')
+    await page.getByTestId('run-card').getByTitle('Open this routine').click()
+    await expect(page).toHaveURL(/\/routines/)
+    await expect(page.getByRole('heading', { name: 'Edit routine' })).toBeVisible()
+    await expect(page.getByLabel('Name', { exact: true })).toHaveValue('morning-brief')
+  })
+
+  test('the title bar names the routines of the chat: pause, run, edit, stop — no page needed', async ({ page }) => {
+    await openConversation(page, 'Morning brief')
+    // No clock icon, no runs pill: one control, opening to the routines that post here.
+    const pill = page.getByRole('main').getByTestId('routines-pill').locator('visible=true').first()
+    await pill.click()
+    const pop = page.getByTestId('routines-popover')
+    const row = pop.getByTestId('routines-popover-row').filter({ hasText: 'morning-brief' })
+    await expect(row).toHaveCount(1)
+    await expect(row.getByText('daily at 05:30')).toBeVisible()
+    await expect(row.getByRole('switch', { name: 'Resume morning-brief' })).toHaveAttribute('aria-checked', 'false')
+    await expect(row.getByTitle('Run now')).toBeVisible()
+    await expect(pop.getByRole('button', { name: 'New routine here' })).toBeVisible()
+    await row.getByTitle('Edit this routine').click()
+    await expect(page).toHaveURL(/\/routines/)
+    await expect(page.getByRole('heading', { name: 'Edit routine' })).toBeVisible()
   })
 
   test('app pane: the fixture app renders beside the chat', async ({ page }) => {

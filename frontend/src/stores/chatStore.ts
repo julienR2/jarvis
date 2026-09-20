@@ -12,7 +12,7 @@ import {
 
 type PatchableFields = Pick<
   Conversation,
-  'title' | 'notify' | 'model' | 'effort' | 'section_id'
+  'title' | 'notify' | 'model' | 'effort' | 'thinking' | 'section_id'
 >
 
 // How many messages to pull per page. Deliberately generous: one round-trip
@@ -73,6 +73,8 @@ interface ChatState {
   loadSections: () => Promise<void>
   createSection: (name: string) => Promise<Section | null>
   renameSection: (id: string, name: string) => Promise<void>
+  /** Rewrite a topic's brief (and/or its name). */
+  updateSection: (id: string, patch: { name?: string; context?: string }) => Promise<void>
   deleteSection: (id: string) => Promise<void>
   moveSection: (id: string, delta: -1 | 1) => Promise<void>
 
@@ -312,6 +314,14 @@ export const useChatStore = create<ChatState>()(
       }
     },
 
+    async updateSection(id, patch) {
+      const updated = await api.updateSection(id, patch)
+      set((s) => {
+        const i = s.sections.findIndex((x) => x.id === id)
+        if (i >= 0) s.sections[i] = updated
+      })
+    },
+
     async deleteSection(id) {
       const before = { sections: get().sections, conversations: get().conversations }
       // The server drops the section's conversations back into the default group
@@ -448,6 +458,7 @@ export const useChatStore = create<ChatState>()(
         if (patch.notify !== undefined) apiPatch.notify = patch.notify
         if (patch.model !== undefined) apiPatch.model = patch.model ?? undefined
         if (patch.effort !== undefined) apiPatch.effort = patch.effort
+        if (patch.thinking !== undefined) apiPatch.thinking = !!patch.thinking
         if (patch.section_id !== undefined) apiPatch.section_id = patch.section_id
         const updated = await api.updateConversation(id, apiPatch)
         set((s) => {
