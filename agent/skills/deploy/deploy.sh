@@ -49,7 +49,7 @@ fi
 LAST=$(python3 -c "import json;print(json.load(open('$MARKER'))['commit'])" 2>/dev/null || true)
 
 # ── what changed ─────────────────────────────────────────────────────────────
-FE=0 BE=0 EN=0 FE_BLOCKED=0 HOST=()
+FE=0 BE=0 EN=0 FE_BLOCKED=0 HOST=() NOTES=()
 if [ -z "$LAST" ] || [ "$FORCE_ALL" = 1 ]; then
   FE=1 BE=1 EN=1
   CHANGED="(all)"
@@ -65,14 +65,19 @@ else
   while IFS= read -r f; do
     [ -z "$f" ] && continue
     case "$f" in
-      frontend/package.json|frontend/package-lock.json) HOST+=("frontend dependencies changed — recreate the frontend container (npm install runs on start)") ;;
+      frontend/package.json|frontend/package-lock.json) HOST+=("frontend dependencies changed — the frontend container installs them on start: homelab skill POST /rebuild/jarvis (restarts every Jarvis container, this conversation included) or, on the host, docker compose up -d --force-recreate frontend") ;;
+      # Backend and engine install their dependencies on start too, but the
+      # typecheck below runs against the modules already installed — so a new
+      # dependency fails it until the service has restarted once. Say so.
+      backend/package.json|backend/package-lock.json) BE=1; NOTES+=("backend dependencies changed — they install on its restart; if the typecheck fails on a missing module, restart it first (curl -X POST -H \"X-Internal-Secret: \$INTERNAL_SECRET\" \$BACKEND_URL/internal/restart) and rerun deploy") ;;
+      engine/package.json|engine/package-lock.json) EN=1; NOTES+=("engine dependencies changed — they install on its restart; if the engine typecheck fails on a missing module, deploy with --engine (it restarts) and rerun deploy afterwards") ;;
       # The preview server reads its proxy table once, at start — a build alone
       # does not carry a change here. Still built below, for the bundle side.
       frontend/vite.config.ts) FE=1; HOST+=("frontend/vite.config.ts changed — the preview proxy only reloads on \`docker compose up -d frontend\`") ;;
       frontend/*) FE=1 ;;
       backend/*) BE=1 ;;
       engine/*) EN=1 ;;
-      */Dockerfile|docker-compose*.yml|*/docker-compose*.yml) HOST+=("$f — image/compose change: run \`docker compose up -d --build\` on the host") ;;
+      */Dockerfile|docker-compose*.yml|*/docker-compose*.yml) HOST+=("$f — image/compose change: homelab skill POST /start/jarvis (= docker compose up -d, recreates only what changed; a Dockerfile change needs /rebuild/jarvis, which restarts everything) or the same on the host") ;;
       *) ;;  # agent/, docs, site, README: read at runtime or irrelevant
     esac
   done <<< "$CHANGED"
@@ -89,6 +94,7 @@ fi
 echo "deploy $SHORT$( [ "$DIRTY" -gt 0 ] && echo " (+$DIRTY uncommitted)")"
 [ -n "$LAST" ] && echo "· since $(git rev-parse --short "$LAST" 2>/dev/null || echo "$LAST"): $(printf '%s\n' "$CHANGED" | grep -c . || echo 0) file(s)"
 echo "· plan: frontend=$FE backend=$BE engine=$EN host=${#HOST[@]}"
+for n in "${NOTES[@]:-}"; do [ -n "$n" ] && echo "! note: $n"; done
 
 if [ "$FE" = 0 ] && [ "$BE" = 0 ] && [ "$EN" = 0 ] && [ "${#HOST[@]}" = 0 ]; then
   echo "✓ nothing to deploy"

@@ -28,26 +28,41 @@ bash "$CLAUDE_CONFIG_DIR/skills/deploy/deploy.sh" [--fast] [--dry-run] [--allow-
 
 It works out what changed since the last deploy (`agent/data/deployed.json`),
 typechecks what it will touch, runs the **e2e suite against next** (`e2e/run.sh`:
-re-arms the fixtures on next (only their rows; the rest of next's data stays), then UI-only checks — login, rendering of the fixture
-conversations, sidebar, settings pages, a console/failed-request guard), and only
-then applies, in this order:
+re-arms the fixtures on next (only their rows; the rest of next's data stays), then
+UI-only checks — access, chat rendering, sidebar, Today, Routines, topics, needs-you,
+settings, a console/failed-request guard; ~45 specs in ~25 s), and only then
+applies, in this order:
 
 1. **frontend** — builds from the engine container, copies hashed assets in,
    swaps `index.html` last. Zero downtime. Open tabs get the "Jarvis updated
    its interface" banner; tell the user to use it.
 2. **backend** — `POST /internal/restart`, waits for `/health`. ~2–3 s blip;
    SSE clients reconnect on their own. Runs mid-conversation keep going.
-3. **engine** — only with `--engine`. Kills PID 1 after 10 s, detached, so your
-   reply lands first. **This ends the current conversation's Claude process**;
+3. **engine** — only with `--engine`. Ends the engine's node process after 10 s,
+   detached, so your reply lands first; the container's restart policy brings it
+   back on the new code. **This ends the current conversation's Claude process**;
    the next user message resumes the session with full context. Always say so
    before passing the flag, and prefer ending your turn right after.
 
-Changes it cannot apply from a container are printed as `! host:` lines —
-Dockerfiles, compose files, frontend dependency changes. Relay them verbatim;
-the user runs `docker compose up -d --build` (or the homelab rebuild) on the host.
+All of that runs from the engine container — no Docker needed. What it cannot
+apply is printed as `! host:` lines: Dockerfiles, compose files, frontend
+dependency changes. Most of those the `homelab` skill can still do from here:
+`POST http://homelab-api:3007/start/jarvis` is `docker compose up -d` (recreates
+only the containers whose definition changed), `POST /rebuild/jarvis` is the full
+`--build --force-recreate` and restarts every Jarvis container, this conversation
+included — ask before. Otherwise relay the line verbatim for the host.
 
-Changes under `agent/` (skills, rules, CLAUDE.md, memory) need no deploy — they
-are read at runtime.
+`! note:` lines are about dependencies: backend and engine install theirs on
+restart, so a new package fails the typecheck until the service has restarted
+once. The line says which restart to do first.
+
+Changes under `agent/` (skills, rules, CLAUDE.md, memory) need no deploy — prod
+reads them at runtime. Next runs its own copy (`agent/next/config`), refreshed
+when the stack comes up; the `jarvis` skill says how to sync it by hand.
+
+Next's engine is not part of a deploy: it is restarted with
+`POST http://next-engine:3010/restart` (Bearer `$INTERNAL_SECRET`) whenever an
+engine change should show on next.
 
 ## How to use it in a conversation
 
@@ -60,7 +75,8 @@ are read at runtime.
 - If the backend does not come back within 30 s the script exits non-zero.
   Recovery: `git diff` / `git revert` the offending change, then run deploy
   again — the restart endpoint is on the *new* code, so if the backend is truly
-  down the user restarts the `jarvis` project via the homelab skill.
+  down, `POST http://homelab-api:3007/start/jarvis` (homelab skill) brings the
+  project up on the code now on disk. Say that it restarts this conversation.
 
 ## The e2e suite
 

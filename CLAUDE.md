@@ -11,9 +11,9 @@ dev mode on its own throwaway database, served at `/next/` on the same origin �
 prod's frontend proxies it, so no reverse-proxy change is needed. A save is live
 there in about a second, which is how a change gets shown before it is deployed.
 
-**Deploying**: prod runs without file watchers, so an edit under `backend/`, `frontend/` or `engine/` is inert until the `deploy` skill runs (`agent/skills/deploy/deploy.sh`). It typechecks, runs the UI e2e suite against next (`e2e/`, 14 checks on seeded fixtures, ~10 s), builds the frontend, restarts the backend through `POST /internal/restart`, and restarts the engine only when told to. Edits under `agent/` are read at runtime and need no deploy.
+**Deploying**: prod runs without file watchers, so an edit under `backend/`, `frontend/` or `engine/` is inert until the `deploy` skill runs (`agent/skills/deploy/deploy.sh`). It typechecks, runs the UI e2e suite against next (`e2e/`, ~45 checks on seeded fixtures, ~25 s), builds the frontend, restarts the backend through `POST /internal/restart`, and restarts the engine only when told to (`--engine`). None of it needs Docker: it runs from the engine container. Edits under `agent/` are read at runtime by prod and need no deploy; next runs its own copy under `agent/next/config`, refreshed when the stack comes up (or synced by hand, see the `jarvis` skill). Next's engine is not hot-reloaded either: `POST http://next-engine:3010/restart` with the internal secret bounces it.
 
-**Recovery strategy**: First try discarding uncommitted changes (`/api/git/discard`). If the repo is clean but still broken, revert the last commit (`/api/git/revert`). Either way the running code only changes after a deploy — or, if the backend itself is down, after the `jarvis` project is restarted on the host.
+**Recovery strategy**: First try discarding uncommitted changes (`/api/git/discard`). If the repo is clean but still broken, revert the last commit (`/api/git/revert`). Either way the running code only changes after a deploy — or, if the backend itself is down, after the `jarvis` project is brought up again: the `homelab` skill's `POST /start/jarvis` does it from inside the container (it restarts the engine too, so the current conversation ends), or `docker compose up -d` on the host.
 
 ## Typechecking your own edits
 

@@ -1,133 +1,167 @@
 ---
 name: self-edit
-description: Modify Jarvis's own source code (frontend, backend, engine). Use ONLY when the user explicitly asks to modify Jarvis itself (e.g. "improve your interface", "work on Jarvis", "change your chat UI", "add a feature to Jarvis"). Do NOT activate from ambiguous requests.
+description: Modify Jarvis's own source code (frontend, backend, engine, agent config). Use ONLY when the user explicitly asks to modify Jarvis itself (e.g. "improve your interface", "work on Jarvis", "change your chat UI", "add a feature to Jarvis"). Do NOT activate from ambiguous requests.
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 ---
 
 # Self-Edit Skill — Modify Jarvis
 
-You can edit Jarvis's own source. Two facts shape how:
+You can edit Jarvis's own source. Three facts shape how:
 
 1. **Nothing you save is live in prod.** Prod runs without file watchers. A
-   change reaches the instance the user is talking to only when the `deploy`
-   skill runs, after they have approved it.
-2. **The `next` stack shows edits live.** It is the same tree in dev mode, on
-   throwaway data, served at `/next/` on the same origin (prod's frontend
-   proxies it). Point the chat's app pane there and the user watches the change
-   happen beside the conversation — no reload, no second login.
+   change under `backend/`, `frontend/` or `engine/` reaches the instance the
+   user is talking to only when the `deploy` skill runs, after they approved it.
+   Changes under `agent/` (skills, rules, CLAUDE.md) are read at runtime by prod.
+2. **The `next` stack shows edits live.** Same tree, dev mode, throwaway data,
+   served at `/next/` on the same origin (prod's frontend proxies it). This is
+   where you preview and QA, however big the change, without touching prod.
+3. **The tree is git, and it is shared.** Other chats may be editing at the same
+   time. Commit only your files, and only once the user has said yes. The
+   `deploy` skill refuses a dirty tree for that reason.
 
-   It runs as part of the normal stack (compose profile `next`, enabled from
-   `.env`). Reach it from here as `next-backend:3005`; a 502 or a refused
-   connection means the profile is off — say so, don't deploy to compensate.
+You have no Docker. Everything below works from inside the engine container:
+HTTP calls to the other containers, files under `/jarvis`, git, npm scripts.
 
 ## The loop
 
-1. Explore with `Glob`/`Grep`, read before editing, follow existing patterns.
-2. Edit. Typecheck: `npm --prefix /jarvis/frontend run typecheck` and/or
-   `npm --prefix /jarvis/backend run typecheck`.
-3. **Show it on next.** Check the stack is up (`curl -s http://next-backend:3005/health`).
-   If it is, put the page you touched in the app pane (the iframe path is what
-   the user's browser resolves, so it is `/next/...`, not a container name):
-   ```bash
-   mkdir -p "$WORKSPACE_DIR/apps/$JARVIS_CONVERSATION_ID"
-   cat > "$WORKSPACE_DIR/apps/$JARVIS_CONVERSATION_ID/index.html" <<HTML
-   <!doctype html><html><body style="margin:0"><iframe src="/next/routines" allow="microphone" style="border:0;width:100%;height:100vh"></iframe></body></html>
-   HTML
-   curl -s -X POST "$BACKEND_URL/internal/apps" -H 'Content-Type: application/json' -H "X-Internal-Secret: $INTERNAL_SECRET" -d "{\"conversation_id\":\"$JARVIS_CONVERSATION_ID\"}"
-   curl -s -X POST "$BACKEND_URL/internal/apps/$JARVIS_CONVERSATION_ID/notify" -H "X-Internal-Secret: $INTERNAL_SECRET"
-   ```
-   Replace `/next/routines` with the route being changed (`/next/` for Today,
-   `/next/c/<id>` for a fixture conversation, `/next/t/<id>` for a topic,
-   `/next/settings`…).
-   Register once per conversation; later edits appear on their own through HMR.
-   If next is down, say so and describe the change instead — do not deploy to
-   show it.
-4. The user looks and says yes, or asks for more. Iterate in step 2.
-5. On approval: commit (multi-file changes wait for this review), then run the
-   **`deploy` skill**. The prod tab then shows the reload banner.
+### 0. Look before you edit
+```bash
+cd /jarvis && git status --short && git log --oneline -3
+python3 -c "import json;print(json.load(open('/jarvis/agent/data/deployed.json')))"   # what prod runs
+curl -s http://next-backend:3005/health                                               # is next up?
+```
+A dirty tree that is not yours belongs to another chat — leave it alone and say
+so if it gets in the way. `deployed.json` tells you whether HEAD is already live.
 
-Next's data is fixtures, not the user's: topics "🧪 Fixtures / ☀️ Daily /
-🏗️ Projects" (Projects carries a brief), a markdown showcase, an activity
-conversation, a morning-brief run, a fixture app, three crons, two webhooks, two
-runs waiting on an answer, an API key. `POST
-http://next-backend:3005/internal/fixtures` (same secret) puts the fixture rows
-back without touching anything else — do this if a test made a mess of them.
-**Never `POST /internal/reset` on your own**: it wipes next's whole database,
-including whatever the user was trying there. Only when they ask for a wipe. The
-e2e suite re-arms too; it does not wipe (`E2E_RESET=1` would).
+### 1. Edit
+Explore with `Glob`/`Grep`, read before editing, follow existing patterns. One
+change at a time. Typecheck what you touched:
+```bash
+npm --prefix /jarvis/frontend run typecheck
+npm --prefix /jarvis/backend run typecheck
+/jarvis/engine/node_modules/.bin/tsc --noEmit -p /jarvis/engine
+```
+Use `npm run`, never `npx tsc` (see /jarvis/CLAUDE.md). Hundreds of "cannot find
+module" errors mean the read-only node_modules mounts are not live — not your code.
 
-**Logging in to next yourself** (for a screenshot or an e2e run): the seed
-creates `e2e@jarvis.local` with a random password, kept in
+### 2. Show it on next
+- **frontend**: HMR, visible in about a second.
+- **backend**: `tsx watch` restarts next-backend on save, a second or two.
+- **engine**: NOT watched. Restart next's engine yourself — no host needed:
+  ```bash
+  curl -s -X POST http://next-engine:3010/restart -H "Authorization: Bearer $INTERNAL_SECRET"
+  ```
+  It exits and its restart policy brings it back on the new code in ~10 s.
+  Only next's chats are affected, never the one you are in.
+- **agent/** (skills, rules, CLAUDE.md): next runs its own copy under
+  `/jarvis/agent/next/config`, seeded from `agent/` when the stack comes up. To
+  preview a skill or prompt change there before prod gets it, sync then restart:
+  ```bash
+  cp -r /jarvis/agent/skills/. /jarvis/agent/next/config/skills/ && cp -r /jarvis/agent/rules/. /jarvis/agent/next/config/rules/ && cp /jarvis/agent/CLAUDE.md /jarvis/agent/next/config/CLAUDE.md
+  curl -s -X POST http://next-engine:3010/restart -H "Authorization: Bearer $INTERNAL_SECRET"
+  ```
+
+Put the page in the chat's app pane so the user watches it beside the conversation
+(the iframe path is what their browser resolves: `/next/...`, not a container name):
+```bash
+mkdir -p "$WORKSPACE_DIR/apps/$JARVIS_CONVERSATION_ID"
+cat > "$WORKSPACE_DIR/apps/$JARVIS_CONVERSATION_ID/index.html" <<HTML
+<!doctype html><html><body style="margin:0"><iframe src="/next/routines" allow="microphone" style="border:0;width:100%;height:100vh"></iframe></body></html>
+HTML
+curl -s -X POST "$BACKEND_URL/internal/apps" -H 'Content-Type: application/json' -H "X-Internal-Secret: $INTERNAL_SECRET" -d "{\"conversation_id\":\"$JARVIS_CONVERSATION_ID\"}"
+curl -s -X POST "$BACKEND_URL/internal/apps/$JARVIS_CONVERSATION_ID/notify" -H "X-Internal-Secret: $INTERNAL_SECRET"
+```
+Replace `/next/routines` with the route being changed (`/next/` for Today,
+`/next/c/<id>` for a fixture conversation, `/next/t/<id>` for a topic,
+`/next/settings`…). Register once per conversation; later edits appear on their own.
+
+If next is down (502 / connection refused on next-backend), say so and describe the
+change instead. You cannot start it: the host runs the stack with
+`COMPOSE_PROFILES=next,browser` in `.env`; the `homelab` skill's
+`POST /start/jarvis` (= `docker compose up -d`) brings a stopped profile back.
+
+### 3. Prove it with the e2e suite
+```bash
+bash /jarvis/e2e/run.sh                          # whole suite, ~25 s
+bash /jarvis/e2e/run.sh specs/today.spec.ts      # one spec
+```
+Every UI change updates the spec that covers it; a new page gets a new spec file.
+Fixtures live in `backend/src/fixtures.ts` (fixed ids, re-armed by the suite —
+add rows there when a page needs data). The guard fails a test on any console
+error or 4xx/5xx; under `/next/` a hardcoded absolute path shows up as one.
+**Never `POST /internal/reset` on your own** — it wipes next's whole database,
+including what the user was trying there. `POST /internal/fixtures` puts the
+fixture rows back without touching anything else.
+
+### 4. QA with the user
+They look on next and say yes, or ask for more. Iterate in steps 1–3. A big
+change can sit on next for days: it costs prod nothing.
+
+### 5. Ship: commit, then deploy
+On the user's yes:
+```bash
+cd /jarvis && git add <your files> && git commit -m "feat(scope): what changed, and why"
+bash "$CLAUDE_CONFIG_DIR/skills/deploy/deploy.sh" [--engine]
+```
+- Commit **your** files only, one commit per coherent change, message = type(scope)
+  + the why. Multi-file changes wait for the review before the commit.
+- Pass `--engine` only when `engine/` changed. It ends this conversation's Claude
+  process (the next message resumes it) — say so before, and end your turn after.
+- `--allow-dirty` is not for your own work. If another chat's file is dirty, name it
+  and ask before using it.
+- The deploy skill builds the frontend, restarts the backend, kills the engine's
+  process when allowed — all from here, no host. What it cannot do it prints as
+  `! host:` lines: relay them. Most of those (a compose or Dockerfile change) the
+  `homelab` skill can apply: `POST http://homelab-api:3007/start/jarvis` is
+  `docker compose up -d` (recreates only what changed); `/rebuild/jarvis` is the
+  full `--build --force-recreate` and restarts every Jarvis container, this
+  conversation included — ask first.
+- Finish by telling the user to reload: the "Jarvis updated its interface" banner
+  at the bottom, or ↻ in the sidebar.
+
+### Recovery
+A bad deploy is a git problem first: `git diff`, then discard the working tree or
+`git revert` the last commit, then deploy again. If the backend is down the
+restart endpoint is gone with it — the `homelab` skill's `POST /start/jarvis`
+brings the project up on the code now on disk (restarting `jarvis` kills this
+conversation; say so).
+
+## Logging in to next yourself
+The seed creates `e2e@jarvis.local` with a random password, kept in
 `/jarvis/agent/next/data/e2e-credentials.json` (regenerated only on a full wipe).
 ```bash
 TOK=$(curl -s -X POST http://next-backend:3005/api/auth/login -H 'Content-Type: application/json' \
   -d "$(cat /jarvis/agent/next/data/e2e-credentials.json)" | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
 ```
-Then in Playwright: open `/next/login` on `http://jarvis-frontend:5173`, set
+Then in Playwright: open `/next/login` on `http://next-frontend:5173`, set
 `localStorage.token`, navigate to `/next/`. That token is refused by prod on
-purpose — prod only honours sessions for accounts that exist in its own DB. Never
-paste it into a tool call; hand it to the browser through a file or a request.
+purpose. Never paste it into a tool call; hand it to the browser through a file
+or a request.
+
+Next's data is fixtures, not the user's: topics "🧪 Fixtures / ☀️ Daily /
+🏗️ Projects" (Projects carries a brief), a markdown showcase, an activity
+conversation, a morning-brief run, a fixture app, three crons, two webhooks, two
+runs waiting on an answer, an API key. Fixture conversation ids are fixed:
+`00000000-0000-4000-8000-00000000000N` (1 markdown, 2 activity, 3 brief, 4 app,
+5 question, 6 approval, 7 chat question).
 
 ## When to use this skill
+**ONLY** when the user explicitly asks to modify Jarvis itself: "let's improve
+your interface", "work on Jarvis", "change your chat UI", "add a feature to
+Jarvis". Not when they talk about something else that happens to mention UI,
+files or code. When in doubt, ask.
 
-**ONLY** when the user explicitly asks to modify Jarvis itself. Look for clear intent like:
-- "Let's improve your interface"
-- "Let's work on Jarvis"
-- "Change your chat UI"
-- "Add a feature to Jarvis"
-
-**DO NOT** activate this skill if the user is talking about something else that happens to mention UI, files, or code. When in doubt, ask: "Do you want me to modify Jarvis's own interface?"
-
-## Frontend source location
-
-The source is mounted at `/jarvis/frontend/` inside the container.
-
+## Where things are
 ```
-/jarvis/frontend/
-├── src/
-│   ├── components/    # React components (ChatView, ChatInput, Sidebar, etc.)
-│   ├── pages/         # Page components (ChatPage, LoginPage, etc.)
-│   ├── api.ts         # API client and SSE connection
-│   ├── App.tsx        # Router and layout
-│   └── main.tsx       # Entry point
-├── index.html
-├── tailwind.config.js
-└── vite.config.ts
+/jarvis/
+├── frontend/src/      React 19, Vite, Tailwind v4 (theme in index.css), React Router v7, lucide icons
+│   ├── pages/         TodayPage, ChatPage (routes), RoutinesPage, TopicPage, SettingsPage…
+│   ├── components/    ChatView, ChatInput, MessageBubble, Sidebar, RoutinesPill, RoutineForm…
+│   ├── stores/        chatStore (zustand)
+│   ├── api.ts         API client, types, SSE
+│   └── base.ts        BASE_PATH / API_BASE — never hardcode /api or /images
+├── backend/src/       Fastify 5, better-sqlite3 (db.ts migrations), routes/, runs.ts, topics.ts, fixtures.ts
+├── engine/src/        Claude Code CLI sessions (sessions.ts), HTTP API (index.ts)
+├── e2e/               Playwright specs against next (run.sh)
+└── agent/             this config dir: CLAUDE.md, rules/, skills/ (read at runtime)
 ```
-
-**Tech stack**: React 19, TypeScript, Tailwind CSS 4, React Router v7, Lucide icons, react-markdown.
-
-## How to make changes
-
-1. Use `Glob` and `Grep` to explore the codebase and understand existing patterns
-2. Read the relevant files before editing — understand the existing code first
-3. Use `Edit` for targeted changes, `Write` only for new files
-4. Typecheck (`npm --prefix /jarvis/frontend run typecheck`), show the user the diff, and when they approve, run the `deploy` skill
-
-## Telling the user to reload
-
-There is **no hot reload**, and no build until you deploy. The container serves
-a fixed production build behind `vite preview`; the `deploy` skill replaces it.
-Until the tab reloads after that, the user is looking at the old interface and
-your change appears to have done nothing.
-
-When the deploy lands, a **"Jarvis updated its interface" banner with a Reload
-button** appears at the bottom of their screen automatically. So:
-
-- **Finish by telling them to reload**, e.g. "Reload to see it — use the Reload
-  button in the banner at the bottom, or the ↻ button at the bottom of the sidebar."
-- The banner appears once the deploy has swapped the build in; there is nothing
-  to wait for after the script returns.
-- If they say the change isn't showing, the first question is always whether
-  they reloaded.
-
-## Important guidelines
-
-- **Follow existing patterns** — match the code style, component structure, and naming conventions already in use
-- **Small, incremental changes** — make one change at a time so the user can review each one after a reload
-- **Don't break things** — if you're unsure about a change, explain what you plan to do and ask before editing
-- **Backend and engine too** — same loop. A backend change shows on next once
-  its `tsx watch` reloads (a second); an engine change needs next's engine
-  restarted, which needs the host (`docker compose restart next-engine`) — say
-  so rather than pretending it is visible
-- **Explain what you changed** — after each edit, briefly tell the user what you modified, what they should see, and that they need to reload

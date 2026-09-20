@@ -15,14 +15,19 @@ services:
   # Also prepares agent/next/ for the `next` profile below: its own data and
   # workspace, plus a Claude config seeded from this one. The copy is a
   # whitelist, never `cp -r /agent`: agent/projects alone is hundreds of
-  # megabytes of session transcripts. `cp -n` so a next config, once seeded,
-  # is yours to diverge.
+  # megabytes of session transcripts. The committed defaults (CLAUDE.md, rules,
+  # skills, mcp.json, settings.json) are refreshed on every `up`, so a skill
+  # edited here is what next runs after its next start — that is the point of
+  # previewing there. Personal files (CLAUDE.local.md, plugin flags, plugins)
+  # are seeded once (`cp -n`) and then left to diverge.
   setup:
     image: alpine:3
     command: >
       sh -c "mkdir -p /agent/data /agent/workspace/apps /agent/workspace/uploads
       /agent/next/data /agent/next/workspace/apps /agent/next/workspace/uploads /agent/next/config &&
-      for f in CLAUDE.md CLAUDE.local.md mcp.json settings.json .i-have-adhd-always rules skills plugins; do
+      for f in CLAUDE.md mcp.json settings.json rules skills; do
+      [ -e \"/agent/$$f\" ] && cp -r \"/agent/$$f\" /agent/next/config/ 2>/dev/null; done;
+      for f in CLAUDE.local.md .i-have-adhd-always plugins; do
       [ -e \"/agent/$$f\" ] && cp -rn \"/agent/$$f\" /agent/next/config/ 2>/dev/null; done;
       chown -R 1000:1000 /agent/data /agent/workspace /agent/next"
     volumes:
