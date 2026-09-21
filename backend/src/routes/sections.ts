@@ -49,13 +49,16 @@ export async function sectionRoutes(app: FastifyInstance) {
   // Rename, rewrite the brief, or both. A rewrite stamps context_updated_at so
   // the topic's warm chats pick the new text up on their next turn.
   app.patch<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
-    const body = (req.body ?? {}) as { name?: unknown; context?: unknown }
+    const body = (req.body ?? {}) as { name?: unknown; context?: unknown; brief_hidden?: unknown }
     const name = body.name !== undefined ? cleanName(body.name) : undefined
     if (body.name !== undefined && !name) return reply.code(400).send({ error: 'name is required' })
     if (body.context !== undefined && typeof body.context !== 'string') {
       return reply.code(400).send({ error: 'context must be a string' })
     }
-    if (name === undefined && body.context === undefined) {
+    if (body.brief_hidden !== undefined && typeof body.brief_hidden !== 'boolean') {
+      return reply.code(400).send({ error: 'brief_hidden must be a boolean' })
+    }
+    if (name === undefined && body.context === undefined && body.brief_hidden === undefined) {
       return reply.code(400).send({ error: 'Nothing to update' })
     }
     if (!getSection(req.params.id)) return reply.code(404).send({ error: 'Not found' })
@@ -69,6 +72,10 @@ export async function sectionRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: `context is too long (max ${MAX_CONTEXT_CHARS} characters)` })
       }
       setSectionContext(req.params.id, body.context)
+    }
+    if (typeof body.brief_hidden === 'boolean') {
+      getDb().prepare('UPDATE sections SET brief_hidden = ? WHERE id = ?').run(body.brief_hidden ? 1 : 0, req.params.id)
+      emitGlobalEvent({ type: 'sections' })
     }
     return getSection(req.params.id) as SectionRow
   })

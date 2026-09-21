@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
-  AppWindow, Check, Clock, Link2, Loader2, MessageSquare, MoreHorizontal, Pencil, Plus, Repeat, Settings2, Sparkles, Trash2, X, Zap,
+  AppWindow, Check, Clock, Link2, Loader2, MessageSquare, MoreHorizontal, Pencil, Plus, Repeat, Settings2, Sparkles, Trash2, X, Zap, ChevronDown, EyeOff, FolderOpen
 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { SidebarToggle } from '../components/ContentLayout'
@@ -251,15 +251,41 @@ export default function TopicPage() {
  * the topic's chats. The consolidation runs as an ordinary turn in the topic's
  * dossier chat, so it streams and can be stopped like anything else.
  */
-function Brief({ section }: { section: { id: string; name: string; context: string; context_updated_at: number | null } }) {
+// Past this height the brief folds behind "Show more": a long brief is normal,
+// but it must not push what waits and the chats off the first screen.
+const BRIEF_FOLD_PX = 220
+
+function Brief({ section }: { section: { id: string; name: string; context: string; context_updated_at: number | null; brief_hidden: number } }) {
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(section.context)
   const [saving, setSaving] = useState(false)
   const [consolidating, setConsolidating] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [overflows, setOverflows] = useState(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
   const updateSection = useChatStore((s) => s.updateSection)
 
   useEffect(() => { if (!editing) setDraft(section.context) }, [section.context, editing])
+  // Folded again when the topic changes; measured whenever the text does.
+  useEffect(() => { setExpanded(false) }, [section.id])
+  useEffect(() => {
+    const el = bodyRef.current
+    if (!el) return
+    const measure = () => setOverflows(el.scrollHeight > BRIEF_FOLD_PX + 8)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [section.context, editing, section.brief_hidden])
+
+  async function setHidden(hidden: boolean) {
+    try {
+      await updateSection(section.id, { brief_hidden: hidden })
+    } catch {
+      window.__jarvisToast?.error("Couldn't update the topic — try again.")
+    }
+  }
 
   async function save() {
     setSaving(true)
@@ -284,6 +310,19 @@ function Brief({ section }: { section: { id: string; name: string; context: stri
   }
 
   const empty = !section.context.trim()
+
+  // A folder, not a topic: one quiet line, and the way back.
+  if (section.brief_hidden) {
+    return (
+      <section data-testid='topic-brief' className='flex items-center justify-between gap-3 rounded-xl border border-dashed border-border px-4 py-2.5 text-[12.5px] text-text-muted'>
+        <span className='inline-flex items-center gap-2'><FolderOpen size={13} /> A group without a brief — its chats start from nothing shared.</span>
+        <button onClick={() => setHidden(false)} className='shrink-0 text-[11.5px] text-text-muted underline-offset-2 hover:text-text-primary hover:underline transition-colors' title='Make it a topic again: the brief shows here and goes to its chats'>
+          Use a brief
+        </button>
+      </section>
+    )
+  }
+
   return (
     <section data-testid='topic-brief'>
       <div className='flex items-center justify-between mb-1'>
@@ -298,6 +337,9 @@ function Brief({ section }: { section: { id: string; name: string; context: stri
             </button>
             <button onClick={consolidate} disabled={consolidating} className='inline-flex items-center gap-1 text-[11.5px] text-text-muted hover:text-text-primary transition-colors disabled:opacity-50' title="Jarvis rewrites the brief from this topic's chats">
               {consolidating ? <Loader2 size={11} className='animate-spin' /> : <Sparkles size={11} />} {empty ? 'Draft with Jarvis' : 'Refresh with Jarvis'}
+            </button>
+            <button onClick={() => setHidden(true)} className='inline-flex items-center gap-1 text-[11.5px] text-text-muted hover:text-text-primary transition-colors' title='Just a group, not a topic: hide the brief and stop giving it to chats. Reversible.'>
+              <EyeOff size={11} /> Hide
             </button>
           </div>
         )}
@@ -324,8 +366,27 @@ function Brief({ section }: { section: { id: string; name: string; context: stri
           No brief yet. Write what this topic is about — every chat filed here will start from it — or let Jarvis draft one from the chats already here.
         </div>
       ) : (
-        <div className='rounded-xl bg-bg-alt px-4 py-3 text-[14px] leading-relaxed text-text-primary'>
-          <Markdown text={section.context} />
+        <div className='relative'>
+          <div
+            ref={bodyRef}
+            data-testid='topic-brief-body'
+            style={!expanded && overflows ? { maxHeight: BRIEF_FOLD_PX } : undefined}
+            className='overflow-hidden rounded-xl bg-bg-alt px-4 py-3 text-[14px] leading-relaxed text-text-primary'
+          >
+            <Markdown text={section.context} />
+          </div>
+          {overflows && !expanded && (
+            <div className='pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-xl bg-gradient-to-t from-bg-alt to-transparent' />
+          )}
+          {overflows && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className={`${expanded ? 'mt-1.5' : 'absolute bottom-2 left-1/2 -translate-x-1/2'} inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2.5 py-1 text-[11.5px] text-text-secondary shadow-sm transition-colors hover:text-text-primary`}
+            >
+              <ChevronDown size={12} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+              {expanded ? 'Show less' : 'Show more'}
+            </button>
+          )}
         </div>
       )}
     </section>

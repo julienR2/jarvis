@@ -174,7 +174,7 @@ export const api = {
     request<Section>('PATCH', `/sections/${id}`, { name }),
   getSection: (id: string) => request<Section>('GET', `/sections/${id}`),
   /** Rewrite a topic's brief (and/or rename it). */
-  updateSection: (id: string, data: { name?: string; context?: string }) =>
+  updateSection: (id: string, data: { name?: string; context?: string; brief_hidden?: boolean }) =>
     request<Section>('PATCH', `/sections/${id}`, data),
   /** Ask Jarvis to rewrite the brief from the topic's chats; answers with the chat it runs in. */
   consolidateSection: (id: string) =>
@@ -689,6 +689,8 @@ export interface Section {
   /** The topic's shared brief, markdown — empty for a plain group. */
   context: string
   context_updated_at: number | null
+  /** 1 when the group is a plain folder: the brief is hidden and not given to its chats. */
+  brief_hidden: number
   created_at: number
 }
 

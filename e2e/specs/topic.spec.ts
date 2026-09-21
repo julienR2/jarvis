@@ -4,7 +4,8 @@ import { test, expect, signIn } from '../helpers'
 const HOME = /^https?:\/\/[^/]+(\/next)?\/?$/
 
 /**
- * A topic as a page. Fixtures: the "🏗️ Projects" section carries a brief and
+ * A topic as a page. Fixtures: the "🏗️ Projects" section carries a brief (the
+ * edit test rewrites it), "🧪 Fixtures" a long one (the fold test), and
  * holds the fixture app, the blog publish chat (with its webhook) and the trip
  * idea chat (waiting on an answer); "☀️ Daily" has no brief.
  */
@@ -68,6 +69,51 @@ test.describe('topic', () => {
     await expect(brief.getByText('No brief yet.')).toBeVisible()
     await expect(brief.getByRole('button', { name: 'Write' })).toBeVisible()
     await expect(brief.getByRole('button', { name: 'Draft with Jarvis' })).toBeVisible()
+  })
+
+  test('a long brief folds past a max height; Show more unfolds it', async ({ page }) => {
+    // Fixtures carries the long brief — its own topic, so the edit test on
+    // Projects cannot shorten it from under this one (workers run in parallel).
+    await page.getByTitle('Open the topic').filter({ hasText: 'Fixtures' }).click()
+    const brief = page.getByTestId('topic-brief')
+    const body = brief.getByTestId('topic-brief-body')
+    const more = brief.getByRole('button', { name: 'Show more' })
+    await expect(more).toBeVisible()
+    // Folded: the last lines are clipped, the rest of the page stays near.
+    const folded = await body.boundingBox()
+    expect(folded!.height).toBeLessThanOrEqual(230)
+    await expect(brief.getByText('Week 38: the second app')).not.toBeInViewport()
+    await more.click()
+    const open = await body.boundingBox()
+    expect(open!.height).toBeGreaterThan(folded!.height + 60)
+    await expect(brief.getByText('Week 38: the second app')).toBeVisible()
+    await brief.getByRole('button', { name: 'Show less' }).click()
+    await expect(more).toBeVisible()
+  })
+
+  test('a group that is not a topic hides its brief, and can take it back', async ({ page }) => {
+    // Its own throwaway topic: the no-brief test reads Daily at the same time.
+    const name = `e2e folder ${Date.now().toString(36)}`
+    await page.getByText('New topic').click()
+    await page.getByPlaceholder('Work, Home, a project…').fill(name)
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.getByTitle('Open the topic').filter({ hasText: name }).click()
+    const brief = page.getByTestId('topic-brief')
+    await expect(brief.getByText('No brief yet.')).toBeVisible()
+    await brief.getByRole('button', { name: 'Hide' }).click()
+    await expect(brief.getByText('A group without a brief')).toBeVisible()
+    await expect(brief.getByRole('button', { name: 'Write' })).toHaveCount(0)
+    // Persisted: a reload keeps it hidden.
+    await page.reload()
+    const again = page.getByTestId('topic-brief')
+    await expect(again.getByText('A group without a brief')).toBeVisible()
+    await again.getByRole('button', { name: 'Use a brief' }).click()
+    await expect(again.getByText('No brief yet.')).toBeVisible()
+    // Leave the instance as found.
+    page.once('dialog', (d) => d.accept())
+    await page.getByRole('main').getByTitle('Topic options').click()
+    await page.getByRole('button', { name: 'Delete topic' }).click()
+    await expect(page).toHaveURL(HOME)
   })
 
   test('new chat here lands in the topic', async ({ page }) => {

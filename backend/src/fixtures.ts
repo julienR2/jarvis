@@ -118,6 +118,33 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
       '**How to work here**',
       '- Use the `apps` skill for anything with a UI; keep drafts under the drive.',
     ].join('\n'), t(60 * 24), projects.id)
+    // Fixtures carries a LONG brief, the one that folds behind "Show more" on
+    // its page. Its own topic so the spec editing Projects' brief can't shorten
+    // it from under the fold test (workers run in parallel).
+    db.prepare('UPDATE sections SET context = ?, context_updated_at = ? WHERE id = ?').run([
+      '**What this is** — the seeded data every check runs against: a conversation per rendering case, three routines, a couple of runs waiting on an answer.',
+      '',
+      '**Decided**',
+      '- Fixed ids (`00000000-0000-4000-8000-00000000000N`) so a spec or a preview can deep-link and survive a reseed.',
+      '- Re-armed in place, never wiped: a person\'s own chats on next are theirs.',
+      '- Named by what they exercise, not by what they contain.',
+      '',
+      '**Open**',
+      '- A running-run fixture is impossible: the boot reconcile marks it interrupted.',
+      '- Whether the quiet-run fold deserves its own conversation.',
+      '',
+      '**How to work here**',
+      '- Add a row in `backend/src/fixtures.ts` when a page needs data, with a fixed id.',
+      '- Count by name in specs, never the whole table.',
+      '- Rearm with `POST /internal/fixtures`; the suite does it in its setup.',
+      '',
+      '**History**',
+      '- Week 36: markdown, activity and brief conversations; the first app.',
+      '- Week 37: the two waiting runs and the chat question; the API key per user.',
+      '- Week 38: the second app, the unread thread, the quoted reply.',
+    ].join('\n'), t(60 * 24 * 2), fixtures.id)
+    // Fixture groups start as topics-to-be: a hide on next must not stick.
+    db.prepare('UPDATE sections SET brief_hidden = 0 WHERE id IN (?, ?, ?)').run(fixtures.id, daily.id, projects.id)
 
     // 1. Markdown — every construct the bubble renders.
     const md = ID.markdown

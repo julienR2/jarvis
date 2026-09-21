@@ -51,6 +51,8 @@ export interface SectionRow {
   /** The topic's shared context, markdown. Empty for a plain group. */
   context: string
   context_updated_at: number | null
+  /** 1 when the group is a plain folder: no brief shown, none given to its chats. */
+  brief_hidden: number
   created_at: number
 }
 

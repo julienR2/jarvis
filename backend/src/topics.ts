@@ -54,7 +54,7 @@ export function setSectionContext(id: string, context: string): SectionRow | und
 export function topicContextFor(conv: ConvRow, opts: { freshSession?: boolean } = {}): string | null {
   if (!conv.section_id) return null
   const section = getSection(conv.section_id)
-  if (!section || !section.context.trim()) return null
+  if (!section || !section.context.trim() || section.brief_hidden) return null
   const fresh = opts.freshSession || !conv.claude_session_id
   const rewritten = (section.context_updated_at ?? 0) > (conv.topic_context_at ?? 0)
   if (!fresh && !rewritten) return null

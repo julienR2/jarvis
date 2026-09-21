@@ -416,6 +416,11 @@ export function initDb(): void {
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN topic_context_at INTEGER`)
   } catch { /* already exists */ }
+  // A group that is a folder, not a topic: its brief is hidden on the page and
+  // never handed to its chats, until someone brings it back.
+  try {
+    db.exec(`ALTER TABLE sections ADD COLUMN brief_hidden INTEGER NOT NULL DEFAULT 0`)
+  } catch { /* already exists */ }
 
   // Connectors — one row per connector holding its definition AND its values.
   // Unified from the former three-way split (hardcoded catalog + custom_connectors

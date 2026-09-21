@@ -76,7 +76,7 @@ interface ChatState {
   createSection: (name: string) => Promise<Section | null>
   renameSection: (id: string, name: string) => Promise<void>
   /** Rewrite a topic's brief (and/or its name). */
-  updateSection: (id: string, patch: { name?: string; context?: string }) => Promise<void>
+  updateSection: (id: string, patch: { name?: string; context?: string; brief_hidden?: boolean }) => Promise<void>
   deleteSection: (id: string) => Promise<void>
   moveSection: (id: string, delta: -1 | 1) => Promise<void>
 
