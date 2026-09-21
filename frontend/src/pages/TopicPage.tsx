@@ -331,12 +331,12 @@ function Brief({ section }: { section: { id: string; name: string; context: stri
           {section.context_updated_at && !empty && <span className='font-normal normal-case tracking-normal'> · updated {relative(section.context_updated_at)}</span>}
         </Eyebrow>
         {!editing && (
-          <div className='flex items-center gap-2'>
+          <div className='flex items-center gap-4'>
             <button onClick={() => setEditing(true)} className='inline-flex items-center gap-1 text-[11.5px] text-text-muted hover:text-text-primary transition-colors' title='Edit the brief by hand'>
               <Pencil size={11} /> {empty ? 'Write' : 'Edit'}
             </button>
             <button onClick={consolidate} disabled={consolidating} className='inline-flex items-center gap-1 text-[11.5px] text-text-muted hover:text-text-primary transition-colors disabled:opacity-50' title="Jarvis rewrites the brief from this topic's chats">
-              {consolidating ? <Loader2 size={11} className='animate-spin' /> : <Sparkles size={11} />} {empty ? 'Draft with Jarvis' : 'Refresh with Jarvis'}
+              {consolidating ? <Loader2 size={11} className='animate-spin' /> : <Sparkles size={11} />} Generate
             </button>
             <button onClick={() => setHidden(true)} className='inline-flex items-center gap-1 text-[11.5px] text-text-muted hover:text-text-primary transition-colors' title='Just a group, not a topic: hide the brief and stop giving it to chats. Reversible.'>
               <EyeOff size={11} /> Hide
@@ -366,26 +366,31 @@ function Brief({ section }: { section: { id: string; name: string; context: stri
           No brief yet. Write what this topic is about — every chat filed here will start from it — or let Jarvis draft one from the chats already here.
         </div>
       ) : (
-        <div className='relative'>
-          <div
-            ref={bodyRef}
-            data-testid='topic-brief-body'
-            style={!expanded && overflows ? { maxHeight: BRIEF_FOLD_PX } : undefined}
-            className='overflow-hidden rounded-xl bg-bg-alt px-4 py-3 text-[14px] leading-relaxed text-text-primary'
-          >
-            <Markdown text={section.context} />
-          </div>
-          {overflows && !expanded && (
-            <div className='pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-xl bg-gradient-to-t from-bg-alt to-transparent' />
-          )}
-          {overflows && (
-            <button
-              onClick={() => setExpanded((v) => !v)}
-              className={`${expanded ? 'mt-1.5' : 'absolute bottom-2 left-1/2 -translate-x-1/2'} inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2.5 py-1 text-[11.5px] text-text-secondary shadow-sm transition-colors hover:text-text-primary`}
+        <div>
+          <div className='relative'>
+            <div
+              ref={bodyRef}
+              data-testid='topic-brief-body'
+              style={!expanded && overflows ? { maxHeight: BRIEF_FOLD_PX } : undefined}
+              className='overflow-hidden rounded-xl bg-bg-alt px-4 py-3 text-[14px] leading-relaxed text-text-primary'
             >
-              <ChevronDown size={12} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
-              {expanded ? 'Show less' : 'Show more'}
-            </button>
+              <Markdown text={section.context} />
+            </div>
+            {overflows && !expanded && (
+              <div className='pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-xl bg-gradient-to-t from-bg-alt to-transparent' />
+            )}
+          </div>
+          {/* One place whether folded or open: under the box, at the corner. */}
+          {overflows && (
+            <div className='mt-1 flex justify-end'>
+              <button
+                onClick={() => setExpanded((v) => !v)}
+                className='inline-flex items-center gap-1 text-[11.5px] text-text-muted transition-colors hover:text-text-primary'
+              >
+                {expanded ? 'Show less' : 'Show more'}
+                <ChevronDown size={12} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+              </button>
+            </div>
           )}
         </div>
       )}

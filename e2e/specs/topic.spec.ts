@@ -68,7 +68,7 @@ test.describe('topic', () => {
     const brief = page.getByTestId('topic-brief')
     await expect(brief.getByText('No brief yet.')).toBeVisible()
     await expect(brief.getByRole('button', { name: 'Write' })).toBeVisible()
-    await expect(brief.getByRole('button', { name: 'Draft with Jarvis' })).toBeVisible()
+    await expect(brief.getByRole('button', { name: 'Generate' })).toBeVisible()
   })
 
   test('a long brief folds past a max height; Show more unfolds it', async ({ page }) => {
