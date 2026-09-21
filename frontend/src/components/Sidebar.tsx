@@ -160,11 +160,11 @@ export default function Sidebar({
           <Plus size={16} />
           <span>New chat</span>
         </button>
-        {/* Same shape as New chat, one step dimmer. Kept out of the scroll area
-            so it stays reachable however many chats are in the list. */}
+        {/* Same shape and weight as New chat. Kept out of the scroll area so it
+            stays reachable however many chats are in the list. */}
         <button
           onClick={() => setCreatingSection(true)}
-          className='w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-muted hover:bg-surface2 transition-colors'
+          className='w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-secondary hover:bg-surface2 transition-colors'
         >
           <FolderPlus size={16} />
           <span>New topic</span>
