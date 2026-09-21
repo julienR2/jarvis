@@ -44,9 +44,13 @@ test.describe('chat rendering', () => {
     await openConversation(page, 'Morning brief')
     const block = page.getByTestId('run-card')
     await expect(block).toHaveCount(1)
-    // Provenance: which routine, when. A finished run says nothing about its state.
+    // Provenance: which routine, and its gear always at hand (there is no hover
+    // on a phone). A finished run says nothing about its state, and the time
+    // is the message's own, underneath — not repeated on the line.
     await expect(block.getByText('morning-brief')).toBeVisible()
+    await expect(block.getByTitle('Open this routine')).toBeVisible()
     await expect(block.getByText(/done ·/)).toHaveCount(0)
+    await expect(block.locator('div').first().getByText(/\d{1,2}:\d{2}/)).toHaveCount(0)
     // The answer reads like any other; the routine's prompt is behind a click.
     await expect(block.getByText('Three todos due today')).toBeVisible()
     await expect(block.getByText('Write the morning brief.')).toBeHidden()

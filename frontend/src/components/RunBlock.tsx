@@ -9,8 +9,8 @@ import { firstLine, formatTime } from '../lib/runs'
  * A cron or webhook's contribution to the transcript, as ordinary messages.
  *
  * A run is not content — the message it produced is. So the run gets one thin
- * line of provenance (what fired, when, and its state only while that state is
- * news) and its messages render exactly like any other assistant turn: the
+ * line of provenance (what fired, and its state only while that state is
+ * news — the time is the message's own, underneath) and its messages render exactly like any other assistant turn: the
  * answer in full, the steps folded to one line underneath. The routine's own
  * prompt is machinery and stays behind a click.
  *
@@ -35,16 +35,14 @@ export default function RunBlock({
   const output = msgs.filter((m) => m !== prompt)
   const running = run?.status === 'running' || (live && !run)
   const Icon = run?.kind === 'webhook' ? Link2 : Clock
-  const startedAt = run?.started_at ?? msgs[0]?.created_at
 
   return (
     <div className='my-3 animate-fade-in' data-testid='run-card'>
-      <div className='group mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-text-muted'>
+      <div className='mb-3 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-text-muted'>
         <span className='inline-flex items-center gap-1 rounded-full bg-surface2 px-2 py-px font-medium text-text-secondary'>
           <Icon size={10} />
           {run?.source_name ?? 'automation'}
         </span>
-        {startedAt && <span>{formatTime(startedAt)}</span>}
         <State run={run} running={running} />
         {prompt && (
           <button
@@ -61,7 +59,7 @@ export default function RunBlock({
             type='button'
             onClick={() => navigate(`/routines?edit=${run.source_id}`)}
             title='Open this routine'
-            className='rounded p-0.5 opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100 focus:opacity-100'
+            className='rounded p-0.5 transition-colors hover:text-text-primary'
           >
             <Settings2 size={11} />
           </button>
