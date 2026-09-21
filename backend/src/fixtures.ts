@@ -47,6 +47,7 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     chatAsk: '00000000-0000-4000-8000-000000000007',
     app2: '00000000-0000-4000-8000-000000000008',
     unread: '00000000-0000-4000-8000-000000000009',
+    quoted: '00000000-0000-4000-8000-00000000000a',
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -174,6 +175,17 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     }
     // Read after answer 3 (at t(249)); answers 4–6 (t(199) and later) are unread.
     db.prepare('UPDATE conversations SET last_read_at = ? WHERE id = ?').run(t(240), un)
+
+    // 2c. A reply to a passage: the user message carries `reply_to` and the
+    // bubble shows the quote as a citation that leads back to its source.
+    const qc = ID.quoted
+    insConv.run(qc, 'Quoted reply', t(500), t(470), fixtures.id, null, null)
+    insMsg.run(uuid(), qc, 'user', 'Which board for Guincho this week?', null, null, null, t(500))
+    const quotedMsg = uuid()
+    const boardAnswer = "A 6'2 shortboard if the swell holds through Thursday; otherwise the fish, which paddles better in the mush. Either way check the wind before noon."
+    insMsg.run(quotedMsg, qc, 'assistant', `[chunk:1] ${boardAnswer}`, null, null, boardAnswer, t(499))
+    insMsg.run(uuid(), qc, 'user', "Which fish do you mean, the 5'8?", JSON.stringify({ reply_to: { message_id: quotedMsg, text: 'otherwise the fish, which paddles better in the mush' } }), null, null, t(472))
+    insMsg.run(uuid(), qc, 'assistant', "[chunk:1] The 5'8 twin, yes.", null, null, "The 5'8 twin, yes.", t(471))
 
     // 3. Background run — a cron that ran isolated, its output stamped with the run.
     const bg = ID.brief
@@ -368,7 +380,7 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     }
   })
   tx()
-  console.log(`[fixtures] ${present ? 'rearmed' : 'seeded'}: 3 sections, 9 conversations, 3 crons, 2 webhooks, 7 runs (2 waiting) + 1 chat question, 1 api key per user, 1 e2e user`)
+  console.log(`[fixtures] ${present ? 'rearmed' : 'seeded'}: 3 sections, 10 conversations, 3 crons, 2 webhooks, 7 runs (2 waiting) + 1 chat question, 1 api key per user, 1 e2e user`)
   // Screens already open on this instance refetch what changed.
   if (present) emitGlobalEvent({ type: 'runs', conversation_id: ID.brief })
 }

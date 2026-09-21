@@ -164,6 +164,37 @@ test.describe('chat rendering', () => {
     await expect(page).toHaveURL(/\/next\/?$/)
   })
 
+  test('reply to a passage: selecting text offers a reply button that quotes it into the composer', async ({ page }) => {
+    await openConversation(page, 'Markdown showcase')
+    await expect(page.getByTestId('reply-selection')).toHaveCount(0)
+    // Select the whole paragraph, the way a drag would.
+    await page.getByText('A paragraph with', { exact: false }).first().evaluate((el) => {
+      const range = document.createRange()
+      range.selectNodeContents(el)
+      const sel = window.getSelection()!
+      sel.removeAllRanges()
+      sel.addRange(range)
+    })
+    const button = page.getByTestId('reply-selection')
+    await expect(button).toBeVisible()
+    await button.click()
+    const quote = page.getByTestId('composer-quote')
+    await expect(quote).toContainText('A paragraph with bold, italic, inline code and a link.')
+    // The selection is gone with the click, and so is the button.
+    await expect(button).toHaveCount(0)
+    await expect(page.getByPlaceholder('How can I help you today?')).toBeFocused()
+    await quote.getByRole('button', { name: 'Remove quote' }).click()
+    await expect(quote).toHaveCount(0)
+  })
+
+  test('reply to a passage: the sent message shows the quote, and the quote leads back to its source', async ({ page }) => {
+    await openConversation(page, 'Quoted reply')
+    const citation = page.getByTestId('reply-citation')
+    await expect(citation).toContainText('otherwise the fish, which paddles better in the mush')
+    await citation.click()
+    await expect(page.getByText("A 6'2 shortboard if the swell holds")).toBeInViewport()
+  })
+
   test('app pane: the fixture app renders beside the chat', async ({ page }) => {
     await openConversation(page, 'Fixture app')
     const frame = page.frameLocator('iframe[title="App preview"]')

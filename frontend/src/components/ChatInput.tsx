@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion } from 'lucide-react'
+import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion, Reply } from 'lucide-react'
 import AudioButton from './AudioButton'
 import AnswerCard, { OptionList, hasOptions } from './AnswerCard'
-import { api, questionsOf, type Attachment, type PendingQuestion } from '../api'
+import { api, questionsOf, type Attachment, type PendingQuestion, type ReplyTo } from '../api'
 
 export interface PendingFile {
   file: File
@@ -34,10 +34,18 @@ interface Props {
   initialText?: string
   initialFiles?: File[]
   onInitialFilesConsumed?: () => void
+  /** The passage being replied to, drawn at the head of the box; the parent
+   *  owns it and sends it with the text (see ChatView.sendMessage). */
+  quote?: ReplyTo | null
+  onClearQuote?: () => void
 }
 
-export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing, conversationId, autoFocus, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed }: Props) {
+export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing, conversationId, autoFocus, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote }: Props) {
   const [input, setInput] = useState(initialText || '')
+  // A fresh quote is an invitation to type under it.
+  useEffect(() => {
+    if (quote) textareaRef.current?.focus()
+  }, [quote])
   const [audioActive, setAudioActive] = useState(false)
   const [files, setFiles] = useState<PendingFile[]>([])
   const [dragOver, setDragOver] = useState(false)
@@ -228,6 +236,22 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
           )}
           {question && !asksQuestion && conversationId && (
             <AnswerCard conversationId={conversationId} question={question} variant='strip' />
+          )}
+          {quote && (
+            <div data-testid='composer-quote' className='flex items-start gap-2.5 border-b border-border px-4 pt-3 pb-2.5'>
+              <Reply size={14} className='mt-0.5 shrink-0 text-accent' />
+              <p className='min-w-0 flex-1 border-l-2 border-accent/50 pl-2.5 text-[13px] leading-snug text-text-secondary line-clamp-3'>
+                {quote.text}
+              </p>
+              <button
+                type='button'
+                onClick={onClearQuote}
+                aria-label='Remove quote'
+                className='shrink-0 rounded p-0.5 text-text-muted transition-colors hover:text-text-primary'
+              >
+                <X size={14} />
+              </button>
+            </div>
           )}
           <div className={dimInput ? 'opacity-50 transition-opacity hover:opacity-100 focus-within:opacity-100' : 'transition-opacity'}>
           {/* File previews */}

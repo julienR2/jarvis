@@ -214,6 +214,12 @@ function emitConversationError(conversationId: string, content: string) {
   })
 }
 
+/** A passage of an earlier message the person is replying to. */
+export interface ReplyTo {
+  message_id: string
+  text: string
+}
+
 export function processMessage(
   conversationId: string,
   conv: ConvRow,
@@ -222,6 +228,9 @@ export function processMessage(
   options?: {
     skipUserMessage?: boolean
     userMessageOverride?: string
+    // The quoted passage goes to Claude in its own article ahead of the text,
+    // and is stored on the message's metadata for the bubble to show.
+    replyTo?: ReplyTo
     onDone?: (text: string) => void
     model?: string
     effort?: EffortLevel
@@ -278,12 +287,28 @@ export function processMessage(
     claudePrompt = `${claudePrompt}${attachmentRefs(attachments)}`
   }
 
+  // The passage being replied to, delimited like the other prompt articles so
+  // the model knows it is a quote of its own (or the person's) earlier words
+  // and not new text to act on. The saved message stays the person's text.
+  const replyTo = options?.replyTo
+  if (replyTo && !isCommand) {
+    const quote = [
+      `<article data-jarvis="reply-to" message="${replyTo.message_id}">`,
+      'The user is replying to this passage of an earlier message in the conversation:',
+      replyTo.text,
+      '</article>',
+    ].join('\n')
+    claudePrompt = `${quote}\n${claudePrompt}`
+  }
+
   // Save user message (unless skipped, e.g. for crons)
   let userMsgId: string | null = null
   if (!options?.skipUserMessage) {
     userMsgId = uuid()
-    const metadata =
-      attachments.length > 0 ? JSON.stringify({ attachments }) : null
+    const meta: Record<string, unknown> = {}
+    if (attachments.length > 0) meta.attachments = attachments
+    if (replyTo) meta.reply_to = replyTo
+    const metadata = Object.keys(meta).length ? JSON.stringify(meta) : null
     const savedContent = options?.userMessageOverride ?? userContent
     console.log(`[msg] db INSERT user message ${userMsgId}`)
     getDb()
@@ -1628,11 +1653,12 @@ export async function conversationRoutes(app: FastifyInstance) {
     sharedWrite,
     async (req, reply) => {
       const { id } = req.params
-      const { content, attachments, model, effort } = req.body as {
+      const { content, attachments, model, effort, reply_to } = req.body as {
         content?: string
         attachments?: Attachment[]
         model?: string
         effort?: string
+        reply_to?: { message_id?: unknown; text?: unknown }
       }
 
       const conv = getDb()
@@ -1642,6 +1668,21 @@ export async function conversationRoutes(app: FastifyInstance) {
 
       if (!content?.trim() && !attachments?.length) {
         return reply.code(400).send({ error: 'Empty message' })
+      }
+
+      // A quote must point at a message of this very conversation and stay a
+      // passage, not a pasted document.
+      let replyTo: ReplyTo | undefined
+      if (reply_to) {
+        const { message_id, text } = reply_to
+        if (typeof message_id !== 'string' || typeof text !== 'string' || !text.trim()) {
+          return reply.code(400).send({ error: 'reply_to needs message_id and text' })
+        }
+        const owned = getDb()
+          .prepare('SELECT 1 FROM messages WHERE id = ? AND conversation_id = ?')
+          .get(message_id, id)
+        if (!owned) return reply.code(400).send({ error: 'reply_to.message_id is not in this conversation' })
+        replyTo = { message_id, text: text.trim().slice(0, 2000) }
       }
 
       // No busy check: a message sent while Claude works is steered into the
@@ -1654,6 +1695,7 @@ export async function conversationRoutes(app: FastifyInstance) {
         {
           model: model ?? conv.model ?? undefined,
           effort: normalizeEffort(effort ?? conv.effort),
+          replyTo,
         },
       )
       return { id: userMsgId }

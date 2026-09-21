@@ -184,12 +184,13 @@ export const api = {
   deleteSection: (id: string) => request<{ ok: boolean }>('DELETE', `/sections/${id}`),
 
   // Messages
-  sendMessage: (conversationId: string, content: string, attachments?: Attachment[], model?: string, effort?: Effort) =>
+  sendMessage: (conversationId: string, content: string, attachments?: Attachment[], model?: string, effort?: Effort, replyTo?: ReplyTo | null) =>
     request<{ id: string }>('POST', `/conversations/${conversationId}/messages`, {
       content,
       attachments: attachments?.length ? attachments : undefined,
       model,
       effort,
+      reply_to: replyTo ?? undefined,
     }),
 
   // App share link. The token is scoped to this conversation's app and carries
@@ -522,6 +523,12 @@ export interface ConnectionStatus {
   gateway: ProviderStatus
   /** Which provider new conversations belong to. Forced when only one is set up. */
   defaultProvider: 'anthropic' | 'gateway'
+}
+
+/** A passage of an earlier message the person is replying to. */
+export interface ReplyTo {
+  message_id: string
+  text: string
 }
 
 /** What goes with a deleted conversation besides its messages. */

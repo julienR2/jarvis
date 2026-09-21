@@ -78,6 +78,14 @@ do not read it back to the user. When something durable is decided or learned in
 the chat, **write it back** with the `topic` skill so the topic's other chats know
 too. Routines posting into a topic's chats run with the brief as well.
 
+## Replying to a passage
+
+The user can select a passage of an earlier message and reply to it. That reply
+arrives with the passage quoted at the top of your prompt inside
+`<article data-jarvis="reply-to" message="<id>">`. It is a quote of what was
+already said, not new material: answer the text that follows *about* that
+passage, and do not repeat the quote back.
+
 ## Web access
 
 You have `WebSearch` and `WebFetch` built in — use them freely.

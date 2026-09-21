@@ -14,6 +14,7 @@ import {
   type Attachment,
   type Conversation,
   type DeleteOptions,
+  type ReplyTo,
   type Run,
 } from '../api'
 import { useChatStore } from '../stores/chatStore'
@@ -27,6 +28,7 @@ import { useIsDesktop } from '../hooks/useIsDesktop'
 import { ContentTitle } from './ContentLayout'
 import RoutinesPill from './RoutinesPill'
 import RunBlock, { QuietRuns } from './RunBlock'
+import SelectionReply from './SelectionReply'
 import { answerFromComposer } from './AnswerCard'
 
 /** Shared so the jump button can find the divider without threading a ref
@@ -201,6 +203,10 @@ export default function ChatView({
   const topSentinelRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+  const paneRef = useRef<HTMLDivElement>(null)
+  // The passage the next message replies to, picked from a selection.
+  const [quote, setQuote] = useState<ReplyTo | null>(null)
+  useEffect(() => { setQuote(null) }, [conversationId])
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [floatingLabel, setFloatingLabel] = useState<string | null>(null)
   const [showFloating, setShowFloating] = useState(false)
@@ -372,10 +378,11 @@ export default function ChatView({
     if (!text.trim() && attachments.length === 0) return
 
     api
-      .sendMessage(conversationId, text, attachments.length > 0 ? attachments : undefined)
+      .sendMessage(conversationId, text, attachments.length > 0 ? attachments : undefined, undefined, undefined, quote)
       .catch((err) => {
         console.error('Failed to send message:', err)
       })
+    setQuote(null)
   }
 
   async function sendAudio(audioBlob: Blob) {
@@ -584,7 +591,8 @@ export default function ChatView({
           )}
 
           {/* Messages */}
-          <div className='relative flex-1 min-h-0'>
+          <div ref={paneRef} className='relative flex-1 min-h-0'>
+            {!shared?.readOnly && <SelectionReply paneRef={paneRef} onQuote={setQuote} />}
             {/* Back to the latest messages, with what landed while reading up
                 there. Bottom-right like every messenger; quiet until needed. */}
             {awayFromBottom && (
@@ -676,6 +684,8 @@ export default function ChatView({
             initialText={initialMessage || undefined}
             initialFiles={initialFiles || undefined}
             onInitialFilesConsumed={onInitialFilesConsumed}
+            quote={quote}
+            onClearQuote={() => setQuote(null)}
           />
           )}
         </div>

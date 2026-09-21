@@ -5,7 +5,7 @@ import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
 import { FileText, ChevronRight, Copy, Check } from 'lucide-react'
 import { withMediaToken } from '../api'
-import type { Message, Attachment } from '../api'
+import type { Message, Attachment, ReplyTo } from '../api'
 import { Loader2 } from 'lucide-react'
 import type { Components, ExtraProps } from 'react-markdown'
 
@@ -46,6 +46,41 @@ function getAssistantCopyText(msg: Message): string {
       g.kind === 'prose' ? [g.text] : g.cycles.flatMap((c) => c.notes),
     )
     .join('\n\n')
+}
+
+function parseReplyTo(metadata?: string | null): ReplyTo | null {
+  if (!metadata) return null
+  try {
+    const r = JSON.parse(metadata).reply_to
+    return r && typeof r.message_id === 'string' && typeof r.text === 'string' ? r : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The passage a user message replies to, above its text. Clicking it leads
+ * back to the source message when it is loaded — a brief highlight says which.
+ */
+function ReplyCitation({ quote }: { quote: ReplyTo }) {
+  function jump() {
+    const el = document.querySelector<HTMLElement>(`[data-message-id="${quote.message_id}"]`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('bg-accent-subtle/60', 'rounded-2xl')
+    setTimeout(() => el.classList.remove('bg-accent-subtle/60', 'rounded-2xl'), 1200)
+  }
+  return (
+    <button
+      type='button'
+      onClick={jump}
+      data-testid='reply-citation'
+      title='Go to the passage'
+      className='mb-2 block w-full border-l-2 border-accent/50 pl-2.5 text-left text-[13px] leading-snug text-text-secondary line-clamp-3 hover:text-text-primary transition-colors'
+    >
+      {quote.text}
+    </button>
+  )
 }
 
 function parseAttachments(metadata?: string | null): Attachment[] {
@@ -488,6 +523,7 @@ export default function MessageBubble({ msg, live }: Props) {
     () => parseAttachments(msg.metadata),
     [msg.metadata],
   )
+  const replyTo = useMemo(() => parseReplyTo(msg.metadata), [msg.metadata])
 
   // Assistant message with [tool]/[chunk]/[note] lines → activity bubble
   if (!isUser && hasActivityLines(msg.content)) {
@@ -496,7 +532,10 @@ export default function MessageBubble({ msg, live }: Props) {
 
   return (
     <div
-      className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-5 animate-fade-in`}
+      // The anchor a reply's citation leads back to, and what tells a text
+      // selection which message it sits in.
+      data-message-id={msg.id}
+      className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-5 animate-fade-in transition-colors`}
     >
       <div
         className={`
@@ -509,6 +548,8 @@ export default function MessageBubble({ msg, live }: Props) {
         text-base leading-relaxed
       `}
       >
+        {isUser && replyTo && <ReplyCitation quote={replyTo} />}
+
         {/* Attachments */}
         {attachments.length > 0 && (
           <div className={`flex flex-wrap gap-2 ${msg.content ? 'mb-2' : ''}`}>
