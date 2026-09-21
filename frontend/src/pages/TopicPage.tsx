@@ -366,31 +366,28 @@ function Brief({ section }: { section: { id: string; name: string; context: stri
           No brief yet. Write what this topic is about — every chat filed here will start from it — or let Jarvis draft one from the chats already here.
         </div>
       ) : (
-        <div>
-          <div className='relative'>
-            <div
-              ref={bodyRef}
-              data-testid='topic-brief-body'
-              style={!expanded && overflows ? { maxHeight: BRIEF_FOLD_PX } : undefined}
-              className='overflow-hidden rounded-xl bg-bg-alt px-4 py-3 text-[14px] leading-relaxed text-text-primary'
-            >
-              <Markdown text={section.context} />
-            </div>
-            {overflows && !expanded && (
-              <div className='pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-xl bg-gradient-to-t from-bg-alt to-transparent' />
-            )}
+        <div className='relative'>
+          <div
+            ref={bodyRef}
+            data-testid='topic-brief-body'
+            style={!expanded && overflows ? { maxHeight: BRIEF_FOLD_PX } : undefined}
+            // Room at the bottom for the toggle when the text runs to the end.
+            className={`overflow-hidden rounded-xl bg-bg-alt px-4 pt-3 text-[14px] leading-relaxed text-text-primary ${overflows && expanded ? 'pb-9' : 'pb-3'}`}
+          >
+            <Markdown text={section.context} />
           </div>
-          {/* One place whether folded or open: under the box, at the corner. */}
+          {overflows && !expanded && (
+            <div className='pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-xl bg-gradient-to-t from-bg-alt to-transparent' />
+          )}
+          {/* Inside the box, bottom-right corner, the same spot folded or open. */}
           {overflows && (
-            <div className='mt-1 flex justify-end'>
-              <button
-                onClick={() => setExpanded((v) => !v)}
-                className='inline-flex items-center gap-1 text-[11.5px] text-text-muted transition-colors hover:text-text-primary'
-              >
-                {expanded ? 'Show less' : 'Show more'}
-                <ChevronDown size={12} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
-              </button>
-            </div>
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className='absolute bottom-2.5 right-3 inline-flex items-center gap-1 text-[11.5px] text-text-muted transition-colors hover:text-text-primary'
+            >
+              {expanded ? 'Show less' : 'Show more'}
+              <ChevronDown size={12} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+            </button>
           )}
         </div>
       )}
