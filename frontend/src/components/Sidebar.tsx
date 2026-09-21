@@ -314,7 +314,7 @@ function SectionGroup({
         collapsed ? 'py-1.5' : 'pt-1.5 pb-4'
       }`}
     >
-      <div className={`flex items-center group/section pr-1 rounded-lg ${section && activePath === `/t/${section.id}` ? 'bg-selected' : ''}`}>
+      <div className={`flex items-center group/section pr-3 rounded-lg ${section && activePath === `/t/${section.id}` ? 'bg-selected' : ''}`}>
         <button
           onClick={onToggle}
           title={collapsed ? 'Show the chats' : 'Fold the chats'}
