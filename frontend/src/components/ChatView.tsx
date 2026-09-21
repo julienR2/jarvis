@@ -194,6 +194,7 @@ export default function ChatView({
   const bottomRef = useRef<HTMLDivElement>(null)
   const topSentinelRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [floatingLabel, setFloatingLabel] = useState<string | null>(null)
   const [showFloating, setShowFloating] = useState(false)
@@ -252,11 +253,30 @@ export default function ChatView({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isProcessing])
 
-  // Watch the divider so the jump button only appears when it is off screen —
-  // and so that looking at it dismisses it. Re-created on message changes
-  // because the divider is remounted as the list grows, and an observer bound
-  // to a detached node reports nothing.
-  //
+  // While a turn streams and the user has scrolled up to read, the text under
+  // their eyes must not move. The col-reverse layout anchors the viewport to
+  // the bottom, so every chunk of new text pushes the visible lines upward —
+  // unreadable while it lasts. Compensate: when the content grows and we are
+  // away from the bottom, move scrollTop by the same amount, which keeps the
+  // distance from the top constant instead. At the bottom nothing changes,
+  // the stream is followed as before. Only while processing: an older page
+  // prepended at the top is the one growth the layout already handles right.
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    const content = contentRef.current
+    if (!isProcessing || !container || !content) return
+    let lastHeight = content.getBoundingClientRect().height
+    const observer = new ResizeObserver(() => {
+      const height = content.getBoundingClientRect().height
+      const delta = height - lastHeight
+      lastHeight = height
+      if (delta === 0 || Math.abs(container.scrollTop) <= 100) return
+      container.scrollTop -= delta
+    })
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [isProcessing])
+
   // Watch the divider so the jump button only appears when it is off screen.
   // Re-created on message changes because the divider is remounted as the list
   // grows, and an observer bound to a detached node reports nothing.
@@ -566,7 +586,7 @@ export default function ChatView({
             </div>
 
             <div ref={scrollContainerRef} className={`h-full overflow-y-auto overflow-x-clip flex flex-col-reverse pb-6 ${messages.length === 0 ? 'pt-4' : 'pt-0'}`} onScroll={handleScroll}>
-              <div className='max-w-3xl mx-auto px-4 md:px-6 min-w-0 w-full'>
+              <div ref={contentRef} className='max-w-3xl mx-auto px-4 md:px-6 min-w-0 w-full'>
                 {showSkeleton ? (
                   <MessageSkeleton />
                 ) : (
