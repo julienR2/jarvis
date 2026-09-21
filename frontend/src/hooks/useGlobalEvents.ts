@@ -4,6 +4,7 @@ import { connectGlobalEvents } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { FRONTEND_UPDATED_EVENT } from '../components/UpdateBanner'
 import { RUNS_NUDGE_EVENT } from '../lib/runs'
+import { closeNotificationsFor, closeNotificationsOfRead } from '../lib/notifications'
 
 // Subscribes to the global SSE stream and dispatches into the chat store.
 // Mounted once near the app root.
@@ -26,6 +27,9 @@ export function useGlobalEvents() {
         // catches up on the next stream close.
         const id = currentConvId()
         if (id) store.markRead(id)
+        // And this device's notifications for chats read meanwhile (here or
+        // elsewhere) come down — the only cross-device dismissal there is.
+        closeNotificationsOfRead(useChatStore.getState().conversations)
       })
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -64,6 +68,9 @@ export function useGlobalEvents() {
           ev.conversation_id === currentConvId() &&
           document.visibilityState === 'visible'
         ) {
+          // Seen as it arrived; the notification the worker showed for it is
+          // redundant on this device.
+          closeNotificationsFor(ev.conversation_id)
           return
         }
 

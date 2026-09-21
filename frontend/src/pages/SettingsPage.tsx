@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Bell, BellOff, Blocks, Brain, Check, Code2, Copy, Globe, KeyRound, LogOut, Plug, RefreshCw, Smartphone, Sparkles,
+  Bell, BellOff, Blocks, Brain, Check, Code2, Copy, Globe, KeyRound, LogOut, Plug, RefreshCw, Send, Smartphone, Sparkles,
 } from 'lucide-react'
 import ContentLayout from '../components/ContentLayout'
 import ConnectorsPanel from '../components/ConnectorsPage'
@@ -209,6 +209,21 @@ function ThemeRow() {
 function NotificationsRow() {
   const { permission, requestPermission } = useNotifications()
   const supported = 'Notification' in window
+  const [testing, setTesting] = useState(false)
+  // One push to every registered device: the way to know this one hears
+  // Jarvis, and the backend drops the subscriptions that no longer work.
+  async function sendTest() {
+    setTesting(true)
+    try {
+      const { delivered } = await api.testPush()
+      if (delivered) window.__jarvisToast?.success(`Sent to ${delivered} device${delivered > 1 ? 's' : ''}.`)
+      else window.__jarvisToast?.info('No device is subscribed yet — enable notifications on one first.')
+    } catch {
+      window.__jarvisToast?.error('Could not send the test notification.')
+    } finally {
+      setTesting(false)
+    }
+  }
   return (
     <Row
       label='Notifications'
@@ -221,8 +236,11 @@ function NotificationsRow() {
       }
     >
       {!supported ? null : permission === 'granted' ? (
-        <span className='inline-flex items-center gap-1.5 text-xs text-success'>
-          <Bell size={13} /> On
+        <span className='inline-flex items-center gap-3'>
+          <span className='inline-flex items-center gap-1.5 text-xs text-success'>
+            <Bell size={13} /> On
+          </span>
+          <SmallButton onClick={sendTest} disabled={testing} icon={<Send size={13} />}>Send a test</SmallButton>
         </span>
       ) : permission === 'denied' ? (
         <span className='inline-flex items-center gap-1.5 text-xs text-text-muted'>
@@ -347,11 +365,12 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   )
 }
 
-function SmallButton({ onClick, icon, children }: { onClick: () => void; icon?: React.ReactNode; children: React.ReactNode }) {
+function SmallButton({ onClick, icon, children, disabled }: { onClick: () => void; icon?: React.ReactNode; children: React.ReactNode; disabled?: boolean }) {
   return (
     <button
       onClick={onClick}
-      className='inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg px-2.5 py-1 text-xs text-text-primary hover:border-accent transition-colors'
+      disabled={disabled}
+      className='inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg px-2.5 py-1 text-xs text-text-primary hover:border-accent transition-colors disabled:opacity-50'
     >
       {icon}
       {children}

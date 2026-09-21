@@ -10,6 +10,7 @@ import {
   type Run,
   type Section,
 } from '../api'
+import { closeNotificationsFor } from '../lib/notifications'
 
 type PatchableFields = Pick<
   Conversation,
@@ -374,6 +375,8 @@ export const useChatStore = create<ChatState>()(
       const live = beginFetch(id)
       try {
         const conv = await api.getConversation(id, loadedWindow(get(), id))
+        // Opening the chat is reading it: its notification on this device goes.
+        closeNotificationsFor(id)
         set((s) => {
           const { messages, has_more, ...meta } = conv
           // Loading a conversation *is* reading it: the server hands back the

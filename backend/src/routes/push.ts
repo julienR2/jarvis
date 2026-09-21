@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { getVapidPublicKey, saveSubscription } from '../push.js'
+import { getVapidPublicKey, saveSubscription, sendPushToAll } from '../push.js'
 
 export function pushRoutes(app: FastifyInstance, _opts: unknown, done: () => void): void {
   // Get VAPID public key (needed by frontend to subscribe)
@@ -15,6 +15,14 @@ export function pushRoutes(app: FastifyInstance, _opts: unknown, done: () => voi
     }
     saveSubscription(subscription)
     return { ok: true }
+  })
+
+  // A push to every registered device, so a person can tell from Settings
+  // whether this phone or that laptop actually hears Jarvis. Also prunes the
+  // subscriptions the push services no longer accept (see broadcast()).
+  app.post('/test', { preHandler: [app.authenticate] }, async () => {
+    const delivered = await sendPushToAll('Jarvis', 'Test notification — this device hears Jarvis.', '/')
+    return { delivered }
   })
 
   done()

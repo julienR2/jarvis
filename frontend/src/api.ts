@@ -332,6 +332,7 @@ export const api = {
   getVapidKey: () => request<{ key: string }>('GET', '/push/vapid-key'),
   subscribePush: (subscription: PushSubscriptionJSON) =>
     request<{ ok: boolean }>('POST', '/push/subscribe', { subscription }),
+  testPush: () => request<{ delivered: number }>('POST', '/push/test'),
 
   // Connectors
   getConnectors: () => request<ConnectorInfo[]>('GET', '/connectors'),

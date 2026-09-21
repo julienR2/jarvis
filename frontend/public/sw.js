@@ -45,55 +45,39 @@ self.addEventListener('push', (event) => {
     data = { title: 'Jarvis', body: event.data.text() }
   }
 
-  const { title = 'Jarvis', body = '', url, type } = data
+  const { title = 'Jarvis', body = '', url } = data
   const tagFor = (u) => (u ? `jarvis-${u}` : 'jarvis')
 
-  // Chrome insists every push ends in a visible notification. A handler that
-  // deliberately shows none — a dismissal, or a chat you are already reading —
-  // gets the browser's own "This site has been updated in the background." in
-  // its place, which is precisely the noise we were trying to avoid. So show a
-  // silent placeholder on the tag we want empty and take it straight back down:
-  // same tag means it replaces any notification already there, so this clears
-  // and satisfies Chrome in one move.
-  const clearTag = async (tag) => {
-    await self.registration.showNotification('', { tag, silent: true })
-    const shown = await self.registration.getNotifications({ tag })
-    shown.forEach((n) => n.close())
-  }
-
-  // A dismissal carries no title: another device read this chat, so take its
-  // notification down here too rather than showing anything.
-  if (type === 'dismiss') {
-    event.waitUntil(clearTag(tagFor(url)))
-    return
-  }
-
+  // Chrome insists every push ends in a visible notification: a handler that
+  // shows none gets the browser's own "This site has been updated in the
+  // background" in its place. The old show-an-empty-one-and-close-it trick to
+  // get around that is exactly what left ghost notifications on Android, and
+  // the "dismiss" push that relied on it is gone. Every push is shown for real
+  // now, under one tag per chat so the newest replaces the previous one.
+  //
+  // The one refinement: when the chat is on screen in a focused window, the
+  // notification is shown silent — no sound, no vibration — and the page closes
+  // it itself (frontend/src/lib/notifications.ts), so nothing lingers.
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      // Only the conversation you are actually looking at suppresses its own
-      // notification. Suppressing whenever *any* window was focused meant a
-      // reply in another chat vanished silently while you worked in this one:
-      // no notification, and nothing to bring you back to it.
-      //
       // `focused` rather than `visibilityState` because on macOS a PWA window
       // behind other windows still reports 'visible' — only minimised is 'hidden'.
-      const focused = clients.filter((c) => c.focused)
-      const viewingThis = focused.some((c) => {
-        if (!url) return true // no conversation to compare — old blanket behaviour
+      const viewingThis = clients.filter((c) => c.focused).some((c) => {
+        if (!url) return false
         try {
           return new URL(c.url).pathname === url
         } catch {
           return false
         }
       })
-      if (viewingThis) return clearTag(tagFor(url))
 
       return self.registration.showNotification(title, {
         body,
         icon: new URL('/icons/icon-192.png', self.location.origin).href,
         badge: new URL('/icons/badge-96.png', self.location.origin).href,
         tag: tagFor(url),
-        renotify: true,
+        renotify: !viewingThis,
+        silent: viewingThis,
         data: { url: url || '/' },
       })
     })
