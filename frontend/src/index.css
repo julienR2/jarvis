@@ -96,14 +96,13 @@
     outline: none;
   }
 
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb {
-    background: var(--color-border);
-    border-radius: 3px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--color-text-muted);
+  /* Scrollbars are the system's: thin, in the theme's colours, shown and
+     hidden the way the OS does it (overlay on macOS and most Linux desktops).
+     No ::-webkit-scrollbar rules — a styled bar is always painted, so it never
+     hid when idle, and the settings tab strip had to fight it. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
   }
 }
 
