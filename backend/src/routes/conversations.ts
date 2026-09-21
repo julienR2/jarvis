@@ -23,7 +23,7 @@ import {
   describePending,
   questionsOf,
 } from '../questions.js'
-import { generateTitle } from '../titles.js'
+import { generateTitle, mediaTitle, UNTITLED } from '../titles.js'
 import { resolveModel } from '../models.js'
 import { modelKind } from '../catalogue.js'
 import { generateMedia } from '../media.js'
@@ -384,6 +384,15 @@ export function processMessage(
   }
 }
 
+/** Store a generated title and tell open screens, only while the placeholder is still there. */
+function applyTitle(conversationId: string, title: string): void {
+  const r = getDb()
+    .prepare('UPDATE conversations SET title = ? WHERE id = ? AND title = ?')
+    .run(title, conversationId, UNTITLED)
+  if (r.changes === 0) return
+  emitConversationEvent(conversationId, { type: 'conversation', id: conversationId, title })
+}
+
 /**
  * Run a media model and land the result as an assistant message.
  *
@@ -431,6 +440,14 @@ async function runMediaGeneration(
       type: 'message',
       message: getMessageRow(id),
     })
+    // No session to ask for a title here; the prompt is the subject.
+    const row = getDb()
+      .prepare('SELECT title FROM conversations WHERE id = ?')
+      .get(conversationId) as { title: string } | undefined
+    if (row?.title === UNTITLED) {
+      const title = mediaTitle(prompt)
+      if (title) applyTitle(conversationId, title)
+    }
     onDone?.(text)
   } catch (err: any) {
     // Reporting a failure must not itself fail. A conversation deleted while
@@ -902,36 +919,18 @@ export function attachConversationStream(
           )
         }
 
-        // Auto-generate title on first exchange, only if not manually set
-        const msgCount = (
-          getDb()
-            .prepare(
-              'SELECT COUNT(*) as c FROM messages WHERE conversation_id = ?',
-            )
-            .get(conversationId) as { c: number }
-        ).c
+        // Auto-title after any turn while the chat still carries the
+        // placeholder — a manually set title is never touched. It used to run
+        // only within the first three messages, so a first turn that errored,
+        // was interrupted, or was a bare greeting left the chat untitled for
+        // good. Now every finished turn is another chance until one sticks.
+        const current = getDb()
+          .prepare('SELECT title, model FROM conversations WHERE id = ?')
+          .get(conversationId) as { title: string; model: string | null } | undefined
 
-        const currentTitle = (
-          getDb()
-            .prepare('SELECT title FROM conversations WHERE id = ?')
-            .get(conversationId) as { title: string } | undefined
-        )?.title
-
-        if (!isolated && msgCount <= 3 && ev.sessionId && currentTitle === 'New conversation') {
-          const titleModel = (
-            getDb()
-              .prepare('SELECT model FROM conversations WHERE id = ?')
-              .get(conversationId) as { model: string | null } | undefined
-          )?.model
-          generateTitle(ev.sessionId, conversationId, titleModel).then((title) => {
-            getDb()
-              .prepare('UPDATE conversations SET title = ? WHERE id = ?')
-              .run(title, conversationId)
-            emitConversationEvent(conversationId, {
-              type: 'conversation',
-              id: conversationId,
-              title,
-            })
+        if (!isolated && current?.title === UNTITLED) {
+          generateTitle(conversationId, current.model).then((title) => {
+            if (title) applyTitle(conversationId, title)
           })
         }
       }
