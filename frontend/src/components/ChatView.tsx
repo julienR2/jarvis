@@ -5,7 +5,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { Earth, Loader2, ArrowUp, EyeOff } from 'lucide-react'
+import { Earth, Loader2, ArrowDown, EyeOff } from 'lucide-react'
 import {
   api,
   pendingQuestionOf,
@@ -203,11 +203,14 @@ export default function ChatView({
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [floatingLabel, setFloatingLabel] = useState<string | null>(null)
   const [showFloating, setShowFloating] = useState(false)
-  // Whether the unread divider has scrolled out of view. Drives the jump
-  // button: with nothing to jump *to* on screen, the divider alone is easy to
-  // miss, and on a long backlog you land at the newest message with no idea
-  // where reading should start.
-  const [unreadOffscreen, setUnreadOffscreen] = useState(false)
+  // Scrolled up, reading history. Shows the way back down (the round arrow
+  // bottom-right) and freezes the count of answers that land meanwhile.
+  const [awayFromBottom, setAwayFromBottom] = useState(false)
+  // Finished answers accounted for the last time the reader was at the bottom;
+  // whatever arrived since is the badge on the arrow.
+  const seenRef = useRef(0)
+  // The conversation whose unread divider has been scrolled to on open.
+  const positionedRef = useRef<string | null>(null)
 
   useEffect(() => {
     setShowPreview(true)
@@ -227,9 +230,13 @@ export default function ChatView({
   }, [initialMessage])
 
   // Start each conversation at the bottom (col-reverse: scrollTop 0 = bottom).
+  // With unread answers the divider effect below then moves up to them.
   useEffect(() => {
     const container = scrollContainerRef.current
     if (container) container.scrollTop = 0
+    positionedRef.current = null
+    seenRef.current = 0
+    setAwayFromBottom(false)
   }, [conversationId])
 
   // The unread divider lasts exactly one visit: it stays put while the
@@ -282,27 +289,12 @@ export default function ChatView({
     return () => observer.disconnect()
   }, [isProcessing])
 
-  // Watch the divider so the jump button only appears when it is off screen.
-  // Re-created on message changes because the divider is remounted as the list
-  // grows, and an observer bound to a detached node reports nothing.
-  //
-  // Seeing the divider deliberately does NOT dismiss it: it marks where reading
-  // left off, and scrolling past should not erase that. Dismissing is the
-  // click, or leaving the conversation.
-  useEffect(() => {
-    setUnreadOffscreen(false)
-    if (!unreadAnchor) return
-    const root = scrollContainerRef.current
-    const el = document.getElementById(UNREAD_ANCHOR_ID)
-    if (!root || !el) return
-    const observer = new IntersectionObserver(
-      ([entry]) => setUnreadOffscreen(!entry.isIntersecting),
-      { root },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [unreadAnchor, messages.length])
-
+  // Finished answers, the unit the unread count and the arrow badge share
+  // (the server counts the same rows for the sidebar badge).
+  const finishedCount = useMemo(
+    () => messages.filter((m) => m.role === 'assistant' && !m.type && m.result != null).length,
+    [messages],
+  )
   // How many replies arrived since you last looked — counted from the divider,
   // so it matches exactly what sits below it.
   const unreadCount = useMemo(() => {
@@ -314,10 +306,31 @@ export default function ChatView({
       .filter((m) => m.role === 'assistant' && !m.type && m.result != null).length
   }, [messages, unreadAnchor])
 
-  function jumpToFirstUnread() {
-    document
-      .getElementById(UNREAD_ANCHOR_ID)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  // At the bottom everything is seen; the badge starts counting from here.
+  useEffect(() => {
+    if (!awayFromBottom) seenRef.current = finishedCount
+  }, [awayFromBottom, finishedCount])
+
+  // Unread answers: open the chat at the divider, first unread at the top of
+  // the viewport, the way a messenger does — no pill to go and find it. Once
+  // per visit; the reader takes it from there. Seeing the divider does NOT
+  // dismiss it: it marks where reading left off. Dismissing is the click, or
+  // leaving the conversation. The answers under it are what the arrow's badge
+  // starts at.
+  useEffect(() => {
+    if (!conversationId || !unreadAnchor || positionedRef.current === conversationId) return
+    const el = document.getElementById(UNREAD_ANCHOR_ID)
+    if (!el) return
+    positionedRef.current = conversationId
+    el.scrollIntoView({ block: 'start' })
+    seenRef.current = finishedCount - unreadCount
+    setAwayFromBottom(true)
+  }, [conversationId, unreadAnchor, messages.length])
+
+  const newBelow = awayFromBottom ? Math.max(0, finishedCount - seenRef.current) : 0
+
+  function scrollToBottom() {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
   function dismissUnread() {
@@ -437,6 +450,10 @@ export default function ChatView({
   function handleScroll() {
     const container = scrollContainerRef.current
     if (!container) return
+
+    // col-reverse: 0 is the bottom, negative is up. The arrow appears once
+    // the latest messages are genuinely out of view, not on the first pixel.
+    setAwayFromBottom(Math.abs(container.scrollTop) > 150)
 
     const containerTop = container.getBoundingClientRect().top
     const separators = container.querySelectorAll<HTMLElement>('[data-date-label]')
@@ -567,23 +584,30 @@ export default function ChatView({
 
           {/* Messages */}
           <div className='relative flex-1 min-h-0'>
-            {/* Jump to where reading left off. Only while the divider is out
-                of sight — on screen it speaks for itself. */}
-            {unreadAnchor && unreadOffscreen && (
+            {/* Back to the latest messages, with what landed while reading up
+                there. Bottom-right like every messenger; quiet until needed. */}
+            {awayFromBottom && (
               <button
-                onClick={jumpToFirstUnread}
-                className='absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-white shadow-md hover:bg-accent-hover transition-colors'
+                onClick={scrollToBottom}
+                title='Back to the latest messages'
+                data-testid='jump-to-bottom'
+                className='absolute bottom-4 right-4 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-bg-alt text-text-muted shadow-md transition-colors hover:text-text-primary'
               >
-                <ArrowUp size={13} />
-                {unreadCount > 0
-                  ? `${unreadCount} new message${unreadCount > 1 ? 's' : ''}`
-                  : 'First unread'}
+                <ArrowDown size={16} />
+                {newBelow > 0 && (
+                  <span
+                    data-testid='jump-to-bottom-count'
+                    className='absolute -right-1.5 -top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white'
+                  >
+                    {newBelow}
+                  </span>
+                )}
               </button>
             )}
 
-            {/* Floating date pill — shifts down so the jump button keeps the top slot */}
+            {/* Floating date pill */}
             <div
-              className={`absolute left-1/2 -translate-x-1/2 z-10 pointer-events-none transition-all duration-300 ${unreadAnchor && unreadOffscreen ? 'top-14' : 'top-3'} ${showFloating && floatingLabel ? 'opacity-100' : 'opacity-0'}`}
+              className={`absolute left-1/2 -translate-x-1/2 z-10 pointer-events-none transition-all duration-300 top-3 ${showFloating && floatingLabel ? 'opacity-100' : 'opacity-0'}`}
             >
               <span className='px-3 py-1 rounded-full bg-bg-alt text-[11px] text-text-muted font-medium border border-border shadow-sm'>
                 {floatingLabel}
@@ -920,23 +944,25 @@ function DateSeparator({ label }: { label: string }) {
 // at full strength it read as an error the entire time it was on screen. The
 // subtle fill carries the same colour at a weight you can sit next to.
 //
-// Clicking it is the way to put it away without leaving the conversation, so
-// the whole row is the button and the rules brighten with it on hover.
+// Quiet, grey, a bookmark rather than an alert: the chat opens with it at the
+// top of the viewport, so it needs no colour to be found. Clicking it is the
+// way to put it away without leaving the conversation, so the whole row is the
+// button and the rules darken with it on hover.
 function UnreadSeparator({ onDismiss }: { onDismiss: () => void }) {
   return (
-    // scroll-mt keeps the label clear of the floating pills when jumped to.
+    // scroll-mt keeps the label clear of the header and the date pill.
     <button
       id={UNREAD_ANCHOR_ID}
       type='button'
       onClick={onDismiss}
-      title='Dismiss'
-      className='group flex w-full items-center gap-3 my-5 scroll-mt-24'
+      title='Click to dismiss'
+      className='group flex w-full items-center gap-3 my-5 scroll-mt-16'
     >
-      <div className='flex-1 h-px bg-accent/25 transition-colors group-hover:bg-accent/40' />
-      <span className='shrink-0 rounded-full bg-accent-subtle px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-accent/80 transition-colors group-hover:text-accent'>
-        Unread
+      <div className='flex-1 h-px bg-border transition-colors group-hover:bg-text-muted/40' />
+      <span className='shrink-0 rounded-full bg-surface2 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-text-muted transition-colors group-hover:text-text-primary'>
+        Unread messages
       </span>
-      <div className='flex-1 h-px bg-accent/25 transition-colors group-hover:bg-accent/40' />
+      <div className='flex-1 h-px bg-border transition-colors group-hover:bg-text-muted/40' />
     </button>
   )
 }

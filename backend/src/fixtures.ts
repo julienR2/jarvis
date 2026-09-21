@@ -46,6 +46,7 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     approval: '00000000-0000-4000-8000-000000000006',
     chatAsk: '00000000-0000-4000-8000-000000000007',
     app2: '00000000-0000-4000-8000-000000000008',
+    unread: '00000000-0000-4000-8000-000000000009',
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -157,6 +158,22 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
       '[tool:2] python3 dedupe.py',
       '[chunk:2] Counting is done, writing the answer.',
     ].join('\n\n'), null, 'activity', 'The school sent **10 photos** this week: 4 on Monday, 6 on Wednesday.', t(199))
+
+    // 2b. A long thread read half-way: the last three answers are unread, so
+    // the chat opens at the divider and the arrow's badge starts at 3.
+    const un = ID.unread
+    insConv.run(un, 'Unread thread', t(400), t(60), fixtures.id, null, null)
+    const para = (n: number) =>
+      `Point ${n}: ` +
+      'a paragraph long enough to fill some screen, because the divider only means something when there is history above it to scroll through. '.repeat(3)
+    // Stored like a real finished answer: the transcript in `content`, the
+    // answer in `result` — the unread count only sees rows with a result.
+    for (let n = 1; n <= 6; n++) {
+      insMsg.run(uuid(), un, 'user', `Question ${n}?`, null, null, null, t(400 - n * 50))
+      insMsg.run(uuid(), un, 'assistant', `[chunk:1] ${para(n)}`, null, null, para(n), t(400 - n * 50 - 1))
+    }
+    // Read after answer 3 (at t(249)); answers 4–6 (t(199) and later) are unread.
+    db.prepare('UPDATE conversations SET last_read_at = ? WHERE id = ?').run(t(240), un)
 
     // 3. Background run — a cron that ran isolated, its output stamped with the run.
     const bg = ID.brief
@@ -351,7 +368,7 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     }
   })
   tx()
-  console.log(`[fixtures] ${present ? 'rearmed' : 'seeded'}: 3 sections, 8 conversations, 3 crons, 2 webhooks, 7 runs (2 waiting) + 1 chat question, 1 api key per user, 1 e2e user`)
+  console.log(`[fixtures] ${present ? 'rearmed' : 'seeded'}: 3 sections, 9 conversations, 3 crons, 2 webhooks, 7 runs (2 waiting) + 1 chat question, 1 api key per user, 1 e2e user`)
   // Screens already open on this instance refetch what changed.
   if (present) emitGlobalEvent({ type: 'runs', conversation_id: ID.brief })
 }

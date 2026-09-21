@@ -105,6 +105,36 @@ test.describe('chat rendering', () => {
     await expect(page.getByRole('heading', { name: 'Edit routine' })).toBeVisible()
   })
 
+  test('unread: the chat opens at the divider; the arrow leads back down and counts what is below', async ({ page }) => {
+    // Three answers landed since the thread was last read: the sidebar says so.
+    await expect(page.getByText('Unread thread', { exact: true }).locator('xpath=..').getByText('3', { exact: true })).toBeVisible()
+    await openConversation(page, 'Unread thread')
+    const divider = page.getByRole('button', { name: 'Unread messages' })
+    await expect(divider).toBeInViewport()
+    // The first unread answer is right under it, the newest one is off screen.
+    await expect(page.getByText('Point 4:')).toBeInViewport()
+    await expect(page.getByText('Point 6:')).not.toBeInViewport()
+    const arrow = page.getByTestId('jump-to-bottom')
+    await expect(arrow).toBeVisible()
+    await expect(page.getByTestId('jump-to-bottom-count')).toHaveText('3')
+    // Down: at the bottom the arrow has nothing left to say.
+    await arrow.click()
+    await expect(page.getByText('Point 6:')).toBeInViewport()
+    await expect(arrow).toBeHidden()
+    // The divider is a bookmark: still there after scrolling, gone on a click.
+    await page.getByText('Point 4:').scrollIntoViewIfNeeded()
+    await expect(divider).toBeVisible()
+    await divider.click()
+    await expect(divider).toHaveCount(0)
+  })
+
+  test('unread: nothing unread means the bottom, no divider, no arrow', async ({ page }) => {
+    await openConversation(page, 'Markdown showcase')
+    await expect(page.getByText('a quote, to close.')).toBeInViewport()
+    await expect(page.getByRole('button', { name: 'Unread messages' })).toHaveCount(0)
+    await expect(page.getByTestId('jump-to-bottom')).toBeHidden()
+  })
+
   test('app pane: the fixture app renders beside the chat', async ({ page }) => {
     await openConversation(page, 'Fixture app')
     const frame = page.frameLocator('iframe[title="App preview"]')
