@@ -61,8 +61,8 @@ export function ProviderConnections() {
       />
       <ProviderCard
         mode='gateway'
-        title='Gateway'
-        subtitle='OpenRouter, LiteLLM, or any Anthropic-compatible proxy'
+        title='OpenRouter'
+        subtitle='Other providers’ models, through one key'
         status={status!.gateway}
         isDefault={status!.defaultProvider === 'gateway'}
         canChooseDefault={status!.anthropic.configured && status!.gateway.configured}
@@ -88,7 +88,10 @@ function ProviderCard({
   // is still set, not changing it.
   const [open, setOpen] = useState(!status.configured)
   const [credential, setCredential] = useState('')
-  const [baseUrl, setBaseUrl] = useState(status.baseUrl || OPENROUTER)
+  // The gateway is OpenRouter: the URL is fixed. (A "Custom" URL used to be
+  // offered here — it meant any Anthropic-compatible proxy, which nobody had,
+  // and read as if a local Ollama could be plugged in, which it cannot.)
+  const baseUrl = OPENROUTER
   const [reveal, setReveal] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -175,35 +178,17 @@ function ProviderCard({
           )}
 
           {mode === 'gateway' && (
-            <div className='flex flex-col gap-1.5'>
-              <div className='flex gap-2'>
-                <Chip active={baseUrl === OPENROUTER} onClick={() => setBaseUrl(OPENROUTER)}>
-                  OpenRouter
-                </Chip>
-                <Chip active={baseUrl !== OPENROUTER} onClick={() => setBaseUrl('')}>
-                  Custom
-                </Chip>
-              </div>
-              <input
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder='https://…'
-                className='w-full bg-bg border border-border rounded-xl px-3 py-2 text-sm font-mono text-text-primary outline-none focus:border-accent'
-              />
-              {baseUrl === OPENROUTER && (
-                <p className='text-xs text-text-muted'>
-                  Use an OpenRouter key (starts with sk-or-).{' '}
-                  <a
-                    href='https://openrouter.ai/keys'
-                    target='_blank'
-                    rel='noreferrer'
-                    className='text-accent hover:underline inline-flex items-center gap-0.5'
-                  >
-                    OpenRouter keys <ExternalLink size={11} />
-                  </a>
-                </p>
-              )}
-            </div>
+            <p className='text-xs text-text-muted'>
+              Use an OpenRouter key (starts with sk-or-).{' '}
+              <a
+                href='https://openrouter.ai/keys'
+                target='_blank'
+                rel='noreferrer'
+                className='text-accent hover:underline inline-flex items-center gap-0.5'
+              >
+                OpenRouter keys <ExternalLink size={11} />
+              </a>
+            </p>
           )}
 
           <div className='relative'>
@@ -225,7 +210,7 @@ function ProviderCard({
 
           <button
             onClick={save}
-            disabled={saving || !credential.trim() || (mode === 'gateway' && !baseUrl.trim())}
+            disabled={saving || !credential.trim()}
             className='bg-accent text-white rounded-xl py-2.5 text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors'
           >
             {saving ? 'Verifying…' : 'Verify and save'}

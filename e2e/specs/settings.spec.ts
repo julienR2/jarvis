@@ -28,7 +28,10 @@ test.describe('settings', () => {
   test('models: the two provider cards', async ({ page }) => {
     await page.goto('settings?tab=models')
     await expect(page.getByText('Claude subscription')).toBeVisible()
-    await expect(page.getByText('Gateway', { exact: true })).toBeVisible()
+    await expect(page.getByText('OpenRouter', { exact: true })).toBeVisible()
+    // One gateway, one URL: no Custom chip, no URL field to fill.
+    await expect(page.getByRole('button', { name: 'Custom' })).toHaveCount(0)
+    await expect(page.getByPlaceholder('https://…')).toHaveCount(0)
   })
 
   test('access: create shows the secret once, then lists the key', async ({ page }) => {
