@@ -187,6 +187,23 @@ test.describe('chat rendering', () => {
     await expect(quote).toHaveCount(0)
   })
 
+  test('reply to a passage: a real answer (activity bubble) is selectable too', async ({ page }) => {
+    // Prod answers carry [chunk]/[tool] lines and render through ActivityBubble,
+    // which is where the button was missing at first.
+    await openConversation(page, 'Quoted reply')
+    await page.getByText("A 6'2 shortboard if the swell holds").evaluate((el) => {
+      const range = document.createRange()
+      range.selectNodeContents(el)
+      const sel = window.getSelection()!
+      sel.removeAllRanges()
+      sel.addRange(range)
+    })
+    const button = page.getByTestId('reply-selection')
+    await expect(button).toBeVisible()
+    await button.click()
+    await expect(page.getByTestId('composer-quote')).toContainText("A 6'2 shortboard")
+  })
+
   test('reply to a passage: the sent message shows the quote, and the quote leads back to its source', async ({ page }) => {
     await openConversation(page, 'Quoted reply')
     const citation = page.getByTestId('reply-citation')

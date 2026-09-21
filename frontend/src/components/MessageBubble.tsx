@@ -279,7 +279,9 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
   )
 
   return (
-    <div className='flex items-start mb-5 animate-fade-in group'>
+    // Same anchor as the plain bubble: a selection in a real answer (which
+    // nearly always carries activity lines and lands here) must be replyable.
+    <div data-message-id={msg.id} className='flex items-start mb-5 animate-fade-in group transition-colors'>
       <div className='max-w-full min-w-0'>
         {groups.map((g, i) => {
           if (g.kind === 'prose') {
