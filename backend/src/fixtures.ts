@@ -45,6 +45,7 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     question: '00000000-0000-4000-8000-000000000005',
     approval: '00000000-0000-4000-8000-000000000006',
     chatAsk: '00000000-0000-4000-8000-000000000007',
+    app2: '00000000-0000-4000-8000-000000000008',
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -181,6 +182,14 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     insConv.run(appConv, '◫ Fixture app', t(90), t(85), projects.id, 'apps/fixture', randomBytes(18).toString('base64url'))
     insMsg.run(uuid(), appConv, 'user', 'Build me a tiny app.', null, null, null, t(90))
     insMsg.run(uuid(), appConv, 'assistant', 'Done — it is in the preview pane.', null, null, null, t(86))
+    // A second one, so switching from one app chat to another can be checked:
+    // the pane has to show this app with its own token, not the previous one.
+    const app2Dir = join(config.workspaceDir, 'apps', 'fixture-two')
+    mkdirSync(app2Dir, { recursive: true })
+    writeFileSync(join(app2Dir, 'index.html'), FIXTURE_APP_HTML.replace(/Fixture app/g, 'Second app').replace('fixture-app', 'fixture-app-two'))
+    insConv.run(ID.app2, '◫ Second app', t(88), t(84), projects.id, 'apps/fixture-two', randomBytes(18).toString('base64url'))
+    insMsg.run(uuid(), ID.app2, 'user', 'And another one.', null, null, null, t(88))
+    insMsg.run(uuid(), ID.app2, 'assistant', 'Second app is up, in its own pane.', null, null, null, t(85))
 
     // 5. Routines and a key — rows for the settings pages. The cron is disabled so
     // nothing in a throwaway instance ever fires.
@@ -342,7 +351,7 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     }
   })
   tx()
-  console.log(`[fixtures] ${present ? 'rearmed' : 'seeded'}: 3 sections, 7 conversations, 3 crons, 2 webhooks, 7 runs (2 waiting) + 1 chat question, 1 api key per user, 1 e2e user`)
+  console.log(`[fixtures] ${present ? 'rearmed' : 'seeded'}: 3 sections, 8 conversations, 3 crons, 2 webhooks, 7 runs (2 waiting) + 1 chat question, 1 api key per user, 1 e2e user`)
   // Screens already open on this instance refetch what changed.
   if (present) emitGlobalEvent({ type: 'runs', conversation_id: ID.brief })
 }

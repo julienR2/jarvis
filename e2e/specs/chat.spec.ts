@@ -110,4 +110,19 @@ test.describe('chat rendering', () => {
     const frame = page.frameLocator('iframe[title="App preview"]')
     await expect(frame.getByTestId('fixture-app')).toBeVisible()
   })
+
+  test('app pane: switching to another app chat shows that app, with its own token', async ({ page }) => {
+    await openConversation(page, 'Fixture app')
+    const frame = page.frameLocator('iframe[title="App preview"]')
+    await expect(frame.getByTestId('fixture-app')).toBeVisible()
+    // The guard fails this test on the 404 the old code provoked here: the
+    // second app requested with the first app's token.
+    await openConversation(page, 'Second app')
+    await expect(frame.getByTestId('fixture-app-two')).toBeVisible()
+    await expect(frame.getByTestId('fixture-app')).toHaveCount(0)
+    await expect(page.locator('iframe[title="App preview"]')).toHaveAttribute('src', /apps\/fixture-two\//)
+    // And back, the same way round.
+    await openConversation(page, 'Fixture app')
+    await expect(frame.getByTestId('fixture-app')).toBeVisible()
+  })
 })

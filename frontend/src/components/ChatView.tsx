@@ -141,15 +141,20 @@ export default function ChatView({
 
   // Share link for the conversation's app: a token scoped to this app alone,
   // rotatable, and carrying none of the account rights the session JWT does.
-  const [appShareToken, setAppShareToken] = useState('')
+  // Kept with the id it belongs to: across a chat switch the previous token
+  // used to go out with the new chat's slug, the backend refused the pair and
+  // the pane showed "Not found" until the right one arrived. A token for
+  // another conversation now counts as no token at all.
+  const [appShare, setAppShare] = useState<{ id: string; token: string } | null>(null)
   useEffect(() => {
     if (!hasApp || !conversationId) return
     let cancelled = false
     api.getAppToken(conversationId)
-      .then(({ token }) => { if (!cancelled) setAppShareToken(token) })
+      .then(({ token }) => { if (!cancelled) setAppShare({ id: conversationId, token }) })
       .catch(() => { /* link stays hidden until the token resolves */ })
     return () => { cancelled = true }
   }, [hasApp, conversationId])
+  const appShareToken = appShare && appShare.id === conversationId ? appShare.token : ''
   const appShareUrl =
     hasApp && appShareToken
       ? `${API_BASE}/apps/${conv!.app_path!.replace(/^apps\//, '')}/index.html?token=${appShareToken}`
@@ -509,7 +514,7 @@ export default function ChatView({
                 <RoutinesPill conversationId={conversationId} hasRoutines={hasCron || hasWebhook} />
                 <ShareIcon shareMode={shareMode} />
                 <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} thinking={!!conv?.thinking} onThinkingChange={handleThinkingChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShareToken(token) } : undefined} />
+                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} thinking={!!conv?.thinking} onThinkingChange={handleThinkingChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
               </span>
             ) : undefined}
           >

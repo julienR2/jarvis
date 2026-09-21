@@ -37,7 +37,14 @@ export default function AppPreview({
   shareIntent,
   onShareIntentConsumed,
 }: Props) {
+  // The in-app route (#/…) survives a refresh of the same app but belongs to
+  // it alone: another chat's app starts at its own root.
   const appHashRef = useRef(window.location.hash)
+  const slugRef = useRef(appSlug)
+  if (slugRef.current !== appSlug) {
+    slugRef.current = appSlug
+    appHashRef.current = ''
+  }
 
   // The app's own token, passed down from ChatView rather than fetched here.
   //
@@ -124,18 +131,24 @@ export default function AppPreview({
         </div>
       </div>
 
-      <iframe
-        ref={iframeRef}
-        key={refreshKey}
-        // undefined, not '' — an empty src makes the browser load the page
-        // itself into the frame while the token is still on its way.
-        src={src || undefined}
-        onLoad={handleIframeLoad}
-        allow='microphone'
-        sandbox='allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads'
-        className='flex-1 w-full border-0'
-        title='App preview'
-      />
+      {src ? (
+        <iframe
+          ref={iframeRef}
+          // Keyed by app too: switching chats remounts the frame, so the
+          // previous app never lingers behind the new one's load.
+          key={`${appSlug}:${refreshKey}`}
+          src={src}
+          onLoad={handleIframeLoad}
+          allow='microphone'
+          sandbox='allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads'
+          className='flex-1 w-full border-0'
+          title='App preview'
+        />
+      ) : (
+        // No frame at all while the token is on its way: an empty src would
+        // load the page itself into it, and a stale one the previous app.
+        <div className='flex-1 w-full bg-bg' data-testid='app-preview-loading' />
+      )}
     </div>
   )
 }
