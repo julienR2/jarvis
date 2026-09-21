@@ -414,13 +414,6 @@ export default function ChatView({
       .patchConversation(conversationId, { effort: newEffort })
   }
 
-  function handleThinkingChange(on: boolean) {
-    if (!conversationId) return
-    useChatStore
-      .getState()
-      .patchConversation(conversationId, { thinking: on ? 1 : 0 })
-  }
-
   function handleMove(newSectionId: string | null) {
     if (!conversationId) return
     useChatStore
@@ -540,7 +533,7 @@ export default function ChatView({
                 <RoutinesPill conversationId={conversationId} hasRoutines={hasCron || hasWebhook} />
                 <ShareIcon shareMode={shareMode} />
                 <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} thinking={!!conv?.thinking} onThinkingChange={handleThinkingChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
+                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
               </span>
             ) : undefined}
           >
@@ -582,7 +575,7 @@ export default function ChatView({
                     <RoutinesPill conversationId={conversationId} hasRoutines={hasCron || hasWebhook} />
                     <ShareIcon shareMode={shareMode} />
                     <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-                        <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} thinking={!!conv?.thinking} onThinkingChange={handleThinkingChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} />
+                        <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} />
                   </span>
                 ) : undefined}
               >

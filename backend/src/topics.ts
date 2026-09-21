@@ -94,7 +94,7 @@ export function ensureDossierConversation(section: SectionRow): ConvRow {
   getDb()
     .prepare(
       `INSERT INTO conversations (id, title, model, effort, section_id, last_read_at, notify)
-       VALUES (?, ?, NULL, 'high', ?, unixepoch(), 'unsubscribe')`,
+       VALUES (?, ?, NULL, 'default', ?, unixepoch(), 'unsubscribe')`,
     )
     .run(id, title, section.id)
   return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id) as ConvRow

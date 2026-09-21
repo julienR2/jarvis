@@ -1,4 +1,5 @@
-export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+/** Think hard on ('high' → `--effort high`) or the model's own default (no flag). */
+export type EffortLevel = 'default' | 'high'
 
 export interface ConvRow {
   id: string
@@ -8,7 +9,7 @@ export interface ConvRow {
   notify: 'subscribe' | 'unsubscribe' | 'auto'
   model: string | null
   effort: EffortLevel
-  /** 1 = show the model's summarized reasoning as notes between the steps. */
+  /** Legacy column, unused: reasoning summaries were removed (2026-09-21). */
   thinking: number
   section_id: string | null
   context_tokens: number | null
@@ -81,7 +82,7 @@ export interface CronRow {
   once: number
   model: string | null
   effort: EffortLevel
-  /** 1 = show reasoning notes in the runs it fires. */
+  /** Legacy column, unused. */
   thinking: number
   /** 0 = run in a throwaway session, reporting into the linked conversation. */
   inherit_context: number
@@ -99,7 +100,7 @@ export interface WebhookRow {
   enabled: number
   model: string | null
   effort: EffortLevel
-  /** 1 = show reasoning notes in the runs it fires. */
+  /** Legacy column, unused. */
   thinking: number
   notify: 'auto' | 'never' | 'always'
   user_message_key: string | null

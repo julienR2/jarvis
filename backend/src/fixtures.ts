@@ -442,6 +442,12 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
   db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = NULL WHERE id = ?').run(t(800), ID.inboxToRead)
   db.prepare('UPDATE conversations SET last_read_at = created_at - 1, notified_at = NULL WHERE id IN (?, ?, ?)').run(ID.question, ID.approval, ID.chatAsk)
 
+  // Effort is a switch, off unless chosen; the columns' old default says 'high'.
+  const ids = Object.values(ID)
+  db.prepare(`UPDATE conversations SET effort = 'default' WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids)
+  db.prepare('UPDATE crons SET effort = ? WHERE id IN (?, ?, ?)').run('default', cronId, yearlyId, askCronId)
+  db.prepare('UPDATE webhooks SET effort = ? WHERE id IN (?, ?)').run('default', hookId, okHookId)
+
   console.log(`[fixtures] ${present ? 'rearmed' : 'seeded'}: 3 sections, 13 conversations, 3 crons, 2 webhooks, 7 runs (2 waiting) + 1 chat question, 1 api key per user, 1 e2e user`)
   // Screens already open on this instance refetch what changed.
   if (present) emitGlobalEvent({ type: 'runs', conversation_id: ID.brief })

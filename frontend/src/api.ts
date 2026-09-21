@@ -158,7 +158,7 @@ export const api = {
     ),
   updateConversation: (
     id: string,
-    data: { title?: string; notify?: string; model?: string; effort?: Effort; thinking?: boolean; section_id?: string | null },
+    data: { title?: string; notify?: string; model?: string; effort?: Effort; section_id?: string | null },
   ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
   // Files are archived and routines kept unless told otherwise — the delete
   // dialog's two checkboxes, both off by default.
@@ -503,7 +503,8 @@ export async function resolveShare(token: string): Promise<SharedConversationRef
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type Effort = 'low' | 'medium' | 'high' | 'max'
+/** 'high' = the Think hard switch is on (--effort high); 'default' = no flag, the model decides. */
+export type Effort = 'default' | 'high'
 
 export interface ModelCatalogue {
   provider: 'anthropic' | 'gateway'
@@ -553,7 +554,7 @@ export interface Conversation {
   notify: 'subscribe' | 'unsubscribe' | 'auto'
   model: string | null
   effort: Effort
-  /** 1 = Jarvis shows its reasoning as notes between the steps. Off by default. */
+  /** Legacy column, unused since reasoning summaries were removed. */
   thinking: number
   section_id: string | null
   /** Context fill as of the last assistant message — null until the first turn. */

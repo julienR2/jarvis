@@ -19,8 +19,8 @@ function ensureConversation(entry: WebhookRow): { conversationId: string; conv: 
   getDb()
     .prepare(
       // Explicit NULL model — see the note in crons.ts.
-      `INSERT INTO conversations (id, title, notify, model, last_read_at)
-       VALUES (?, ?, ?, NULL, unixepoch())`,
+      `INSERT INTO conversations (id, title, notify, model, effort, last_read_at)
+       VALUES (?, ?, ?, NULL, 'default', unixepoch())`,
     )
     .run(convId, `Webhook: ${entry.name}`, convNotify)
 
@@ -95,7 +95,6 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
     userMessageOverride: displayMessage,
     model: entry.model ?? undefined,
     effort: entry.effort,
-    reasoning: !!entry.thinking,
     runKey,
     runId: run.id,
   }

@@ -11,13 +11,11 @@ export function getDb(): Database.Database {
   return db
 }
 
-export const EFFORT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
+export const EFFORT_LEVELS: EffortLevel[] = ['default', 'high']
 
-/** Coerce arbitrary input to a valid effort level, defaulting to 'high'. */
+/** Effort is a switch: 'high' (and the old max/xhigh) mean think hard; anything else is the model's default. */
 export function normalizeEffort(v: unknown): EffortLevel {
-  return typeof v === 'string' && (EFFORT_LEVELS as string[]).includes(v)
-    ? (v as EffortLevel)
-    : 'high'
+  return v === true || v === 'high' || v === 'max' || v === 'xhigh' ? 'high' : 'default'
 }
 
 export function initDb(): void {
@@ -247,6 +245,18 @@ export function initDb(): void {
       db.exec(`ALTER TABLE ${table} ADD COLUMN effort TEXT NOT NULL DEFAULT 'high'`)
       db.exec(`UPDATE ${table} SET effort = 'max' WHERE thinking = 1`)
     } catch { /* already exists */ }
+  }
+
+  // Migration (2026-09-21): effort becomes a switch — 'high' passes --effort
+  // high, 'default' passes nothing — and starts off for everyone. The old
+  // four-step levels were a default nobody chose, so every row is reset once.
+  // user_version marks it done: a later 'high' picked by hand must survive boots.
+  if ((db.pragma('user_version', { simple: true }) as number) < 1) {
+    for (const table of ['conversations', 'crons', 'webhooks']) {
+      db.exec(`UPDATE ${table} SET effort = 'default'`)
+    }
+    db.pragma('user_version = 1')
+    console.log('[db] effort reset to the model default on every row (switch model)')
   }
 
   // Migration: add onboarded flag to users (existing users are considered already onboarded)

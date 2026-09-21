@@ -57,9 +57,6 @@ export interface Session {
   subscribers: Set<(ev: SessionEvent) => void>
   model?: string
   effort?: string
-  // Surface the model's summarized reasoning as notes between the steps.
-  // Off by default: the notes are what makes a turn read as machinery.
-  reasoning: boolean
   envVars?: Record<string, string>
   startedAt: number
   lastActivityAt: number
@@ -181,7 +178,6 @@ export interface EnsureOptions {
   resumeSessionId?: string | null
   model?: string
   effort?: string
-  reasoning?: boolean
   envVars?: Record<string, string>
   oneShot?: boolean
   // Respawn only: the replaced session's subscriber set, adopted by reference
@@ -192,13 +188,12 @@ export interface EnsureOptions {
 export function ensureSession(opts: EnsureOptions): Session {
   const existing = sessions.get(opts.conversationId)
   if (existing) {
-    // Model, effort or reasoning display changed mid-conversation: the flags
-    // are argv-only, so the process has to be replaced. Resume from its own
-    // live session id.
+    // Model or effort changed mid-conversation: the flags are argv-only, so
+    // the process has to be replaced. Resume from its own live session id.
+    // (`effort` is compared as sent: undefined = no flag, 'high' = the flag.)
     if (
       (opts.model ?? existing.model) !== existing.model ||
-      (opts.effort ?? existing.effort) !== existing.effort ||
-      (opts.reasoning ?? existing.reasoning) !== existing.reasoning
+      opts.effort !== existing.effort
     ) {
       // Crossing between Anthropic and a gateway means the transcript can't be
       // resumed: the CLI references the previous response's message id, and the
@@ -218,7 +213,7 @@ export function ensureSession(opts: EnsureOptions): Session {
         )
       }
       console.log(
-        `[session] ${opts.conversationId}: model/effort/reasoning change, respawning`,
+        `[session] ${opts.conversationId}: model/effort change, respawning`,
       )
       closeSession(existing, { graceful: false })
       // Hand the subscriber SET ITSELF (not a copy) to the replacement. The
@@ -262,7 +257,6 @@ function createSession(opts: EnsureOptions): Session {
     subscribers: opts.inheritSubscribers ?? new Set(),
     model: opts.model,
     effort: opts.effort,
-    reasoning: opts.reasoning ?? false,
     envVars: opts.envVars,
     startedAt: Date.now(),
     lastActivityAt: Date.now(),
@@ -393,25 +387,16 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
 
   if (resumeSessionId) args.push('--resume', resumeSessionId)
   if (sess.model) args.push('--model', sess.model)
-  // Effort level (low|medium|high|xhigh|max). Haiku uses classic extended
-  // thinking rather than adaptive effort and errors if --effort is passed,
-  // so skip the flag for it.
+  // Effort: the backend sends 'high' when the chat's "Think hard" switch is
+  // on, nothing otherwise — no flag, the model's own default. Haiku uses
+  // classic extended thinking rather than adaptive effort and errors if
+  // --effort is passed, so skip the flag for it.
   if (sess.effort && !/haiku/i.test(sess.model ?? '')) {
     args.push('--effort', sess.effort)
   }
-  // Reasoning summaries. Opt-in per conversation (`reasoning`, off by default —
-  // a chat reads as a conversation, not as a trail of "let me check the skill
-  // first"). The API default is `omitted`, which streams thinking blocks with
-  // empty text.
-  //
-  // These are surfaced as persisted `note` lines from the complete-message
-  // handler, NOT streamed to a live status line. That was tried first and
-  // dropped: the model moves through its reasoning far faster than anyone can
-  // read it, so a self-replacing line just flickered. A note stays put and can
-  // actually be read — before or after the fact.
-  if (sess.streamingFlags && sess.reasoning && !/haiku/i.test(sess.model ?? '')) {
-    args.push('--thinking-display', 'summarized')
-  }
+  // No --thinking-display: reasoning summaries were removed (2026-09-21). The
+  // API default is `omitted`, so thinking blocks arrive with empty text and
+  // the complete-message handler has nothing to surface.
 
   console.log(`[session] ${sess.conversationId}: spawning claude ${args.join(' ')}`)
 
@@ -780,25 +765,9 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
           // anything about how full THIS conversation is.
           if (!ev.parent_tool_use_id) recordUsage(sess, ev.message.usage)
           for (const block of ev.message.content) {
-            // Summarized reasoning (--thinking-display). Persisted as a note so
-            // it stays readable in the trail instead of flashing past in a live
-            // status line. Main loop only: a subagent's reasoning is internal
-            // detail, and the main loop's own narration covers what it's doing.
-            if (
-              block.type === 'thinking' &&
-              block.thinking?.trim() &&
-              !ev.parent_tool_use_id
-            ) {
-              console.log(
-                '[session] -> thinking:',
-                block.thinking.trim().slice(0, 80),
-              )
-              pushEvent(sess, {
-                type: 'note',
-                text: block.thinking.trim(),
-                group: activityGroup,
-              })
-            }
+            // Thinking blocks are not surfaced: reasoning summaries were
+            // removed — a chat reads as a conversation, not as a trail of
+            // "let me check the skill first".
             if (block.type === 'tool_use') {
               if (QUIET_TOOLS.has(block.name) && !block.input?.description) {
                 console.log('[session] -> tool (quiet):', block.name)

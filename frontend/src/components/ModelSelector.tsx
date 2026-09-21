@@ -162,15 +162,44 @@ export function modalityLabel(m: ModelOption): string | null {
   return m.kind && m.kind !== 'text' ? m.kind : null
 }
 
-/** Effort levels exposed in the UI (the CLI also accepts `xhigh`). */
-export const EFFORTS: { id: Effort; label: string; hint: string }[] = [
-  { id: 'low', label: 'Low', hint: 'Fastest, minimal reasoning' },
-  { id: 'medium', label: 'Med', hint: 'Lighter reasoning' },
-  { id: 'high', label: 'High', hint: 'Balanced (default)' },
-  { id: 'max', label: 'Max', hint: 'Most thorough, slowest' },
-]
+/** Effort is a switch: off = the model's own default (no flag), on = --effort high. */
+export const DEFAULT_EFFORT: Effort = 'default'
 
-export const DEFAULT_EFFORT: Effort = 'high'
+/**
+ * The "Think hard" switch, shared by the chat's ⋯ menu and the routine form.
+ * Off, the CLI gets no --effort flag and the model decides; on, it thinks at
+ * high effort — slower, for the tasks that deserve it.
+ */
+export function EffortSwitch({
+  effort,
+  onChange,
+  disabled,
+  compact,
+}: {
+  effort: Effort
+  onChange: (e: Effort) => void
+  disabled?: boolean
+  compact?: boolean
+}) {
+  const on = effort === 'high'
+  return (
+    <button
+      type='button'
+      role='switch'
+      aria-checked={on}
+      disabled={disabled}
+      onClick={() => onChange(on ? 'default' : 'high')}
+      title={disabled ? 'This model has no effort setting' : on ? 'Thinking at high effort — slower, more thorough' : 'The model decides how much to think'}
+      className={`w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg disabled:opacity-40 ${compact ? 'text-[13px]' : ''}`}
+    >
+      <Brain size={14} className={on ? 'text-accent' : ''} />
+      <span className='flex-1 text-left'>Think hard</span>
+      <span className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${on ? 'bg-accent' : 'bg-border'}`}>
+        <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${on ? 'left-[14px]' : 'left-0.5'}`} />
+      </span>
+    </button>
+  )
+}
 
 /** Haiku uses classic extended thinking, not the effort parameter. */
 export function modelSupportsEffort(id: string): boolean {
@@ -205,7 +234,6 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
   const [picking, setPicking] = useState(false)
   const selectedModel = catalogue.find(m => m.id === model) || { id: model, name: modelName(model), desc: '' }
   const supportsEffort = modelSupportsEffort(model)
-  const effortLabel = EFFORTS.find(e => e.id === effort)?.label ?? effort
 
   useEffect(() => {
     if (!showMenu) return
@@ -245,8 +273,8 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-text-secondary bg-bg hover:bg-border/60 transition-colors disabled:opacity-30"
       >
         <span className="text-text-primary font-semibold">{selectedModel.name}</span>
-        {supportsEffort && effort !== DEFAULT_EFFORT && (
-          <span className="text-[10px] font-semibold text-accent">{effortLabel}</span>
+        {supportsEffort && effort === 'high' && (
+          <Brain size={11} className="text-accent" />
         )}
         <ChevronDown size={12} className="text-text-muted" />
       </button>
@@ -307,30 +335,8 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
           <div className="h-px bg-border" />
 
           {/* Effort selector */}
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-2">
-              <Brain size={12} className="text-text-muted" />
-              <span className="text-sm font-semibold text-text-primary">Effort</span>
-              {!supportsEffort && (
-                <span className="text-[11px] text-text-muted">· n/a for {selectedModel.name}</span>
-              )}
-            </div>
-            <div className={`flex gap-0.5 bg-surface2 rounded-lg p-0.5 ${!supportsEffort ? 'opacity-40 pointer-events-none' : ''}`}>
-              {EFFORTS.map(e => (
-                <button
-                  key={e.id}
-                  onClick={() => onEffortChange(e.id)}
-                  title={e.hint}
-                  className={`flex-1 px-2 py-1 text-xs rounded-md transition-colors ${
-                    effort === e.id
-                      ? 'bg-bg text-text-primary shadow-sm font-medium'
-                      : 'text-text-muted hover:text-text-primary'
-                  }`}
-                >
-                  {e.label}
-                </button>
-              ))}
-            </div>
+          <div className="border-t border-border px-1 py-1">
+            <EffortSwitch effort={effort} onChange={onEffortChange} disabled={!supportsEffort} />
           </div>
         </div>
       )}

@@ -28,8 +28,8 @@ function ensureConversation(entry: CronRow): { conversationId: string; conv: Con
       // "resolve the instance default", which is what talking in that
       // conversation should use. The cron's own pinned model is separate and
       // passed per turn, so the schedule keeps running on what it was set up with.
-      `INSERT INTO conversations (id, title, model, last_read_at, notify)
-       VALUES (?, ?, NULL, unixepoch(), 'auto')`,
+      `INSERT INTO conversations (id, title, model, effort, last_read_at, notify)
+       VALUES (?, ?, NULL, 'default', unixepoch(), 'auto')`,
     )
     .run(convId, `Cron: ${entry.name}`)
 
@@ -79,7 +79,6 @@ export function fireCron(entry: CronRow): void {
     skipUserMessage: true,
     model: entry.model ?? undefined,
     effort: entry.effort,
-    reasoning: !!entry.thinking,
     runKey,
     runId: run.id,
     onDone: (text) => {

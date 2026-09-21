@@ -234,8 +234,6 @@ export function processMessage(
     onDone?: (text: string) => void
     model?: string
     effort?: EffortLevel
-    // A routine's own reasoning setting; the conversation's applies otherwise.
-    reasoning?: boolean
     // Run under a throwaway engine session instead of the conversation's own.
     // The messages still persist and stream into `conversationId`; what the run
     // does NOT get is the conversation's history, and what the conversation does
@@ -367,7 +365,6 @@ export function processMessage(
     conversationId: runKey ?? conversationId,
     model: resolveModel(options?.model),
     effort: options?.effort,
-    reasoning: options?.reasoning ?? !!conv.thinking,
     // The engine derives JARVIS_CONVERSATION_ID from the session key, which for
     // an isolated run is the throwaway runKey. Point it back at the real
     // conversation: skills write uploads and apps under that id and read the
@@ -1227,8 +1224,9 @@ export async function conversationRoutes(app: FastifyInstance) {
         `INSERT INTO conversations (id, title, model, effort, last_read_at, notify)
          VALUES (?, ?, ?, ?, unixepoch(), 'auto')`,
       )
-      // model = null → "use the global default" (resolved at invoke time)
-      .run(id, title ?? 'New conversation', null, 'high')
+      // model = null → "use the global default" (resolved at invoke time);
+      // effort 'default' → no --effort flag, the model decides.
+      .run(id, title ?? 'New conversation', null, 'default')
     return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id)
   })
 
@@ -1295,11 +1293,10 @@ export async function conversationRoutes(app: FastifyInstance) {
       title?: string
       notify?: string
       model?: string
-      effort?: string
-      thinking?: boolean | number
+      effort?: string | boolean
       section_id?: string | null
     }
-    const { title, notify, model, effort, thinking } = body
+    const { title, notify, model, effort } = body
 
     const sets: string[] = []
     const params: unknown[] = []
@@ -1307,10 +1304,6 @@ export async function conversationRoutes(app: FastifyInstance) {
     if (title !== undefined) {
       sets.push('title = ?')
       params.push(title)
-    }
-    if (thinking !== undefined) {
-      sets.push('thinking = ?')
-      params.push(thinking ? 1 : 0)
     }
     if (notify !== undefined) {
       if (!['subscribe', 'unsubscribe', 'auto'].includes(notify)) {

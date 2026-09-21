@@ -71,17 +71,19 @@ test.describe('chat rendering', () => {
     await expect(quiet.getByText(/JavaScript Weekly/)).toBeVisible()
   })
 
-  test('reasoning notes are off by default, and the ⋯ menu turns them on per chat', async ({ page }) => {
+  test('think hard is off by default; the ⋯ menu switches it on per chat, and it sticks', async ({ page }) => {
     await openConversation(page, 'Morning brief')
     await page.getByRole('main').locator('button[title*="onversation options"]:visible').first().click()
-    const sw = page.getByRole('switch', { name: 'Show reasoning' })
+    // Reasoning summaries are gone: no such switch any more.
+    await expect(page.getByRole('switch', { name: 'Show reasoning' })).toHaveCount(0)
+    const sw = page.getByRole('switch', { name: 'Think hard' })
     await expect(sw).toHaveAttribute('aria-checked', 'false')
     await sw.click()
     await expect(sw).toHaveAttribute('aria-checked', 'true')
     // Persisted: reopening the menu after a reload finds it on.
     await page.reload()
     await page.getByRole('main').locator('button[title*="onversation options"]:visible').first().click()
-    await expect(page.getByRole('switch', { name: 'Show reasoning' })).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByRole('switch', { name: 'Think hard' })).toHaveAttribute('aria-checked', 'true')
   })
 
   test('background run: the gear opens the routine in edit mode', async ({ page }) => {

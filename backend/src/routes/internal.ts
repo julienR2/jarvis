@@ -119,6 +119,8 @@ export async function internalRoutes(app: FastifyInstance) {
       schedule: string
       prompt: string
       enabled?: boolean
+      /** 'high' = think hard; anything else = the model's default. */
+      effort?: string | boolean
       once?: boolean
       conversation_id?: string
     }
@@ -155,8 +157,8 @@ export async function internalRoutes(app: FastifyInstance) {
     getDb()
       // model = null → "use the global default" (resolved at fire time); never
       // rely on the column default, which may be a stale value on older DBs.
-      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, conversation_id, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, body.schedule, body.prompt, body.enabled !== false ? 1 : 0, body.once ? 1 : 0, body.conversation_id || null, null)
+      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, conversation_id, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, body.schedule, body.prompt, body.enabled !== false ? 1 : 0, body.once ? 1 : 0, body.conversation_id || null, null, normalizeEffort(body.effort))
 
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(id) as CronRow
     schedule(row)
@@ -350,6 +352,7 @@ export async function internalRoutes(app: FastifyInstance) {
       name: string
       prompt: string
       enabled?: boolean
+      effort?: string | boolean
       conversation_id?: string
     }
 
@@ -374,8 +377,8 @@ export async function internalRoutes(app: FastifyInstance) {
     const token = uuid()
     getDb()
       // model = null → "use the global default" (resolved at fire time)
-      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, conversation_id, model) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, token, body.prompt, body.enabled !== false ? 1 : 0, body.conversation_id || null, null)
+      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, conversation_id, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, token, body.prompt, body.enabled !== false ? 1 : 0, body.conversation_id || null, null, normalizeEffort(body.effort))
 
     const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(id)
     return { created: true, webhook: row }
