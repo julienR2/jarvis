@@ -314,7 +314,9 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
               </>
             )}
 
-            {conversationId && (
+            {/* Sharing belongs to the chat's own title bar, not the sidebar's
+                short menu (the id is passed there for the delete dialog). */}
+            {conversationId && !compact && (
               <button
                 onClick={() => { setOpen(false); setSharing(true) }}
                 className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
