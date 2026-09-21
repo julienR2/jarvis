@@ -13,6 +13,7 @@ import {
   type Message,
   type Attachment,
   type Conversation,
+  type DeleteOptions,
   type Run,
 } from '../api'
 import { useChatStore } from '../stores/chatStore'
@@ -434,9 +435,9 @@ export default function ChatView({
     setRenaming(false)
   }
 
-  async function handleDelete() {
+  async function handleDelete(opts: DeleteOptions) {
     if (!conversationId) return
-    await useChatStore.getState().deleteConversation(conversationId)
+    await useChatStore.getState().deleteConversation(conversationId, opts)
     navigate('/', { replace: true })
   }
 

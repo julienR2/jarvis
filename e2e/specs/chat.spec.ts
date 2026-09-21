@@ -135,6 +135,35 @@ test.describe('chat rendering', () => {
     await expect(page.getByTestId('jump-to-bottom')).toBeHidden()
   })
 
+  test('delete: the dialog asks about files and routines, both unchecked; Cancel keeps everything', async ({ page }) => {
+    await openConversation(page, 'Morning brief')
+    await page.getByRole('main').locator('button[title*="onversation options"]:visible').first().click()
+    await page.getByRole('button', { name: 'Delete' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByText('Delete this conversation?')).toBeVisible()
+    const files = dialog.getByRole('checkbox', { name: /Also delete the files/ })
+    const routines = dialog.getByRole('checkbox', { name: /Also delete its routine/ })
+    await expect(files).not.toBeChecked()
+    await expect(routines).not.toBeChecked()
+    await expect(dialog.getByText('Otherwise they are archived')).toBeVisible()
+    await expect(dialog.getByText('Otherwise they keep running and open a new chat')).toBeVisible()
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(page).toHaveURL(/000000000003$/)
+  })
+
+  test('delete: a chat without routines is asked about its files only, and Delete removes it', async ({ page }) => {
+    await page.getByText('New chat').click()
+    await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/)
+    await page.getByRole('main').locator('button[title*="onversation options"]:visible').first().click()
+    await page.getByRole('button', { name: 'Delete' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('checkbox', { name: /Also delete the files/ })).toBeVisible()
+    await expect(dialog.getByRole('checkbox', { name: /routine/ })).toHaveCount(0)
+    await dialog.getByRole('button', { name: 'Delete' }).click()
+    await expect(page).toHaveURL(/\/next\/?$/)
+  })
+
   test('app pane: the fixture app renders beside the chat', async ({ page }) => {
     await openConversation(page, 'Fixture app')
     const frame = page.frameLocator('iframe[title="App preview"]')

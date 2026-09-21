@@ -156,8 +156,15 @@ export const api = {
     id: string,
     data: { title?: string; notify?: string; model?: string; effort?: Effort; thinking?: boolean; section_id?: string | null },
   ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
-  deleteConversation: (id: string) =>
-    request<{ ok: boolean }>('DELETE', `/conversations/${id}`),
+  // Files are archived and routines kept unless told otherwise — the delete
+  // dialog's two checkboxes, both off by default.
+  deleteConversation: (id: string, opts: DeleteOptions = {}) => {
+    const q = new URLSearchParams()
+    if (opts.files) q.set('files', 'delete')
+    if (opts.routines) q.set('routines', 'delete')
+    const qs = q.toString()
+    return request<{ ok: boolean }>('DELETE', `/conversations/${id}${qs ? `?${qs}` : ''}`)
+  },
 
   // Sections (sidebar groups). The default "Chats" group is section_id === null
   // and has no row of its own.
@@ -514,6 +521,14 @@ export interface ConnectionStatus {
   gateway: ProviderStatus
   /** Which provider new conversations belong to. Forced when only one is set up. */
   defaultProvider: 'anthropic' | 'gateway'
+}
+
+/** What goes with a deleted conversation besides its messages. */
+export interface DeleteOptions {
+  /** Delete the chat's uploads and app for good instead of archiving them. */
+  files?: boolean
+  /** Delete the routines posting into it instead of leaving them to open a new chat. */
+  routines?: boolean
 }
 
 export interface Conversation {

@@ -5,7 +5,8 @@ import { basename, extname, resolve, sep } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { activeRuns, finishRun, runStatus, stopRunsFor } from '../runs.js'
 import { ownerOrShare, resolveShareToken } from '../share-access.js'
-import { archiveAppDir } from '../app-archive.js'
+import { archiveAppDir, archiveUploadsDir, purgeConversationFiles } from '../app-archive.js'
+import { rescheduleAll } from '../crons.js'
 import { ensureAppToken, rotateAppToken, generateShareToken } from '../app-tokens.js'
 import { UPLOADS_DIR } from './uploads.js'
 import {
@@ -1362,23 +1363,40 @@ export async function conversationRoutes(app: FastifyInstance) {
       .get(req.params.id)
   })
 
-  app.delete<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
-    // Archive app files (instead of deleting) if this conversation has one, so
-    // the app can be recovered if the conversation was deleted by mistake.
-    const conv = getDb()
-      .prepare('SELECT app_path FROM conversations WHERE id = ?')
-      .get(req.params.id) as ConvRow | undefined
-    if (conv?.app_path) {
-      archiveAppDir(req.params.id, conv.app_path)
-    }
+  // DELETE /:id?files=delete&routines=delete
+  //
+  // By default the chat's files (its app, its uploads) are archived rather than
+  // deleted, so a chat removed by mistake can be recovered from the file
+  // browser, and its routines are left in place — the FK sets their
+  // conversation_id to NULL and the next fire opens a fresh chat. Either
+  // choice is the person's to make in the delete dialog, not the default.
+  app.delete<{ Params: { id: string }; Querystring: { files?: string; routines?: string } }>(
+    '/:id',
+    auth,
+    async (req, reply) => {
+      const conv = getDb()
+        .prepare('SELECT app_path FROM conversations WHERE id = ?')
+        .get(req.params.id) as ConvRow | undefined
+      if (!conv) return reply.code(404).send({ error: 'Not found' })
 
-    const result = getDb()
-      .prepare('DELETE FROM conversations WHERE id = ?')
-      .run(req.params.id)
-    if (result.changes === 0)
-      return reply.code(404).send({ error: 'Not found' })
-    return { ok: true }
-  })
+      if (req.query.routines === 'delete') {
+        const db = getDb()
+        const crons = db.prepare('DELETE FROM crons WHERE conversation_id = ?').run(req.params.id)
+        db.prepare('DELETE FROM webhooks WHERE conversation_id = ?').run(req.params.id)
+        if (crons.changes) rescheduleAll()
+      }
+
+      if (req.query.files === 'delete') {
+        purgeConversationFiles(req.params.id, conv.app_path)
+      } else {
+        if (conv.app_path) archiveAppDir(req.params.id, conv.app_path)
+        archiveUploadsDir(req.params.id)
+      }
+
+      getDb().prepare('DELETE FROM conversations WHERE id = ?').run(req.params.id)
+      return { ok: true }
+    },
+  )
 
   // ── Conversation sharing ───────────────────────────────────────────────────
 

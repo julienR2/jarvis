@@ -12,7 +12,8 @@ import { useModelCatalogue, DEFAULT_MODEL, modelName, EFFORTS, DEFAULT_EFFORT, m
 import GatewayModelPicker from './GatewayModelPicker'
 import { isGatewayModel, modalityLabel } from './ModelSelector'
 import ShareDialog from './ShareDialog'
-import type { Effort } from '../api'
+import DeleteConversationDialog from './DeleteConversationDialog'
+import type { Effort, DeleteOptions } from '../api'
 
 type NotifyMode = 'subscribe' | 'unsubscribe' | 'auto'
 
@@ -23,7 +24,7 @@ const NOTIFY_OPTIONS: { value: NotifyMode; label: string; icon: typeof Bell }[] 
 ]
 
 interface Props {
-  onDelete: () => void
+  onDelete: (opts: DeleteOptions) => void
   onRename?: () => void
   notify?: NotifyMode
   onNotifyChange?: (mode: NotifyMode) => void
@@ -67,6 +68,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     const navigate = useNavigate()
     const [open, setOpen] = useState(false)
     const [sharing, setSharing] = useState(false)
+    const [deleting, setDeleting] = useState(false)
     const btnRef = useRef<HTMLButtonElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -343,9 +345,8 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
             <button
               onClick={() => {
                 setOpen(false)
-                // A routine survives its chat: the next fire opens a new one. Say so.
-                const note = (hasCron || hasWebhook) ? '\n\nRoutines posting here keep running and will open a new chat.' : ''
-                if (confirm(`Delete this conversation?${note}`)) onDelete()
+                // What goes with the chat — files, routines — is asked, not assumed.
+                setDeleting(true)
               }}
               className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-danger hover:bg-surface2 transition-colors rounded-lg'
             >
@@ -371,6 +372,13 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
           <ShareDialog
             conversationId={conversationId}
             onClose={() => setSharing(false)}
+          />
+        )}
+        {deleting && (
+          <DeleteConversationDialog
+            conversationId={conversationId}
+            onConfirm={(opts) => { setDeleting(false); onDelete(opts) }}
+            onClose={() => setDeleting(false)}
           />
         )}
       </div>

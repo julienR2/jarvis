@@ -4,6 +4,7 @@ import {
   api,
   type Conversation,
   type ConversationWithMessages,
+  type DeleteOptions,
   type Message,
   type PendingQuestion,
   type Run,
@@ -67,7 +68,7 @@ interface ChatState {
   // ── List actions ─────────────────────────────────────────────────────────
   loadConversations: () => Promise<void>
   createConversation: (title?: string) => Promise<Conversation>
-  deleteConversation: (id: string) => Promise<void>
+  deleteConversation: (id: string, opts?: DeleteOptions) => Promise<void>
 
   // ── Section actions ──────────────────────────────────────────────────────
   loadSections: () => Promise<void>
@@ -240,7 +241,7 @@ export const useChatStore = create<ChatState>()(
       return conv
     },
 
-    async deleteConversation(id) {
+    async deleteConversation(id, opts) {
       const snapshot = {
         conv: get().conversations[id],
         orderIdx: get().order.indexOf(id),
@@ -256,7 +257,7 @@ export const useChatStore = create<ChatState>()(
         delete s.convsLoaded[id]
       })
       try {
-        await api.deleteConversation(id)
+        await api.deleteConversation(id, opts)
       } catch (err) {
         console.error('Failed to delete conversation:', err)
         toast('error', 'Failed to delete conversation')

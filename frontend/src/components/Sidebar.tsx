@@ -30,7 +30,7 @@ import ConversationMenu, {
 } from './ConversationMenu'
 import NameModal from './NameModal'
 import SectionPicker from './SectionPicker'
-import type { Conversation, Section } from '../api'
+import type { Conversation, DeleteOptions, Section } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { api } from '../api'
 import { startOfToday, useRecentRuns } from '../lib/runs'
@@ -38,7 +38,7 @@ import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
   onNew: () => void
-  onDelete: (id: string) => void
+  onDelete: (id: string, opts: DeleteOptions) => void
   onRename: (id: string, title: string) => void
   onMove: (id: string, sectionId: string | null) => void
   onSelect: () => void
@@ -289,7 +289,7 @@ function SectionGroup({
   canMoveDown: boolean
   activePath: string
   onNav: (path: string) => void
-  onDelete: (id: string) => void
+  onDelete: (id: string, opts: DeleteOptions) => void
   onRename: (id: string, title: string) => void
   onMove: (id: string, sectionId: string | null) => void
 }) {
@@ -371,7 +371,7 @@ function SectionGroup({
           conv={conv}
           active={activePath === `/c/${conv.id}`}
           onNav={() => onNav(`/c/${conv.id}`)}
-          onDelete={() => onDelete(conv.id)}
+          onDelete={(opts) => onDelete(conv.id, opts)}
           onRename={(title) => onRename(conv.id, title)}
           onMove={(sectionId) => onMove(conv.id, sectionId)}
         />
@@ -523,7 +523,7 @@ function ConvItem({
   conv: Conversation
   active: boolean
   onNav: () => void
-  onDelete: () => void
+  onDelete: (opts: DeleteOptions) => void
   onRename: (title: string) => void
   onMove: (sectionId: string | null) => void
 }) {
@@ -608,6 +608,7 @@ function ConvItem({
         )}
         <ConversationMenu
           ref={menuRef}
+          conversationId={conv.id}
           onDelete={onDelete}
           onRename={() => setRenaming(true)}
           onMove={() => setMoving(true)}

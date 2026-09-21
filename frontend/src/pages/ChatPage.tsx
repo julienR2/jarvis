@@ -131,9 +131,9 @@ export default function ChatPage() {
       >
         <Sidebar
           onNew={newConversation}
-          onDelete={async (id) => {
+          onDelete={async (id, opts) => {
             const onCurrent = locationRef.current === `/c/${id}`
-            await useChatStore.getState().deleteConversation(id)
+            await useChatStore.getState().deleteConversation(id, opts)
             if (onCurrent) navigate('/', { replace: true })
           }}
           onRename={(id, title) => useChatStore.getState().patchConversation(id, { title })}
