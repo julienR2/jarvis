@@ -146,6 +146,10 @@ export const api = {
       'GET',
       `/conversations/${id}${limit ? `?limit=${limit}` : ''}`,
     ),
+  // The newest page of messages WITHOUT marking the conversation read — what
+  // Today's cards show. Opening the chat (getConversation) is what marks it.
+  getMessages: (id: string, limit?: number) =>
+    request<MessagePage>('GET', `/conversations/${id}/messages${limit ? `?limit=${limit}` : ''}`),
   // Older messages, walking backwards from a message's `seq`.
   getOlderMessages: (id: string, before: number, limit?: number) =>
     request<MessagePage>(
@@ -158,6 +162,8 @@ export const api = {
   ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
   // Files are archived and routines kept unless told otherwise — the delete
   // dialog's two checkboxes, both off by default.
+  /** Mark read without opening — Today's ✓ on a chat's card. */
+  markConversationRead: (id: string) => request<{ ok: boolean }>('POST', `/conversations/${id}/read`),
   deleteConversation: (id: string, opts: DeleteOptions = {}) => {
     const q = new URLSearchParams()
     if (opts.files) q.set('files', 'delete')
@@ -560,6 +566,10 @@ export interface Conversation {
   has_webhook?: number
   /** JSON of a PendingQuestion while Jarvis waits on you — see pendingQuestionOf. */
   pending_question?: string | null
+  /** When you last read it (opening the chat, or "mark as read" on Today). */
+  last_read_at?: number | null
+  /** When a push last went out for it; Today ranks a notified chat above a merely unread one. */
+  notified_at?: number | null
   created_at: number
   updated_at: number
 }

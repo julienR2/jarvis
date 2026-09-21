@@ -27,7 +27,7 @@ import { generateTitle, mediaTitle, UNTITLED } from '../titles.js'
 import { resolveModel } from '../models.js'
 import { modelKind } from '../catalogue.js'
 import { generateMedia } from '../media.js'
-import { sendPushToAll } from '../push.js'
+import { pushForConversation } from '../push.js'
 import {
   emitConversationEvent,
   subscribeConversation,
@@ -637,8 +637,8 @@ export function attachConversationStream(
     // A question with nobody looking is the one case where a push is always
     // worth it — short of the person having asked never to be told.
     if (conv.notify !== 'unsubscribe') {
-      sendPushToAll(`${conv.title} · needs you`, summary.slice(0, 200), `/c/${conversationId}`).catch(
-        (err) => console.error('[push] sendPushToAll failed:', err),
+      pushForConversation(conversationId, `${conv.title} · needs you`, summary.slice(0, 200)).catch(
+        (err) => console.error('[push] pushForConversation failed:', err),
       )
     }
   }
@@ -939,8 +939,8 @@ export function attachConversationStream(
             .replace(/\n+/g, ' ')
             .trim()
             .slice(0, 200)
-          sendPushToAll(conv.title, plain, `/c/${conversationId}`).catch(
-            (err) => console.error('[push] sendPushToAll failed:', err),
+          pushForConversation(conversationId, conv.title, plain).catch(
+            (err) => console.error('[push] pushForConversation failed:', err),
           )
         }
 
@@ -1373,6 +1373,16 @@ export async function conversationRoutes(app: FastifyInstance) {
     return getDb()
       .prepare('SELECT * FROM conversations WHERE id = ?')
       .get(req.params.id)
+  })
+
+  // Mark read without opening: Today's "mark as read" on a chat's card. The
+  // same stamp opening the chat sets; the sidebar count follows on the client.
+  app.post<{ Params: { id: string } }>('/:id/read', auth, async (req, reply) => {
+    const r = getDb()
+      .prepare('UPDATE conversations SET last_read_at = unixepoch() WHERE id = ?')
+      .run(req.params.id)
+    if (r.changes === 0) return reply.code(404).send({ error: 'Not found' })
+    return { ok: true }
   })
 
   // DELETE /:id?files=delete&routines=delete

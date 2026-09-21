@@ -49,37 +49,35 @@ test.describe('needs you', () => {
   })
 
   test('today lists what waits, first, with the answer inline — and the sidebar dot goes amber', async ({ page }) => {
-    const needs = page.getByTestId('today-needs')
-    await expect(needs.getByRole('heading', { name: /Needs you/ })).toBeVisible()
-    const waiting = needs.locator('[data-testid="today-row"][data-status="needs_you"]')
+    const inbox = page.getByTestId('today-inbox')
+    const waiting = inbox.locator('[data-testid="today-row"][data-status="needs_you"]')
     await expect(waiting.first()).toBeVisible()
-    // Above the failure that needs a retry.
-    const failed = needs.locator('[data-testid="today-row"][data-status="error"]').first()
-    const [w, f] = await Promise.all([waiting.first().boundingBox(), failed.boundingBox()])
-    expect(w && f && w.y < f.y).toBeTruthy()
+    // Waiting chats are "action" cards, like the failure that needs a retry;
+    // both come before anything merely unread.
+    const failed = inbox.locator('[data-testid="today-row"][data-status="error"]').first()
+    await expect(failed).toHaveAttribute('data-reason', 'action')
+    const unread = inbox.locator('[data-testid="today-row"][data-reason="unread"]').first()
+    const [w, u] = await Promise.all([waiting.first().boundingBox(), unread.boundingBox()])
+    expect(w && u && w.y < u.y).toBeTruthy()
     const marta = waiting.filter({ hasText: 'reply-marta' })
-    // Collapsed by default: the header carries a one-line hint of the question,
-    // and the embedded chat is not mounted yet.
-    await expect(marta.getByText('Send this reply to Marta?', { exact: true })).toBeVisible()
-    await expect(marta.getByTestId('answer-card')).toHaveCount(0)
-    await expect(marta.getByRole('button', { name: 'Open' })).toBeVisible()
-    // Expanding reveals the embedded chat and its options.
-    await marta.getByText('reply-marta').click()
+    // Open by default: the embedded chat and its options are right there.
     await expect(marta.getByRole('button', { name: 'Send it' })).toBeVisible()
+    await expect(marta.getByRole('button', { name: 'Open', exact: true })).toBeVisible()
+    // Collapsed, the header carries a one-line hint of the question instead.
+    await marta.getByRole('button', { expanded: true }).click()
+    await expect(marta.getByRole('button', { name: 'Send it' })).toHaveCount(0)
+    await expect(marta.getByText('Send this reply to Marta?', { exact: true })).toBeVisible()
     await expect(page.getByTestId('activity-waiting')).toBeVisible()
     await expect(page.getByTestId('activity-failed')).toBeHidden()
   })
 
   test('a question in an ordinary chat (no run) shows on Today and answers from the composer', async ({ page }) => {
     // Today lists it even though the runs feed knows nothing about it.
-    const row = page.getByTestId('today-needs').getByTestId('today-row').filter({ hasText: 'Trip idea' })
+    const row = page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'Trip idea' })
     await expect(row).toHaveAttribute('data-status', 'needs_you')
-    // Collapsed: the question shows as a hint; expand for the options.
-    await expect(row.getByText('Beach or city for this trip?', { exact: true })).toBeVisible()
-    await expect(row.getByTestId('answer-card')).toHaveCount(0)
-    await row.getByText('Trip idea').click()
+    // Open by default, the options are right there.
     await expect(row.getByRole('button', { name: 'Beach' })).toBeVisible()
-    await row.getByRole('button', { name: 'Open' }).click()
+    await row.getByRole('button', { name: 'Open', exact: true }).click()
     await expect(page).toHaveURL(/\/c\/00000000-0000-4000-8000-000000000007$/)
     // The composer carries the question; picking a chip fills the input.
     const card = page.getByTestId('answer-card')
@@ -118,6 +116,7 @@ test.describe('needs you', () => {
     await expect(card).toBeHidden()
     await expect(page.getByTestId('run-card').getByText('interrupted')).toBeVisible()
     await page.goto('./')
-    await expect(page.getByTestId('today-needs').locator('[data-testid="today-row"][data-status="needs_you"]').filter({ hasText: 'publish-post' })).toHaveCount(0)
+    await expect(page.getByTestId('today-inbox')).toBeVisible()
+    await expect(page.locator('[data-testid="today-row"][data-status="needs_you"]').filter({ hasText: 'publish-post' })).toHaveCount(0)
   })
 })

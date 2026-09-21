@@ -62,6 +62,16 @@ export function sendPushToAll(title: string, body: string, url?: string): Promis
   return broadcast(JSON.stringify({ title, body, url }))
 }
 
+/**
+ * A push about one conversation. Stamps `notified_at` first: Today reads it to
+ * rank a chat that was worth a notification above one with plain unread
+ * answers — and it must be set even if no device takes the push.
+ */
+export function pushForConversation(conversationId: string, title: string, body: string): Promise<number> {
+  getDb().prepare('UPDATE conversations SET notified_at = unixepoch() WHERE id = ?').run(conversationId)
+  return sendPushToAll(title, body, `/c/${conversationId}`)
+}
+
 // There used to be a "dismiss" push here: reading a chat on one device sent a
 // silent push so the others would close their notification. On Android, a push
 // that ends with nothing on screen leaves Chrome's own placeholder behind —

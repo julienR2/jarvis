@@ -79,4 +79,9 @@ export async function signIn(page: Page): Promise<void> {
 export async function openConversation(page: Page, title: string): Promise<void> {
   await page.getByText(title).first().click()
   await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/)
+  // The URL changes before the route swaps: Today stays mounted for a beat,
+  // and its inbox cards draw the same message components as the chat (run
+  // blocks, bubbles). Wait for it to be gone so a spec's locator does not
+  // catch a card's run block instead of the chat's.
+  await expect(page.getByTestId('today-inbox')).toHaveCount(0)
 }

@@ -1,111 +1,114 @@
 import { test, expect, signIn } from '../helpers'
 
 /**
- * The home page: a greeting and the composer, then the day's inbox.
- * Fixtures: today's brief done, the hook done 3 h ago (plus three quiet fires),
- * the yearly cron's run failed 45 min ago with nothing succeeding since, two
- * runs and one chat waiting on the person, one enabled cron (yearly).
+ * The home page: a greeting and the composer, then the unreads — one card per
+ * chat with something new, ordered by what it asks of you. Fixtures: two runs
+ * and one chat waiting on the person, the yearly cron's run failed with nothing
+ * succeeding since (all "action"), "📣 Gallery sync" notified and unread,
+ * "💬 Pasta water" merely unread (one exchange read, one new), "💬 Bike tyre
+ * pressure" unread and consumed by the mark-read test. No other spec opens
+ * those three, so their read state survives whatever order the workers run in.
  */
 test.describe('today', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page)
   })
 
-  test('the greeting and the composer come first, and the header says which day it is', async ({ page }) => {
+  test('the greeting and the composer come first, the composer is not focused, and the inbox follows', async ({ page }) => {
     await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
     await expect(page.getByText('How can I help you today?').first()).toBeVisible()
     const composer = page.getByPlaceholder('How can I help you today?')
     await expect(composer).toBeVisible()
-    // Composer above the first section, whatever the day holds.
-    const section = page.getByTestId('today-needs')
-    const [c, s] = await Promise.all([composer.boundingBox(), section.boundingBox()])
+    await expect(composer).not.toBeFocused()
+    const inbox = page.getByTestId('today-inbox')
+    const [c, s] = await Promise.all([composer.boundingBox(), inbox.boundingBox()])
     expect(c && s && c.y < s.y).toBeTruthy()
-    // No setup-wizard link cluttering home: it lives in Settings now.
+    // Gone from home: Coming up, the quiet-runs line, the setup wizard link.
+    await expect(page.getByText('Coming up')).toBeHidden()
+    await expect(page.getByText(/had nothing to report/)).toBeHidden()
     await expect(page.getByText('Setup wizard')).toBeHidden()
   })
 
-  test('needs you: the failure nothing has fixed yet, its error leading, with a retry', async ({ page }) => {
-    const needs = page.getByTestId('today-needs')
-    await expect(needs.getByRole('heading', { name: /Needs you · \d/ })).toBeVisible()
-    // The questions waiting for an answer are needs-you.spec's; here, the failure.
-    const row = needs.locator('[data-testid="today-row"][data-status="error"]').filter({ hasText: 'new-year-wish' })
-    await expect(row).toHaveCount(1)
-    await expect(row.getByText(/greetings API answered 503/)).toBeVisible()
-    await expect(row.getByRole('button', { name: /Retry/ })).toBeVisible()
-    // Yesterday's failed brief is not here: this morning's brief succeeded.
-    await expect(needs.getByText('morning-brief')).toBeHidden()
+  test('order: what waits on you, then what was worth a notification, then the merely unread', async ({ page }) => {
+    const cards = page.getByTestId('today-inbox').getByTestId('today-row')
+    // Reply to Marta: the one waiting chat no spec ever answers.
+    const action = cards.filter({ hasText: 'Reply to Marta' })
+    const failed = cards.filter({ hasText: 'new-year-wish' })
+    const notified = cards.filter({ hasText: 'Gallery sync' })
+    const unread = cards.filter({ hasText: 'Pasta water' })
+    await expect(action).toHaveAttribute('data-reason', 'action')
+    await expect(failed).toHaveAttribute('data-reason', 'action')
+    await expect(notified).toHaveAttribute('data-reason', 'notified')
+    await expect(unread).toHaveAttribute('data-reason', 'unread')
+    const [a, f, n, u] = await Promise.all([action.boundingBox(), failed.boundingBox(), notified.boundingBox(), unread.boundingBox()])
+    expect(a!.y).toBeLessThan(n!.y)
+    expect(f!.y).toBeLessThan(n!.y)
+    expect(n!.y).toBeLessThan(u!.y)
+    // No section headings: the order carries the meaning.
+    await expect(page.getByRole('heading', { name: /Needs you|Worth telling you|Unread/ })).toHaveCount(0)
   })
 
-  test('worth telling you: the result leads, the routine is the small print, and Open goes to its chat', async ({ page }) => {
-    // The seeded "done" runs are 62 and 180 minutes old; right after local
-    // midnight they belong to yesterday and the section is rightly absent.
-    test.skip(new Date().getHours() < 4, 'fixture runs fall on yesterday this close to midnight')
-    const done = page.getByTestId('today-done')
-    await expect(done.getByRole('heading', { name: 'Worth telling you' })).toBeVisible()
-    // The three skipped triages are counted on one line, not listed.
-    await expect(page.getByTestId('today-quiet')).toContainText('3 runs had nothing to report')
-    const brief = done.getByTestId('today-row').filter({ hasText: 'morning-brief' })
-    await expect(brief.getByText('Brief posted')).toBeVisible()
-    // No status pill: being in this section is the status.
-    await expect(brief.getByText(/done ·/)).toHaveCount(0)
-    await brief.getByRole('button', { name: 'Open', exact: true }).click()
-    await expect(page).toHaveURL(/\/c\/00000000-0000-4000-8000-000000000003$/)
+  test('a card shows what is new, drawn like the chat, with earlier messages a click away', async ({ page }) => {
+    const card = page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'Pasta water' })
+    await expect(card).toHaveAttribute('data-status', 'unread')
+    // Open by default: the new exchange, not the one already read.
+    await expect(card.getByText('Two to three minutes once it floats')).toBeVisible()
+    await expect(card.getByText('And how long for fresh tagliatelle?')).toBeVisible()
+    await expect(card.getByText('a tablespoon of salt per litre')).toHaveCount(0)
+    await card.getByRole('button', { name: 'Show earlier' }).click()
+    await expect(card.getByText('a tablespoon of salt per litre')).toBeVisible()
+    // The chat's own composer, compact, to reply from here.
+    await expect(card.getByPlaceholder('Reply…')).toBeVisible()
+    await expect(card.getByRole('button', { name: 'Open', exact: true })).toBeVisible()
   })
 
-  test('a result is put away with one click and stays away', async ({ page }) => {
-    test.skip(new Date().getHours() < 4, 'fixture runs fall on yesterday this close to midnight')
-    const done = page.getByTestId('today-done')
-    const hook = done.getByTestId('today-row').filter({ hasText: 'fixture-hook' })
-    await expect(hook).toHaveCount(1)
-    await hook.getByRole('button', { name: 'Put away fixture-hook' }).click()
-    await expect(hook).toHaveCount(0)
+  test('collapsing a card is "later": the header stays, with a one-line hint, and the chat stays unread', async ({ page }) => {
+    const card = page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'Gallery sync' })
+    await card.getByRole('button', { expanded: true }).click()
+    await expect(card.getByText('Gallery synced: 212 photos')).toHaveCount(1) // the hint on the header
+    await expect(card.getByPlaceholder('Reply…')).toHaveCount(0)
+    await expect(card).toHaveCount(1)
     await page.reload()
-    await expect(page.getByTestId('today-needs')).toBeVisible()
-    await expect(page.getByTestId('today-done').getByTestId('today-row').filter({ hasText: 'fixture-hook' })).toHaveCount(0)
-    // The chat keeps what it wrote.
-    await page.goto('c/00000000-0000-4000-8000-000000000002')
-    await expect(page.getByText('Filed under Projects.')).toBeVisible()
+    await expect(page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'Gallery sync' })).toHaveCount(1)
   })
 
-  test('a row whose chat carries an app says so', async ({ page }) => {
-    const row = page.getByTestId('today-needs').getByTestId('today-row').filter({ hasText: 'new-year-wish' })
-    await row.getByRole('button', { name: 'Open app' }).click()
+  test('✓ marks the chat read: the card leaves, the badge too, and it stays that way', async ({ page }) => {
+    const card = page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'Bike tyre pressure' })
+    await expect(card).toHaveCount(1)
+    const sidebarRow = page.getByRole('complementary').getByText('💬 Bike tyre pressure', { exact: true }).locator('xpath=..')
+    await expect(sidebarRow.getByText('1', { exact: true })).toBeVisible()
+    await card.getByRole('button', { name: 'Mark 💬 Bike tyre pressure as read' }).click()
+    await expect(card).toHaveCount(0)
+    await expect(sidebarRow.getByText('1', { exact: true })).toHaveCount(0)
+    await page.reload()
+    await expect(page.getByTestId('today-inbox')).toBeVisible()
+    await expect(page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'Bike tyre pressure' })).toHaveCount(0)
+  })
+
+  test('a failed run: its error, a Retry, and Open app when the chat has one', async ({ page }) => {
+    const card = page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'new-year-wish' })
+    await expect(card).toHaveAttribute('data-status', 'error')
+    await expect(card.getByRole('button', { name: /Retry/ })).toBeVisible()
+    // The run wrote nothing into the chat, so its error is the card's body…
+    await expect(card.getByTestId('inbox-error')).toContainText('greetings API answered 503')
+    // …and, collapsed, the hint.
+    await card.getByRole('button', { expanded: true }).click()
+    await expect(card.getByText(/greetings API answered 503/)).toBeVisible()
+    await card.getByRole('button', { name: 'Open app' }).click()
     await expect(page).toHaveURL(/\/c\/00000000-0000-4000-8000-000000000004$/)
   })
 
-  test('coming up: only enabled crons, soonest first, the gear opens the routine', async ({ page }) => {
-    const up = page.getByTestId('today-upcoming')
-    await expect(up.getByRole('heading', { name: 'Coming up' })).toBeVisible()
-    // The yearly fixture cron is here, the paused daily one is not; a person's
-    // own enabled crons may sit alongside.
-    const rows = up.getByTestId('today-row').filter({ hasText: 'new-year-wish' })
-    await expect(rows).toHaveCount(1)
-    await expect(rows.first().getByText(/1 Jan|Jan 1/)).toBeVisible()
-    await expect(up.getByText('morning-brief')).toBeHidden()
-    await rows.first().getByTitle('Open this routine').click()
-    await expect(page).toHaveURL(/\/routines/)
-    await expect(page.getByRole('heading', { name: 'Edit routine' })).toBeVisible()
-    await expect(page.getByLabel('Name', { exact: true })).toHaveValue('new-year-wish')
-  })
-
-  test('nothing is running, so no "running" section', async ({ page }) => {
-    await expect(page.getByTestId('today-needs')).toBeVisible()
-    await expect(page.getByTestId('today-now')).toBeHidden()
-  })
-
   test('the sidebar entry shows one dot, the most urgent — amber while something waits on you', async ({ page }) => {
-    // Two runs wait for an answer, the yearly cron's run failed this morning,
-    // nothing is running: amber wins over red, and there is never more than one.
     await expect(page.getByTestId('activity-waiting')).toHaveCount(1)
     await expect(page.getByTestId('activity-failed')).toHaveCount(0)
     await expect(page.getByTestId('activity-running')).toHaveCount(0)
   })
 
-  test('on a phone the rows keep their actions and nothing overflows', async ({ page }) => {
+  test('on a phone the cards keep their actions and nothing overflows', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    const row = page.getByTestId('today-needs').getByTestId('today-row').filter({ hasText: 'new-year-wish' })
-    await expect(row.getByRole('button', { name: 'Open app' })).toBeVisible()
-    await expect(row.getByRole('button', { name: /Retry/ })).toBeVisible()
+    const card = page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'new-year-wish' })
+    await expect(card.getByRole('button', { name: 'Open app' })).toBeVisible()
+    await expect(card.getByRole('button', { name: /Retry/ })).toBeVisible()
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
     expect(overflow).toBeFalsy()
   })

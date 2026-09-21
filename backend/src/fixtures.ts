@@ -48,6 +48,11 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     app2: '00000000-0000-4000-8000-000000000008',
     unread: '00000000-0000-4000-8000-000000000009',
     quoted: '00000000-0000-4000-8000-00000000000a',
+    // Today's inbox: chats no other spec opens, so their read state holds
+    // whatever order the workers run in.
+    inboxNotified: '00000000-0000-4000-8000-00000000000b',
+    inboxUnread: '00000000-0000-4000-8000-00000000000c',
+    inboxToRead: '00000000-0000-4000-8000-00000000000d',
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -200,8 +205,8 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
       insMsg.run(uuid(), un, 'user', `Question ${n}?`, null, null, null, t(400 - n * 50))
       insMsg.run(uuid(), un, 'assistant', `[chunk:1] ${para(n)}`, null, null, para(n), t(400 - n * 50 - 1))
     }
-    // Read after answer 3 (at t(249)); answers 4–6 (t(199) and later) are unread.
-    db.prepare('UPDATE conversations SET last_read_at = ? WHERE id = ?').run(t(240), un)
+    // Read after answer 3 (at t(249)); answers 4–6 (t(199) and later) are
+    // unread — the marker is set with the other read states at the end.
 
     // 2c. A reply to a passage: the user message carries `reply_to` and the
     // bubble shows the quote as a citation that leads back to its source.
@@ -213,6 +218,19 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     insMsg.run(quotedMsg, qc, 'assistant', `[chunk:1] ${boardAnswer}`, null, null, boardAnswer, t(499))
     insMsg.run(uuid(), qc, 'user', "Which fish do you mean, the 5'8?", JSON.stringify({ reply_to: { message_id: quotedMsg, text: 'otherwise the fish, which paddles better in the mush' } }), null, null, t(472))
     insMsg.run(uuid(), qc, 'assistant', "[chunk:1] The 5'8 twin, yes.", null, null, "The 5'8 twin, yes.", t(471))
+
+    // 2d. Today's inbox, one chat per reason. Read states are set at the end.
+    const answer = (conv: string, user: string, text: string, at: number) => {
+      insMsg.run(uuid(), conv, 'user', user, null, null, null, at)
+      insMsg.run(uuid(), conv, 'assistant', `[chunk:1] ${text}`, null, null, text, at + 30)
+    }
+    insConv.run(ID.inboxNotified, '📣 Gallery sync', t(700), t(35), fixtures.id, null, null)
+    answer(ID.inboxNotified, 'Sync the gallery tonight and tell me how it went.', 'Gallery synced: 212 photos, 3 duplicates skipped, 41 s. Nothing failed.', t(36))
+    insConv.run(ID.inboxUnread, '💬 Pasta water', t(800), t(50), fixtures.id, null, null)
+    answer(ID.inboxUnread, 'How salty should pasta water be?', 'About 1% — a tablespoon of salt per litre. Salt once it boils, not before.', t(400))
+    answer(ID.inboxUnread, 'And how long for fresh tagliatelle?', 'Two to three minutes once it floats; taste one at two.', t(51))
+    insConv.run(ID.inboxToRead, '💬 Bike tyre pressure', t(900), t(80), fixtures.id, null, null)
+    answer(ID.inboxToRead, 'Gravel tyres, 40 mm, 75 kg rider — pressure?', 'Around 2.4 bar front and 2.6 rear; drop 0.2 on wet or loose ground.', t(81))
 
     // 3. Background run — a cron that ran isolated, its output stamped with the run.
     const bg = ID.brief
@@ -407,7 +425,24 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     }
   })
   tx()
-  console.log(`[fixtures] ${present ? 'rearmed' : 'seeded'}: 3 sections, 10 conversations, 3 crons, 2 webhooks, 7 runs (2 waiting) + 1 chat question, 1 api key per user, 1 e2e user`)
+  // Read state, for Today's inbox: most fixture chats are read; the unread
+  // thread keeps its three new answers; the brief chat was worth a push
+  // (notified, unread); the waiting chats are unread so their cards have the
+  // question to show. Rearm resets all of it.
+  db.prepare(
+    `UPDATE conversations SET last_read_at = updated_at + 1, notified_at = NULL
+      WHERE id IN (?, ?, ?, ?, ?, ?)`,
+  ).run(ID.markdown, ID.activity, ID.app, ID.app2, ID.quoted, ID.unread)
+  db.prepare('UPDATE conversations SET last_read_at = ? WHERE id = ?').run(t(240), ID.unread)
+  db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = ? WHERE id = ?').run(t(120), t(61), ID.brief)
+  // The inbox trio: notified (a push went out after it was last read), unread
+  // with one exchange already read above the new one, unread to be marked read.
+  db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = ? WHERE id = ?').run(t(600), t(35), ID.inboxNotified)
+  db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = NULL WHERE id = ?').run(t(300), ID.inboxUnread)
+  db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = NULL WHERE id = ?').run(t(800), ID.inboxToRead)
+  db.prepare('UPDATE conversations SET last_read_at = created_at - 1, notified_at = NULL WHERE id IN (?, ?, ?)').run(ID.question, ID.approval, ID.chatAsk)
+
+  console.log(`[fixtures] ${present ? 'rearmed' : 'seeded'}: 3 sections, 13 conversations, 3 crons, 2 webhooks, 7 runs (2 waiting) + 1 chat question, 1 api key per user, 1 e2e user`)
   // Screens already open on this instance refetch what changed.
   if (present) emitGlobalEvent({ type: 'runs', conversation_id: ID.brief })
 }

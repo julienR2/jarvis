@@ -14,6 +14,8 @@ export interface ConvRow {
   context_tokens: number | null
   context_window: number | null
   last_read_at: number
+  /** When a push last went out for this chat; Today ranks on it. */
+  notified_at: number | null
   /** Capability granted by the share link; null when the chat isn't shared. */
   share_mode: 'read' | 'write' | null
   share_token: string | null

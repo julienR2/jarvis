@@ -1,65 +1,37 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, Clock, Link2, Loader2, MessageSquare, RotateCcw, Settings2, Square, X } from 'lucide-react'
 import ChatInput from '../components/ChatInput'
-import NeedsYouCard from '../components/NeedsYouCard'
+import InboxCard, { type InboxReason } from '../components/InboxCard'
 import { SidebarToggle } from '../components/ContentLayout'
-import { api, pendingQuestionOf, type Attachment, type RunListItem, type UpcomingCron } from '../api'
+import { api, pendingQuestionOf, type Attachment, type Conversation, type RunListItem } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { BASE_PATH } from '../base'
-import { firstLine, formatTime, reloadRecentRuns, startOfToday, upcomingLabel, useRecentRuns, useRunsNudge } from '../lib/runs'
+import { reloadRecentRuns, useRecentRuns } from '../lib/runs'
 
 /**
- * Home — an inbox, not a log.
+ * Home — the unreads view.
  *
  * A greeting and the composer first: the assistant is still the point. Under
- * it, only what asks for you or is worth a glance, in the order it matters:
- * what Jarvis is waiting on (a question, an approval, a failure), what is
- * running now, the few results worth telling you — each put away with a click
- * — and what comes next. Runs with nothing to say are counted on one line; the
- * full record of what a routine did lives in the chat it posts into.
+ * it, every chat with something new, one card each, in the order it matters:
+ * chats waiting on you (a question, an approval, a failed run), then chats
+ * that were worth a notification, then chats with plain unread answers —
+ * newest first within each. A card shows what is new drawn like the chat and
+ * the chat's own composer; it leaves when you mark it read, open it, or answer.
+ * Collapsing one is "later": it stays, and stays unread.
  *
- * A quiet day shows the greeting and the composer and nothing else: no empty
- * boxes, no padding. Every section appears only when it has something to say.
+ * A quiet day is the greeting and the composer and nothing else.
  */
 export default function TodayPage() {
   const navigate = useNavigate()
   const conversations = useChatStore((s) => s.conversations)
-  // Since yesterday: a run that started late last night and is still going
-  // is "running", and a failure from last night still waits.
+  const sections = useChatStore((s) => s.sections)
+  // Since yesterday: a failure from last night still waits, a run started late
+  // is still running.
   const { runs, error: loadError } = useRecentRuns()
-  const [upcoming, setUpcoming] = useState<UpcomingCron[]>([])
-  const [busy, setBusy] = useState<Record<string, boolean>>({})
   const [starting, setStarting] = useState(false)
 
-  // A run ending moves its cron's next fire, so the schedule follows the nudge too.
-  const loadUpcoming = useCallback(
-    () => api.getUpcomingCrons().then(setUpcoming).catch(() => {}),
-    [],
-  )
-  useRunsNudge(loadUpcoming)
-  const load = () => Promise.all([reloadRecentRuns(), loadUpcoming()])
-
-  const { waiting, needsYou, running, doneToday, quietToday } = useMemo(() => partition(runs ?? []), [runs])
-
-  // Questions asked in an ordinary chat have no run behind them (they are not a
-  // cron or webhook), so the runs feed never carries them. Read them straight
-  // off the conversations: whatever is waiting on you, with no run of its own.
-  const interactiveWaiting = useMemo(
-    () => Object.values(conversations).filter((c) => {
-      const q = pendingQuestionOf(c)
-      return !!q && !q.run_id
-    }),
-    [conversations],
-  )
-
-  // A running row shows its elapsed time; keep it moving without a refetch.
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    if (running.length === 0) return
-    const id = setInterval(() => setTick((t) => t + 1), 30_000)
-    return () => clearInterval(id)
-  }, [running.length])
+  const entries = useMemo(() => buildInbox(Object.values(conversations), runs ?? []), [conversations, runs])
+  const sectionName = (id: string | null) => (id ? sections.find((s) => s.id === id)?.name : undefined)
 
   // The composer opens a fresh chat with what was typed: the conversation is
   // created, the message sent, and the chat opened to watch the answer come.
@@ -90,26 +62,25 @@ export default function TodayPage() {
     }
   }
 
-  async function act(run: RunListItem, what: 'stop' | 'retry' | 'dismiss') {
-    setBusy((b) => ({ ...b, [run.id]: true }))
-    try {
-      if (what === 'stop') await api.stopRun(run.id)
-      else if (what === 'retry') await api.retryRun(run.id)
-      else await api.dismissRun(run.id)
-      await load()
-    } finally {
-      setBusy((b) => ({ ...b, [run.id]: false }))
+  async function retry(run: RunListItem) {
+    await api.retryRun(run.id)
+    await reloadRecentRuns()
+  }
+  async function stop(run: RunListItem) {
+    await api.stopRun(run.id)
+    await reloadRecentRuns()
+  }
+  // ✓ on a card: the chat is read. A failure is put away too — it has no
+  // unread to clear, so the run's own flag is what removes it.
+  async function markRead(entry: InboxEntry) {
+    useChatStore.getState().markRead(entry.conv.id)
+    if (entry.failed) {
+      await api.dismissRun(entry.failed.run.id).catch(() => {})
+      await reloadRecentRuns()
     }
   }
 
-  const open = (conversationId: string | null) => conversationId && navigate(`/c/${conversationId}`)
-  const openLabel = (conversationId: string | null) =>
-    conversationId && conversations[conversationId]?.app_path ? 'Open app' : 'Open'
-  const convTitle = (conversationId: string | null) =>
-    conversationId ? conversations[conversationId]?.title : undefined
-
   const dateLine = new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })
-  const needsCount = interactiveWaiting.length + waiting.length + needsYou.length
 
   return (
     <div className='flex flex-col h-full'>
@@ -138,155 +109,33 @@ export default function TodayPage() {
             onSendAudio={startWithAudio}
             onCancel={() => {}}
             isProcessing={false}
-            autoFocus
           />
         </div>
 
         <div className='max-w-3xl mx-auto px-4 md:px-6 pb-10'>
           {loadError && runs === null && (
             <div className='py-6 text-center text-sm text-text-muted'>
-              Couldn't load today's inbox. <button onClick={() => load()} className='underline hover:text-text-primary'>Try again</button>
+              Couldn't load today's inbox. <button onClick={() => reloadRecentRuns()} className='underline hover:text-text-primary'>Try again</button>
             </div>
           )}
 
-          {needsCount > 0 && (
-            <Section title='Needs you' count={needsCount} testId='today-needs'>
-              <div className='flex flex-col gap-3'>
-                {/* Questions first — a decision to make, each its own little chat. */}
-                {interactiveWaiting.map((conv) => (
-                  <NeedsYouCard key={conv.id} conversation={conv} onOpen={() => open(conv.id)} />
-                ))}
-                {waiting.map((run) => {
-                  const conv = conversations[run.conversation_id]
-                  if (!conv) return null
-                  return <NeedsYouCard key={run.id} conversation={conv} run={run} onOpen={() => open(run.conversation_id)} />
-                })}
-                {/* Then failures that need a fix — a list, since they read as one. */}
-                {needsYou.length > 0 && (
-                  <div className='divide-y divide-border'>
-                    {needsYou.map(({ run, attempts }) => (
-                      <InboxRow
-                        key={run.id}
-                        run={run}
-                        icon={<AlertCircle size={13} className='text-danger' />}
-                        lead={run.error ? firstLine(run.error) : `${run.source_name} failed`}
-                        tone='danger'
-                        meta={[run.source_name, formatTime(run.started_at), attempts > 1 ? `${attempts} attempts` : null]}
-                        chat={convTitle(run.conversation_id)}
-                        onOpen={() => open(run.conversation_id)}
-                        actions={
-                          <>
-                            <TextButton onClick={() => open(run.conversation_id)}>{openLabel(run.conversation_id)}</TextButton>
-                            {run.kind === 'cron' && run.source_id && (
-                              <TextButton primary disabled={!!busy[run.id]} onClick={() => act(run, 'retry')} title='Run it again'>
-                                <RotateCcw size={11} /> Retry
-                              </TextButton>
-                            )}
-                          </>
-                        }
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </Section>
-          )}
-
-          {running.length > 0 && (
-            <Section title='Running' testId='today-now'>
-              <div className='divide-y divide-border'>
-                {running.map((run) => (
-                  <InboxRow
-                    key={run.id}
-                    run={run}
-                    icon={<Loader2 size={13} className='animate-spin text-accent' />}
-                    lead={run.source_name}
-                    meta={[`since ${formatTime(run.started_at)}`]}
-                    chat={convTitle(run.conversation_id)}
-                    onOpen={() => open(run.conversation_id)}
-                    actions={
-                      <TextButton danger disabled={!!busy[run.id]} onClick={() => act(run, 'stop')} title='Stop this run'>
-                        <Square size={10} fill='currentColor' /> Stop
-                      </TextButton>
-                    }
-                  />
-                ))}
-              </div>
-            </Section>
-          )}
-
-          {doneToday.length > 0 && (
-            <Section title='Worth telling you' testId='today-done'>
-              <div className='divide-y divide-border'>
-                {doneToday.map((run) => (
-                  <InboxRow
-                    key={run.id}
-                    run={run}
-                    icon={run.kind === 'webhook' ? <Link2 size={13} className='text-text-muted' /> : <Clock size={13} className='text-text-muted' />}
-                    lead={run.result ? firstLine(run.result) : run.error ? firstLine(run.error) : run.source_name}
-                    tone={run.status === 'done' ? undefined : 'muted'}
-                    meta={[run.source_name, formatTime(run.started_at), run.status === 'done' ? null : run.status]}
-                    chat={convTitle(run.conversation_id)}
-                    onOpen={() => open(run.conversation_id)}
-                    actions={
-                      <>
-                        <TextButton onClick={() => open(run.conversation_id)}>{openLabel(run.conversation_id)}</TextButton>
-                        <button
-                          onClick={() => act(run, 'dismiss')}
-                          disabled={!!busy[run.id]}
-                          title='Put away'
-                          aria-label={`Put away ${run.source_name}`}
-                          className='rounded-md p-1 text-text-muted/60 transition-colors hover:bg-surface2 hover:text-text-primary disabled:opacity-40'
-                        >
-                          <X size={13} />
-                        </button>
-                      </>
-                    }
-                  />
-                ))}
-              </div>
-            </Section>
-          )}
-
-          {quietToday.length > 0 && (
-            <div className='mt-4 flex items-center gap-2 text-[11.5px] text-text-muted' data-testid='today-quiet'>
-              <span>{quietToday.length} {quietToday.length === 1 ? 'run' : 'runs'} had nothing to report</span>
-              <span className='h-px flex-1 border-t border-dashed border-border' />
-              <span className='truncate'>{[...new Set(quietToday.map((r) => r.source_name))].join(', ')}</span>
+          {entries.length > 0 && (
+            <div className='mt-6 flex flex-col gap-3' data-testid='today-inbox'>
+              {entries.map((e) => (
+                <InboxCard
+                  key={e.conv.id}
+                  conversation={e.conv}
+                  runs={e.runs}
+                  failed={e.failed}
+                  reason={e.reason}
+                  sectionName={sectionName(e.conv.section_id)}
+                  onOpen={() => navigate(`/c/${e.conv.id}`)}
+                  onRead={() => markRead(e)}
+                  onRetry={retry}
+                  onStop={stop}
+                />
+              ))}
             </div>
-          )}
-
-          {upcoming.length > 0 && (
-            <Section title='Coming up' testId='today-upcoming'>
-              <div className='divide-y divide-border'>
-                {upcoming.slice(0, UPCOMING_SHOWN).map((cron) => (
-                  <div key={cron.id} className='group flex items-center gap-3 py-2' data-testid='today-row'>
-                    <Clock size={13} className='shrink-0 text-text-muted' />
-                    <div className='min-w-0 flex-1'>
-                      <span className='text-[13.5px] text-text-primary'>{cron.name}</span>
-                      <span className='ml-2 text-[12px] text-text-muted'>{cron.next_run ? upcomingLabel(cron.next_run) : 'not scheduled'}</span>
-                      {convTitle(cron.conversation_id) && (
-                        <button onClick={() => open(cron.conversation_id)} className='ml-2 inline-flex items-center gap-1 text-[11.5px] text-text-muted hover:text-text-primary transition-colors'>
-                          <MessageSquare size={10} /> {convTitle(cron.conversation_id)}
-                        </button>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => navigate(`/routines?edit=${cron.id}`)}
-                      title='Open this routine'
-                      className='rounded-md p-1 text-text-muted/50 hover:bg-surface2 hover:text-text-primary'
-                    >
-                      <Settings2 size={13} />
-                    </button>
-                  </div>
-                ))}
-                {upcoming.length > UPCOMING_SHOWN && (
-                  <button onClick={() => navigate('/routines')} className='w-full py-2 text-left text-[12px] text-text-muted hover:text-text-primary'>
-                    {upcoming.length - UPCOMING_SHOWN} more in Routines
-                  </button>
-                )}
-              </div>
-            </Section>
           )}
         </div>
       </div>
@@ -294,124 +143,72 @@ export default function TodayPage() {
   )
 }
 
-const UPCOMING_SHOWN = 5
-
 function getGreeting(): string {
   const hour = new Date().getHours()
+  if (hour < 5) return 'Good night'
   if (hour < 12) return 'Good morning'
   if (hour < 18) return 'Good afternoon'
   return 'Good evening'
 }
 
-/**
- * Sort the day's runs into the page's sections. A failure "needs you" until a
- * later run of the same routine succeeds — a retry that worked, or the next
- * scheduled fire — and repeated failures of one routine collapse into its
- * latest, with the count. A finished run is listed once: put away, it stays
- * in its chat and leaves the page.
- */
-function partition(runs: RunListItem[]) {
-  const dayStart = startOfToday()
-  const waiting = runs.filter((r) => r.status === 'needs_you')
-  const running = runs.filter((r) => r.status === 'running')
-  const finished = runs.filter((r) => r.status !== 'running' && r.status !== 'needs_you' && r.status !== 'error' && r.started_at >= dayStart)
-  // A run that had nothing to report is counted, not listed.
-  const doneToday = finished.filter((r) => !r.quiet && !r.dismissed)
-  const quietToday = finished.filter((r) => !!r.quiet)
+interface InboxEntry {
+  conv: Conversation
+  reason: InboxReason
+  runs: RunListItem[]
+  failed?: { run: RunListItem; attempts: number }
+  /** When its newest news landed — the order within a group. */
+  at: number
+}
 
-  const needsYou: { run: RunListItem; attempts: number }[] = []
+const RANK: Record<InboxReason, number> = { action: 0, notified: 1, unread: 2 }
+
+/**
+ * Which chats have something new, and in what order. A chat waits on you when
+ * Jarvis asked a question or wants an approval, or when one of its routines
+ * failed and nothing has succeeded since (repeats of the same routine count as
+ * attempts; a put-away failure no longer counts). It was worth a notification
+ * when a push went out after it was last read. Otherwise it merely has unread
+ * answers. No visible sections — the order carries the meaning.
+ */
+function buildInbox(conversations: Conversation[], runs: RunListItem[]): InboxEntry[] {
+  const byConv = new Map<string, RunListItem[]>()
+  for (const r of runs) {
+    const list = byConv.get(r.conversation_id) ?? []
+    list.push(r)
+    byConv.set(r.conversation_id, list)
+  }
+
+  const failedByConv = new Map<string, { run: RunListItem; attempts: number }>()
   const seen = new Set<string>()
   for (const run of runs) {
-    if (run.status !== 'error') continue
+    if (run.status !== 'error' || run.dismissed) continue
     const key = run.source_id ?? run.id
     if (seen.has(key)) continue
     seen.add(key)
     const later = runs.some((r) => r.source_id && r.source_id === run.source_id && r.status === 'done' && r.started_at > run.started_at)
     if (later) continue
     const attempts = runs.filter((r) => r.status === 'error' && (r.source_id ?? r.id) === key).length
-    needsYou.push({ run, attempts })
+    if (!failedByConv.has(run.conversation_id)) failedByConv.set(run.conversation_id, { run, attempts })
   }
-  return { waiting, needsYou, running, doneToday, quietToday }
-}
 
-function Section({ title, count, testId, children }: { title: string; count?: number; testId: string; children: React.ReactNode }) {
-  return (
-    <section className='mt-6' data-testid={testId}>
-      <h2 className='mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted'>
-        {title}{count != null && <span className='font-normal'> · {count}</span>}
-      </h2>
-      {children}
-    </section>
-  )
-}
-
-/**
- * One inbox line. The content leads — what the run said, or what went wrong —
- * and the routine, the time and the chat sit under it in small type; the
- * actions keep to the right. Frameless: a divider between rows is the only
- * chrome, so a full day still reads as a list and not as a wall of cards.
- */
-function InboxRow({
-  run, icon, lead, tone, meta, chat, onOpen, actions,
-}: {
-  run: RunListItem
-  icon: React.ReactNode
-  lead: string
-  tone?: 'danger' | 'muted'
-  meta: (string | null)[]
-  chat?: string
-  onOpen: () => void
-  actions: React.ReactNode
-}) {
-  const leadClass = tone === 'danger' ? 'text-danger' : tone === 'muted' ? 'text-text-secondary' : 'text-text-primary'
-  return (
-    <div className='flex items-start gap-3 py-2.5' data-testid='today-row' data-status={run.status}>
-      <span className='mt-1 shrink-0'>{icon}</span>
-      <button onClick={onOpen} className='min-w-0 flex-1 text-left'>
-        <div className={`text-[14px] leading-snug line-clamp-2 ${leadClass}`}>{lead}</div>
-        <div className='mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-text-muted'>
-          {meta.filter(Boolean).map((m, i) => (
-            <span key={m as string} className='inline-flex items-center gap-1.5'>
-              {i > 0 && <span className='opacity-60'>·</span>}
-              {m}
-            </span>
-          ))}
-          {chat && (
-            <span className='inline-flex items-center gap-1.5'>
-              <span className='opacity-60'>·</span>
-              <span className='inline-flex items-center gap-1'><MessageSquare size={10} /> {chat}</span>
-            </span>
-          )}
-        </div>
-      </button>
-      <div className='flex shrink-0 items-center gap-1 pt-0.5'>{actions}</div>
-    </div>
-  )
-}
-
-function TextButton({
-  children, onClick, primary, danger, disabled, title,
-}: {
-  children: React.ReactNode
-  onClick: () => void
-  primary?: boolean
-  danger?: boolean
-  disabled?: boolean
-  title?: string
-}) {
-  const look = primary
-    ? 'border-accent bg-accent text-white hover:bg-accent-hover'
-    : danger
-      ? 'border-transparent text-text-muted hover:text-danger hover:bg-surface2'
-      : 'border-transparent text-text-secondary hover:bg-surface2 hover:text-text-primary'
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors disabled:opacity-40 ${look}`}
-    >
-      {children}
-    </button>
-  )
+  const entries: InboxEntry[] = []
+  for (const conv of conversations) {
+    const convRuns = byConv.get(conv.id) ?? []
+    const pending = pendingQuestionOf(conv)
+    const failed = failedByConv.get(conv.id)
+    const waiting = convRuns.some((r) => r.status === 'needs_you')
+    const unread = (conv.unread_count ?? 0) > 0
+    const notified = unread && (conv.notified_at ?? 0) > (conv.last_read_at ?? 0)
+    const reason: InboxReason | null =
+      pending || failed || waiting ? 'action' : notified ? 'notified' : unread ? 'unread' : null
+    if (!reason) continue
+    entries.push({
+      conv,
+      reason,
+      runs: convRuns,
+      failed,
+      at: Math.max(conv.updated_at, failed?.run.started_at ?? 0),
+    })
+  }
+  return entries.sort((a, b) => RANK[a.reason] - RANK[b.reason] || b.at - a.at)
 }

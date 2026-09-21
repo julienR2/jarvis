@@ -14,7 +14,7 @@ import { schedule, rescheduleAll } from '../crons.js'
 import { seedFixtures } from '../fixtures.js'
 import { getSection, setSectionContext, topicConversations, MAX_CONTEXT_CHARS } from '../topics.js'
 import { emitConversationEvent } from '../sse.js'
-import { sendPushToAll } from '../push.js'
+import { pushForConversation } from '../push.js'
 import { config } from '../config.js'
 import { secureEquals } from '../security.js'
 import type { CronRow, WebhookRow, ConvRow } from '../types.js'
@@ -415,11 +415,7 @@ export async function internalRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Conversation not found' })
     }
 
-    await sendPushToAll(
-      title || conv.title,
-      body || '',
-      `/c/${conversation_id}`,
-    )
+    await pushForConversation(conversation_id, title || conv.title, body || '')
 
     return { ok: true }
   })

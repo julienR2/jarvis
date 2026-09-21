@@ -421,6 +421,11 @@ export function initDb(): void {
   try {
     db.exec(`ALTER TABLE sections ADD COLUMN brief_hidden INTEGER NOT NULL DEFAULT 0`)
   } catch { /* already exists */ }
+  // When a push last went out for the conversation. Today ranks a chat that
+  // was worth a notification above one that merely has unread answers.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN notified_at INTEGER`)
+  } catch { /* already exists */ }
 
   // Connectors — one row per connector holding its definition AND its values.
   // Unified from the former three-way split (hardcoded catalog + custom_connectors

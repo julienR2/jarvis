@@ -599,7 +599,11 @@ export const useChatStore = create<ChatState>()(
       set((s) => {
         const c = s.conversations[convId]
         if (c && c.unread_count !== 0) c.unread_count = 0
+        if (c) c.last_read_at = Math.floor(Date.now() / 1000)
       })
+      // The server's stamp, so the state holds across a reload and on other
+      // devices. Best-effort: the local count is already right.
+      api.markConversationRead(convId).catch(() => {})
     },
 
     clearUnreadAnchor(convId) {
