@@ -231,6 +231,9 @@ export function processMessage(
     // The quoted passage goes to Claude in its own article ahead of the text,
     // and is stored on the message's metadata for the bubble to show.
     replyTo?: ReplyTo
+    // The text is a speech-to-text transcript, sent as-is: Claude is told to
+    // read it charitably. The saved message stays the bare transcript.
+    transcribed?: boolean
     onDone?: (text: string) => void
     model?: string
     effort?: EffortLevel
@@ -278,6 +281,17 @@ export function processMessage(
   if (!isCommand) {
     const brief = topicContextFor(conv, { freshSession: !!options?.runKey })
     if (brief) claudePrompt = brief + '\n' + claudePrompt
+  }
+
+  if (options?.transcribed && !isCommand) {
+    const note = [
+      '<article data-jarvis="voice-transcript">',
+      'The message below was dictated and sent straight from speech-to-text, unedited.',
+      'Expect transcription errors (misheard or near-homophone words, wrong names, missing punctuation):',
+      'read it for what was meant, and ask only if the meaning is really unclear.',
+      '</article>',
+    ].join('\n')
+    claudePrompt = `${note}\n${claudePrompt}`
   }
 
   // Append attachment references for Claude
@@ -1814,7 +1828,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       void (async () => {
         try {
           const transcript = await transcribeAudioBuffer(buffer)
-          processMessage(id, conv, transcript, [])
+          processMessage(id, conv, transcript, [], { transcribed: true })
         } catch (err) {
           console.error('[audio] background transcription failed:', err)
           emitConversationError(
