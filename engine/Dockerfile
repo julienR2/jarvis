@@ -13,7 +13,7 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Install Claude Code CLI globally
-RUN npm install -g @anthropic-ai/claude-code@2.1.263
+RUN npm install -g @anthropic-ai/claude-code@2.1.280
 
 # Run as host user (UID/GID 1000) to avoid file permission issues
 ARG UID=1000

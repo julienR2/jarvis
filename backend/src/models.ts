@@ -8,7 +8,7 @@
 // model generation ships. Nothing else in the backend should hardcode a model id.
 import { readFileSync } from 'fs'
 
-export const DEFAULT_MODEL = 'claude-opus-5'
+export const DEFAULT_MODEL = 'claude-opus-5-5'
 
 // The gateway's own default, for an instance whose new conversations should
 // start on a gateway model. Not an Anthropic id behind `anthropic/`: someone
