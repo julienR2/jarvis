@@ -56,6 +56,8 @@ test.describe('routines', () => {
     // Posts into a fixture chat, picked from the list.
     await form.getByLabel('Posts into').selectOption({ label: '📝 Blog publish · 🏗️ Projects' })
     await form.getByLabel('Enabled').uncheck()
+    // A worker cron: yields while anything else runs.
+    await form.getByLabel('Only when idle').check()
     await form.getByRole('button', { name: 'Create' }).click()
     await expect(form).toBeHidden()
     const row = page.getByTestId('routine-row').filter({ hasText: 'e2e-nightly' })
@@ -66,6 +68,7 @@ test.describe('routines', () => {
     await row.getByTitle('Edit this routine').click()
     await expect(page.getByRole('heading', { name: 'Edit routine' })).toBeVisible()
     await expect(page.getByLabel('Name', { exact: true })).toHaveValue('e2e-nightly')
+    await expect(page.getByLabel('Only when idle')).toBeChecked()
     // The trigger is fixed once it exists.
     await expect(page.getByTestId('routine-form').getByText('on a schedule')).toBeVisible()
     await page.keyboard.press('Escape')

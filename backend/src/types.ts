@@ -85,6 +85,8 @@ export interface CronRow {
   /** Legacy column, unused. */
   thinking: number
   /** 0 = run in a throwaway session, reporting into the linked conversation. */
+  /** 1 = skip a fire while any run (any conversation) is still active. */
+  solo: number
   inherit_context: number
   last_run: number | null
   last_result: string | null

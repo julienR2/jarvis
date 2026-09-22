@@ -715,6 +715,8 @@ export interface Cron {
   once: number
   /** 0 = each fire runs in its own session, only posting into the conversation. */
   inherit_context: number
+  /** 1 = a fire is skipped while any run is still active anywhere. */
+  solo: number
   model: string | null
   effort: Effort
   last_run: number | null
@@ -738,6 +740,7 @@ export interface CronInput {
   enabled?: boolean
   once?: boolean
   inherit_context?: boolean
+  solo?: boolean
   model?: string
   effort?: Effort
   /** The chat the runs post into; null = open one on the first fire. */

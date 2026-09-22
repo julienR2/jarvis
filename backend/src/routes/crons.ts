@@ -39,6 +39,8 @@ export async function cronRoutes(app: FastifyInstance) {
       model?: string
       effort?: string
       inherit_context?: boolean
+      /** Only fire when no run is active anywhere. */
+      solo?: boolean
       /** Where the runs post. Omitted: a chat is opened on the first fire. */
       conversation_id?: string | null
     }
@@ -62,10 +64,11 @@ export async function cronRoutes(app: FastifyInstance) {
     // inheriting the conversation means re-reading (and paying for) its whole
     // history on every fire.
     const inheritContext = body.inherit_context ? 1 : 0
+    const solo = body.solo ? 1 : 0
 
     getDb()
-      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, model, effort, inherit_context, conversation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, body.schedule, body.prompt, enabled, once, model, effort, inheritContext, body.conversation_id || null)
+      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, model, effort, inherit_context, solo, conversation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, body.schedule, body.prompt, enabled, once, model, effort, inheritContext, solo, body.conversation_id || null)
 
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(id) as CronRow
     schedule(row)
@@ -82,6 +85,7 @@ export async function cronRoutes(app: FastifyInstance) {
       model: string
       effort: string
       inherit_context: boolean
+      solo: boolean
       conversation_id: string | null
     }>
 
@@ -110,13 +114,14 @@ export async function cronRoutes(app: FastifyInstance) {
         body.inherit_context !== undefined
           ? (body.inherit_context ? 1 : 0)
           : existing.inherit_context,
+      solo: body.solo !== undefined ? (body.solo ? 1 : 0) : existing.solo,
       // null unlinks it: the next fire opens a fresh chat.
       conversation_id: 'conversation_id' in body ? (body.conversation_id || null) : existing.conversation_id,
     }
 
     getDb()
-      .prepare('UPDATE crons SET name=?, schedule=?, prompt=?, enabled=?, once=?, model=?, effort=?, inherit_context=?, conversation_id=? WHERE id=?')
-      .run(updated.name, updated.schedule, updated.prompt, updated.enabled, updated.once, updated.model, updated.effort, updated.inherit_context, updated.conversation_id, req.params.id)
+      .prepare('UPDATE crons SET name=?, schedule=?, prompt=?, enabled=?, once=?, model=?, effort=?, inherit_context=?, solo=?, conversation_id=? WHERE id=?')
+      .run(updated.name, updated.schedule, updated.prompt, updated.enabled, updated.once, updated.model, updated.effort, updated.inherit_context, updated.solo, updated.conversation_id, req.params.id)
 
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(req.params.id) as CronRow
     schedule(row)

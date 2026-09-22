@@ -122,6 +122,9 @@ export async function internalRoutes(app: FastifyInstance) {
       /** 'high' = think hard; anything else = the model's default. */
       effort?: string | boolean
       once?: boolean
+      /** Only fire when no run is active anywhere. */
+      solo?: boolean
+      model?: string
       conversation_id?: string
     }
 
@@ -131,6 +134,7 @@ export async function internalRoutes(app: FastifyInstance) {
     if (!cron.validate(body.schedule)) {
       return reply.code(400).send({ error: `Invalid cron expression: ${body.schedule}` })
     }
+    const solo = body.solo ? 1 : 0
 
     // Upsert by name
     const existing = getDb()
@@ -139,12 +143,15 @@ export async function internalRoutes(app: FastifyInstance) {
 
     if (existing) {
       getDb()
-        .prepare('UPDATE crons SET schedule=?, prompt=?, enabled=?, once=?, conversation_id=COALESCE(?, conversation_id) WHERE id=?')
+        .prepare('UPDATE crons SET schedule=?, prompt=?, enabled=?, once=?, solo=?, model=COALESCE(?, model), effort=?, conversation_id=COALESCE(?, conversation_id) WHERE id=?')
         .run(
           body.schedule,
           body.prompt,
           body.enabled !== false ? 1 : 0,
           body.once ? 1 : 0,
+          solo,
+          body.model ?? null,
+          normalizeEffort(body.effort),
           body.conversation_id ?? null,
           existing.id,
         )
@@ -157,8 +164,8 @@ export async function internalRoutes(app: FastifyInstance) {
     getDb()
       // model = null → "use the global default" (resolved at fire time); never
       // rely on the column default, which may be a stale value on older DBs.
-      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, conversation_id, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, body.schedule, body.prompt, body.enabled !== false ? 1 : 0, body.once ? 1 : 0, body.conversation_id || null, null, normalizeEffort(body.effort))
+      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, solo, conversation_id, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, body.schedule, body.prompt, body.enabled !== false ? 1 : 0, body.once ? 1 : 0, solo, body.conversation_id || null, body.model ?? null, normalizeEffort(body.effort))
 
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(id) as CronRow
     schedule(row)

@@ -39,6 +39,7 @@ interface Draft {
   prompt: string
   enabled: boolean
   inherit_context: boolean
+  solo: boolean
   model: string
   effort: CronInput['effort']
   conversation_id: string | null
@@ -46,7 +47,7 @@ interface Draft {
 
 function emptyDraft(kind: RoutineKind, conversationId: string | null): Draft {
   return {
-    kind, name: '', schedule: '', once: false, prompt: '', enabled: true, inherit_context: false,
+    kind, name: '', schedule: '', once: false, prompt: '', enabled: true, inherit_context: false, solo: false,
     model: getDefaultModel(), effort: DEFAULT_EFFORT, conversation_id: conversationId,
   }
 }
@@ -60,6 +61,7 @@ function fromRoutine(r: Routine): Draft {
     prompt: r.row.prompt,
     enabled: !!r.row.enabled,
     inherit_context: !!r.row.inherit_context,
+    solo: r.kind === 'cron' ? !!r.row.solo : false,
     model: r.row.model ?? getDefaultModel(),
     effort: r.row.effort ?? DEFAULT_EFFORT,
     conversation_id: r.row.conversation_id,
@@ -114,7 +116,7 @@ export function RoutineForm({
         conversation_id: form.conversation_id,
       }
       if (isCron) {
-        const body: CronInput = { ...common, schedule: form.schedule.trim(), once: form.once }
+        const body: CronInput = { ...common, schedule: form.schedule.trim(), once: form.once, solo: form.solo }
         if (initial) await api.updateCron(initial.row.id, body)
         else await api.createCron(body)
       } else {
@@ -198,6 +200,11 @@ export function RoutineForm({
         {isCron && (
           <label className={check} title='Fires once, then deletes itself — a reminder.'>
             <input type='checkbox' checked={form.once} onChange={(e) => setForm({ ...form, once: e.target.checked })} className='accent-accent' /> Run once
+          </label>
+        )}
+        {isCron && (
+          <label className={check} title='Skips a fire while any routine is still running or waiting for you — for a worker that must not compete with live work.'>
+            <input type='checkbox' checked={form.solo} onChange={(e) => setForm({ ...form, solo: e.target.checked })} className='accent-accent' /> Only when idle
           </label>
         )}
         <label className={check} title="Off: each run starts fresh and only posts its result into the chat — cheaper, and it leaves the chat's own memory untouched. On: the run reads everything said in the chat.">

@@ -152,6 +152,13 @@ export function dismissRun(id: string): boolean {
   return true
 }
 
+/** The oldest run still in flight anywhere, or undefined when the engine is free of routines. */
+export function anyActiveRun(): RunRow | undefined {
+  return getDb()
+    .prepare(`SELECT * FROM runs WHERE status IN ${ACTIVE_SQL} ORDER BY started_at ASC LIMIT 1`)
+    .get() as RunRow | undefined
+}
+
 /** Runs still in flight for a conversation, oldest first. */
 export function activeRuns(conversationId: string): RunRow[] {
   return getDb()

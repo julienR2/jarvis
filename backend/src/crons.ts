@@ -2,7 +2,7 @@ import cron, { type ScheduledTask } from 'node-cron'
 import { getDb, uuid } from './db.js'
 import { config } from './config.js'
 import { processMessage } from './routes/conversations.js'
-import { startRun } from './runs.js'
+import { anyActiveRun, startRun } from './runs.js'
 import type { CronRow, ConvRow } from './types.js'
 
 const tasks = new Map<string, ScheduledTask>()
@@ -44,6 +44,22 @@ function ensureConversation(entry: CronRow): { conversationId: string; conv: Con
 }
 
 export function fireCron(entry: CronRow): void {
+  // A solo cron yields to whatever is in flight — a live chat's turn is not a
+  // run, but every routine's is, including this cron's own previous fire (a
+  // task still going, or parked on a question). Nothing is recorded but the
+  // reason: a skipped hour is not an event worth a row.
+  if (entry.solo) {
+    const busy = anyActiveRun()
+    if (busy) {
+      const at = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      console.log(`[cron] "${entry.name}" skipped: "${busy.source_name}" is ${busy.status}`)
+      getDb()
+        .prepare('UPDATE crons SET last_result = ? WHERE id = ?')
+        .run(`Skipped at ${at} — "${busy.source_name}" was still ${busy.status === 'needs_you' ? 'waiting for you' : 'running'}.`, entry.id)
+      return
+    }
+  }
+
   console.log(`[cron] firing "${entry.name}"`)
 
   getDb()

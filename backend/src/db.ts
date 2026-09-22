@@ -217,6 +217,11 @@ export function initDb(): void {
   try {
     db.exec(`ALTER TABLE crons ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0`)
   } catch { /* already exists */ }
+  // A cron that only fires when nothing else is running — a worker that must
+  // not compete with a live chat or another routine for the engine.
+  try {
+    db.exec(`ALTER TABLE crons ADD COLUMN solo INTEGER NOT NULL DEFAULT 0`)
+  } catch { /* already exists */ }
 
   // Migration: add model + thinking to webhooks
   try {
