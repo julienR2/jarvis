@@ -84,6 +84,8 @@ stack_up() {
   setsid env PORT="$ENGINE_PORT" node "$E2E_DIR/stub-engine.mjs" > "$RUN/engine.log" 2>&1 &
   PIDS+=($!)
 
+  # The fixtures seed under the first user, so the backend must create one at
+  # boot. The engine container has no ADMIN_* of its own; these never leave $RUN.
   echo "· throwaway backend on :$API_PORT (state in $RUN)" >&2
   setsid env \
     PORT="$API_PORT" \
@@ -92,6 +94,8 @@ stack_up() {
     WORKSPACE_DIR="$RUN/workspace" \
     JARVIS_REPO_DIR="$REPO" \
     SEED_FIXTURES=1 \
+    ADMIN_EMAIL=admin@jarvis.local \
+    ADMIN_PASSWORD="$(head -c 18 /dev/urandom | base64)" \
     RATE_LIMIT_MAX=3000 \
     ENGINE_URL="http://127.0.0.1:$ENGINE_PORT" \
     "$REPO/backend/node_modules/.bin/tsx" "$REPO/backend/src/index.ts" \
