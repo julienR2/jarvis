@@ -1,19 +1,18 @@
 import { defineConfig } from '@playwright/test'
 
 /**
- * UI-only checks against the `next` stack.
+ * UI-only checks against the throwaway stack `run.sh` starts.
  *
- * Nothing here talks to the engine: the fixtures seeded into next's database
- * are what the tests look at, and the only writes are rows the UI itself
- * creates (a chat, an API key). `setup.ts` re-arms the fixtures before a run —
- * only the rows they own — so every run starts from the same picture without
- * taking the rest of the instance's data with it (E2E_RESET=1 for a full wipe).
+ * Nothing here talks to the engine: the fixtures seeded into that stack's fresh
+ * database are what the tests look at, and the only writes are rows the UI
+ * itself creates (a chat, an API key). The database is thrown away when the run
+ * ends, so no spec has to clean up after itself.
  *
- * Runs from the engine container — the only place both the repo and a Chromium
- * exist — against next by service name. `baseURL` carries the /next/ mount, so
- * specs navigate with RELATIVE paths (`page.goto('crons')`, never '/crons').
+ * Start it through `run.sh` — on its own this config points at a stack that is
+ * not running. Specs navigate with RELATIVE paths (`page.goto('crons')`, never
+ * '/crons'), so the suite does not care where the app is mounted.
  */
-const baseURL = (process.env.E2E_BASE_URL || 'http://next-frontend:5173/next').replace(/\/?$/, '/')
+const baseURL = (process.env.E2E_BASE_URL || 'http://127.0.0.1:5273').replace(/\/?$/, '/')
 
 export default defineConfig({
   testDir: './specs',

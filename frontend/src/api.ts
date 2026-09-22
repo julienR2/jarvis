@@ -45,9 +45,9 @@ function handleUnauthorized() {
   // them to a sign-in page for an account they don't have.
   if (shareToken !== null) return
 
-  // Compared against the mounted path, not '/login': under /next/ the login
-  // page lives at /next/login, and treating it as "somewhere else" turned a
-  // wrong password into a silent full reload of the form.
+  // Compared against the mounted path, not a bare '/login': under a sub-path
+  // mount the login page is at '<base>/login', and treating it as "somewhere
+  // else" turned a wrong password into a silent full reload of the form.
   const onLogin = window.location.pathname === `${BASE_PATH}/login`
   const hadToken = !!localStorage.getItem('token')
   localStorage.removeItem('token')

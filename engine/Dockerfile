@@ -12,9 +12,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Install Claude Code CLI globally
-RUN npm install -g @anthropic-ai/claude-code@2.1.280
-
 # Run as host user (UID/GID 1000) to avoid file permission issues
 ARG UID=1000
 ARG GID=1000
@@ -23,5 +20,12 @@ RUN groupmod -g ${GID} node && usermod -u ${UID} -g ${GID} node
 # volume for node_modules inherits node:1000 on first creation.
 RUN mkdir -p /jarvis/engine/node_modules && chown -R node:node /jarvis
 WORKDIR /jarvis/engine
+
+# The Claude CLI is a pinned dependency in engine/package.json, not a global
+# install baked into this image. The engine runs `npm install` on every start,
+# so bumping that pin and restarting the engine is the whole upgrade — no image
+# rebuild, and nothing here that needs Docker. This PATH entry is what makes the
+# installed `claude` the one spawn() finds.
+ENV PATH=/jarvis/engine/node_modules/.bin:$PATH
 
 USER node

@@ -4,14 +4,13 @@
  */
 import type { FastifyInstance } from 'fastify'
 import cron from 'node-cron'
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { processMessage, type Attachment } from './conversations.js'
 import { getAllConnectors, getConnector } from '../connectors.js'
 import { archiveAppDir } from '../app-archive.js'
 import { schedule, rescheduleAll } from '../crons.js'
-import { seedFixtures } from '../fixtures.js'
 import { getSection, setSectionContext, topicConversations, MAX_CONTEXT_CHARS } from '../topics.js'
 import { emitConversationEvent } from '../sse.js'
 import { pushForConversation } from '../push.js'
@@ -80,35 +79,6 @@ export async function internalRoutes(app: FastifyInstance) {
     if (!checkSecret(req, reply)) return
     const mode = scheduleRestart()
     return { ok: true, restarting: true, mode }
-  })
-
-  // Wipe this instance's database and come back empty (re-seeded at boot when
-  // SEED_FIXTURES is set). Only for throwaway instances — the `next` stack —
-  // and only when its compose says so; prod never sets ALLOW_DB_RESET.
-  app.post('/reset', async (req, reply) => {
-    if (!checkSecret(req, reply)) return
-    if (process.env.ALLOW_DB_RESET !== '1') {
-      return reply.code(403).send({ error: 'reset is not enabled on this instance' })
-    }
-    try { getDb().close() } catch { /* already closed */ }
-    for (const suffix of ['', '-wal', '-shm']) {
-      try { unlinkSync(config.dbPath + suffix) } catch { /* absent */ }
-    }
-    const mode = scheduleRestart()
-    return { ok: true, reset: true, restarting: true, mode }
-  })
-
-  // Put the fixtures back without touching anything else — what the e2e run
-  // does before it starts, so it can share the instance with a person using it.
-  // Only where fixtures are seeded at all (the `next` stack).
-  app.post('/fixtures', async (req, reply) => {
-    if (!checkSecret(req, reply)) return
-    if (process.env.SEED_FIXTURES !== '1') {
-      return reply.code(403).send({ error: 'fixtures are not enabled on this instance' })
-    }
-    seedFixtures({ rearm: true })
-    rescheduleAll()
-    return { ok: true, rearmed: true }
   })
 
   app.post('/crons', async (req, reply) => {

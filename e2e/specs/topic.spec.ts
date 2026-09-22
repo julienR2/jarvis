@@ -1,7 +1,7 @@
 import { test, expect, signIn } from '../helpers'
 
-/** Home, with or without the /next mount and its trailing slash. */
-const HOME = /^https?:\/\/[^/]+(\/next)?\/?$/
+/** Home, with or without its trailing slash. */
+const HOME = /^https?:\/\/[^/]+\/?$/
 
 /**
  * A topic as a page. Fixtures: the "🏗️ Projects" section carries a brief (the

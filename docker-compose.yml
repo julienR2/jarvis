@@ -11,25 +11,11 @@ services:
   # Pre-creates agent/{data,workspace} with uid 1000 ownership so playwright
   # (which runs as root and would otherwise win the race) doesn't materialize
   # them as root-owned dirs the backend can't write to. Runs once and exits.
-  #
-  # Also prepares agent/next/ for the `next` profile below: its own data and
-  # workspace, plus a Claude config seeded from this one. The copy is a
-  # whitelist, never `cp -r /agent`: agent/projects alone is hundreds of
-  # megabytes of session transcripts. The committed defaults (CLAUDE.md, rules,
-  # skills, mcp.json, settings.json) are refreshed on every `up`, so a skill
-  # edited here is what next runs after its next start — that is the point of
-  # previewing there. Personal files (CLAUDE.local.md, plugin flags, plugins)
-  # are seeded once (`cp -n`) and then left to diverge.
   setup:
     image: alpine:3
     command: >
-      sh -c "mkdir -p /agent/data /agent/workspace/apps /agent/workspace/uploads
-      /agent/next/data /agent/next/workspace/apps /agent/next/workspace/uploads /agent/next/config &&
-      for f in CLAUDE.md mcp.json settings.json rules skills; do
-      [ -e \"/agent/$$f\" ] && cp -r \"/agent/$$f\" /agent/next/config/ 2>/dev/null; done;
-      for f in CLAUDE.local.md .i-have-adhd-always plugins; do
-      [ -e \"/agent/$$f\" ] && cp -rn \"/agent/$$f\" /agent/next/config/ 2>/dev/null; done;
-      chown -R 1000:1000 /agent/data /agent/workspace /agent/next"
+      sh -c "mkdir -p /agent/data /agent/workspace/apps /agent/workspace/uploads &&
+      chown -R 1000:1000 /agent/data /agent/workspace"
     volumes:
       - ./agent:/agent
     restart: 'no'
@@ -45,7 +31,7 @@ services:
     # No file watcher: this is the instance you talk to, and a half-saved edit
     # used to take it down mid-conversation. Source on disk is inert until the
     # `deploy` skill asks for a restart (POST /internal/restart), or the
-    # container is recreated. Preview edits live on the `next` stack instead.
+    # container is recreated.
     command: sh -c "npm install && npx tsx src/index.ts"
     volumes:
       - ./:/jarvis
@@ -117,11 +103,6 @@ services:
   frontend:
     image: node:25
     working_dir: /app
-    environment:
-      # Where /next is forwarded. Set here rather than hardcoded so a clone can
-      # point it elsewhere, or leave it unset and get a 502 on /next — which is
-      # the honest answer when the profile is off.
-      NEXT_FRONTEND_URL: ${NEXT_FRONTEND_URL:-http://next-frontend:5173}
     # Install and first build run to completion in the FOREGROUND before
     # preview starts: a backgrounded install once left preview dying first
     # (`vite: not found`) and a truncated native binary crash-looping.
@@ -227,112 +208,6 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
-  # ── The `next` stack ────────────────────────────────────────────────────────
-  #
-  # The same checkout, in DEV mode, on its own throwaway data. Off unless the
-  # `next` profile is enabled — put COMPOSE_PROFILES=next in .env and a plain
-  # `docker compose up -d` brings it up with everything else.
-  #
-  # Why it exists: prod runs without file watchers (see the `deploy` skill), so
-  # a saved edit is invisible there until deployed. Here the backend runs
-  # `tsx watch` and the frontend is the real vite dev server, so a save shows up
-  # in about a second. Reached at /next/ on the SAME origin as prod — the
-  # frontend above proxies it — so previewing needs no second hostname, no
-  # second login, no reverse-proxy change.
-  #
-  #   data     agent/next/{data,workspace}: own DB, secrets, uploads, apps.
-  #            Seeded with fixtures at boot; wipe with POST /internal/reset.
-  #            Empty DB means no crons and no webhooks, so nothing double-fires.
-  #   config   agent/next/config: own Claude config dir, so two claude
-  #            processes never write the same session files.
-  #   login    same JWT_SECRET and ADMIN_* as prod (root .env), so the admin is
-  #            user 1 in both databases and a prod token is valid here.
-  #   deps     its own node_modules volumes — two `npm install`s in one tree is
-  #            how you get a half-extracted native module.
-  next-backend:
-    profiles: [ next ]
-    build: ./backend
-    working_dir: /jarvis/backend
-    command: sh -c "npm install && npx tsx watch src/index.ts"
-    volumes:
-      - ./:/jarvis
-      - next-backend-node-modules:/jarvis/backend/node_modules
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      PORT: 3005
-      DB_PATH: /jarvis/agent/next/data/jarvis.db
-      SECRETS_PATH: /jarvis/agent/next/data/secrets.json
-      WORKSPACE_DIR: /jarvis/agent/next/workspace
-      CLAUDE_CONFIG_DIR: /jarvis/agent/next/config
-      JARVIS_REPO_DIR: /jarvis
-      WHISPER_URL: http://whisper:9000
-      ENGINE_URL: http://next-engine:3010
-      BACKEND_URL: http://next-backend:3005
-      # Fixtures to look at, and permission to throw them away again. Prod sets
-      # neither: /internal/reset refuses without ALLOW_DB_RESET.
-      SEED_FIXTURES: '1'
-      ALLOW_DB_RESET: '1'
-      # The e2e suite fires a few hundred requests a minute from one address.
-      RATE_LIMIT_MAX: '3000'
-      TZ: ${TZ:-UTC}
-    ports:
-      - '${BIND_ADDR:-127.0.0.1}:${NEXT_BACKEND_PORT:-3205}:3005'
-    depends_on:
-      setup:
-        condition: service_completed_successfully
-    restart: unless-stopped
-    logging: *default-logging
-
-  next-engine:
-    profiles: [ next ]
-    build: ./engine
-    working_dir: /jarvis/engine
-    command: sh -c "npm install && npx tsx src/index.ts"
-    volumes:
-      - ./:/jarvis
-      - next-engine-node-modules:/jarvis/engine/node_modules
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      CLAUDE_CONFIG_DIR: /jarvis/agent/next/config
-      WORKSPACE_DIR: /jarvis/agent/next/workspace
-      SECRETS_PATH: /jarvis/agent/next/data/secrets.json
-      BACKEND_URL: http://next-backend:3005
-      PORT: 3010
-      TZ: ${TZ:-UTC}
-    depends_on:
-      setup:
-        condition: service_completed_successfully
-    restart: unless-stopped
-    logging: *default-logging
-
-  next-frontend:
-    profiles: [ next ]
-    image: node:25
-    working_dir: /app
-    # The real dev server: hot reload, no build step, mounted under /next/ so
-    # the same origin can serve both stacks.
-    command: sh -c "npm install && exec npx vite --host"
-    volumes:
-      - ./frontend:/app
-      - next-frontend-node-modules:/app/node_modules
-    environment:
-      BACKEND_URL: http://next-backend:3005
-      VITE_BASE: /next/
-      # Only needed if the HMR socket can't reach back through the proxy chain
-      # (browser → reverse proxy → prod frontend → here). Set to 443 when
-      # Jarvis is behind https and the console reports a failed ws to :5173.
-      VITE_HMR_CLIENT_PORT: ${NEXT_HMR_CLIENT_PORT:-}
-    ports:
-      - '${BIND_ADDR:-127.0.0.1}:${NEXT_FRONTEND_PORT:-5373}:5173'
-    depends_on:
-      - next-backend
-    restart: unless-stopped
-    logging: *default-logging
-
 volumes:
   whisper-cache:
   # One per service, each populated by that service's own `npm install` on boot.
@@ -341,7 +216,3 @@ volumes:
   backend-node-modules:
   frontend-node-modules:
   engine-node-modules:
-  # The `next` profile's own, for the same reason.
-  next-backend-node-modules:
-  next-frontend-node-modules:
-  next-engine-node-modules:

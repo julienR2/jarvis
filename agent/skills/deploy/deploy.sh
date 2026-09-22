@@ -8,9 +8,11 @@
 #   frontend  build from here, copy hashed assets in, swap index.html last
 #   backend   POST /internal/restart, wait for /health
 #   engine    kill its node process after a delay (only with --engine: it ends the
-#             conversation's Claude process; --resume brings the context back)
+#             conversation's Claude process; --resume brings the context back).
+#             This is also how a `claude` CLI bump lands — it is a pinned
+#             dependency in engine/package.json, installed on the engine's start.
 #   Dockerfile / compose / frontend deps   cannot be applied from inside a
-#             container — reported for the host
+#             container — reported for the host to run
 #
 # Runs inside the engine container, as the agent. Needs BACKEND_URL and
 # INTERNAL_SECRET, both already in the agent's environment.
@@ -23,7 +25,7 @@ MARKER="$REPO/agent/data/deployed.json"
 FAST=0 DRY=0 ALLOW_DIRTY=0 ENGINE_OK=0 FORCE_ALL=0
 for a in "$@"; do
   case "$a" in
-    --fast) FAST=1 ;;            # skip the e2e run against next
+    --fast) FAST=1 ;;            # skip the e2e run
     --dry-run) DRY=1 ;;          # decide and report, change nothing
     --allow-dirty) ALLOW_DIRTY=1 ;;  # deploy uncommitted work (records HEAD anyway)
     --engine) ENGINE_OK=1 ;;     # allowed to restart the engine
@@ -34,7 +36,7 @@ for a in "$@"; do
 done
 
 cd "$REPO"
-trap 'rm -rf "$REPO/frontend/dist-next"' EXIT
+trap 'rm -rf "$REPO/frontend/dist-build"' EXIT
 HEAD=$(git rev-parse HEAD)
 SHORT=$(git rev-parse --short HEAD)
 DIRTY_FILES=$(git status --porcelain | awk '{print $NF}')
@@ -65,19 +67,21 @@ else
   while IFS= read -r f; do
     [ -z "$f" ] && continue
     case "$f" in
-      frontend/package.json|frontend/package-lock.json) HOST+=("frontend dependencies changed — the frontend container installs them on start: homelab skill POST /rebuild/jarvis (restarts every Jarvis container, this conversation included) or, on the host, docker compose up -d --force-recreate frontend") ;;
+      frontend/package.json|frontend/package-lock.json) HOST+=("frontend dependencies changed — the frontend container installs them on start, and nothing in here can: on the host, docker compose up -d --force-recreate frontend") ;;
       # Backend and engine install their dependencies on start too, but the
       # typecheck below runs against the modules already installed — so a new
       # dependency fails it until the service has restarted once. Say so.
       backend/package.json|backend/package-lock.json) BE=1; NOTES+=("backend dependencies changed — they install on its restart; if the typecheck fails on a missing module, restart it first (curl -X POST -H \"X-Internal-Secret: \$INTERNAL_SECRET\" \$BACKEND_URL/internal/restart) and rerun deploy") ;;
-      engine/package.json|engine/package-lock.json) EN=1; NOTES+=("engine dependencies changed — they install on its restart; if the engine typecheck fails on a missing module, deploy with --engine (it restarts) and rerun deploy afterwards") ;;
+      # The `claude` CLI is one of these dependencies, so a version bump takes
+      # this same path: an engine restart, no image rebuild, no Docker.
+      engine/package.json|engine/package-lock.json) EN=1; NOTES+=("engine dependencies changed (the claude CLI is one of them) — they install on its restart; if the engine typecheck fails on a missing module, deploy with --engine (it restarts) and rerun deploy afterwards") ;;
       # The preview server reads its proxy table once, at start — a build alone
       # does not carry a change here. Still built below, for the bundle side.
       frontend/vite.config.ts) FE=1; HOST+=("frontend/vite.config.ts changed — the preview proxy only reloads on \`docker compose up -d frontend\`") ;;
       frontend/*) FE=1 ;;
       backend/*) BE=1 ;;
       engine/*) EN=1 ;;
-      */Dockerfile|docker-compose*.yml|*/docker-compose*.yml) HOST+=("$f — image/compose change: homelab skill POST /start/jarvis (= docker compose up -d, recreates only what changed; a Dockerfile change needs /rebuild/jarvis, which restarts everything) or the same on the host") ;;
+      */Dockerfile|docker-compose*.yml|*/docker-compose*.yml) HOST+=("$f — image/compose change, which only the host can apply: docker compose up -d (add --build for a Dockerfile change). It restarts the containers whose definition changed, this conversation included") ;;
       *) ;;  # agent/, docs, site, README: read at runtime or irrelevant
     esac
   done <<< "$CHANGED"
@@ -87,7 +91,7 @@ fi
 # The compose command chowns dist on start, but until that container has been
 # recreated with it, nothing from here can write there — say so, don't half-copy.
 if [ "$FE" = 1 ] && [ -d "$REPO/frontend/dist" ] && ! { [ -w "$REPO/frontend/dist" ] && [ -w "$REPO/frontend/dist/index.html" ]; }; then
-  HOST+=("frontend/dist files are owned by $(stat -c %U "$REPO/frontend/dist/index.html") and not writable from here — recreate the frontend container once with the current compose: docker compose up -d frontend. Frontend NOT deployed.")
+  HOST+=("frontend/dist files are owned by $(stat -c %U "$REPO/frontend/dist/index.html") and not writable from here — on the host, recreate the frontend container once with the current compose: docker compose up -d frontend. Frontend NOT deployed.")
   FE=0; FE_BLOCKED=1
 fi
 
@@ -112,9 +116,11 @@ if [ "$EN" = 1 ] && [ -x "$REPO/engine/node_modules/.bin/tsc" ]; then
   echo "· typecheck engine"; "$REPO/engine/node_modules/.bin/tsc" --noEmit -p "$REPO/engine" >/dev/null || { echo "✗ engine typecheck failed"; "$REPO/engine/node_modules/.bin/tsc" --noEmit -p "$REPO/engine" 2>&1 | tail -15; exit 1; }
 fi
 if [ "$FAST" = 0 ]; then
-  # UI checks against next — the same tree that is about to be deployed, in
-  # dev mode. Exit 3 means next is not up: nothing was tested, say so, go on.
-  echo "· e2e against next"
+  # UI checks against a throwaway stack run.sh starts for the occasion: the same
+  # tree that is about to be deployed, on a database created and deleted for the
+  # run. Exit 3 means that stack could not start — nothing was tested, say so
+  # and go on rather than blocking a deploy on the harness.
+  echo "· e2e"
   set +e
   bash "$REPO/e2e/run.sh" > /tmp/deploy-e2e.log 2>&1
   E2E_RC=$?
@@ -139,30 +145,30 @@ DONE=()
 if [ "$FE" = 1 ]; then
   echo "· building frontend"
   cd "$REPO/frontend"
-  rm -rf dist-next
+  rm -rf dist-build
   # --configLoader native: vite otherwise bundles vite.config.ts into
   # node_modules/.vite-temp, which is read-only from this container.
-  ./node_modules/.bin/vite build --outDir dist-next --emptyOutDir --configLoader native --logLevel error
-  [ -f dist-next/index.html ] || { echo "✗ build produced no index.html"; exit 1; }
+  ./node_modules/.bin/vite build --outDir dist-build --emptyOutDir --configLoader native --logLevel error
+  [ -f dist-build/index.html ] || { echo "✗ build produced no index.html"; exit 1; }
   mkdir -p dist
   # Additive first: new hashed assets land next to the old ones, so a tab on
   # the old bundle can still lazy-load its chunks. index.html goes last, by a
   # same-directory rename — preview never serves a torn page, and the backend's
   # dist watcher (which triggers the reload banner) sees exactly that file change.
-  for item in dist-next/*; do
+  for item in dist-build/*; do
     n=$(basename "$item")
     [ "$n" = index.html ] && continue
     if [ -d "$item" ]; then mkdir -p "dist/$n" && cp -a "$item/." "dist/$n/"
     else cp -a "$item" "dist/.$n.tmp" && mv -f "dist/.$n.tmp" "dist/$n"; fi
   done
-  cp dist-next/index.html dist/.index.html.tmp && mv -f dist/.index.html.tmp dist/index.html
+  cp dist-build/index.html dist/.index.html.tmp && mv -f dist/.index.html.tmp dist/index.html
   # Prune assets that are neither in this build nor recent — yesterday's tabs
   # have had their banner; keep today's chunks for anyone still on them.
   for f in dist/assets/*; do
-    [ -e "dist-next/assets/$(basename "$f")" ] && continue
+    [ -e "dist-build/assets/$(basename "$f")" ] && continue
     find "$f" -mmin +1440 -delete 2>/dev/null || true
   done
-  rm -rf dist-next
+  rm -rf dist-build
   cd "$REPO"
   DONE+=(frontend)
   echo "✓ frontend deployed — open tabs get the reload banner"
@@ -198,7 +204,7 @@ if [ "$BE" = 1 ]; then
     DONE+=(backend)
     echo "✓ backend back in $((MS/1000)).$(( (MS%1000)/100 ))s (uptime now ${U1}s)"
   else
-    echo "✗ backend did not answer /health within 30s — check its logs (homelab skill: logs jarvis)"; exit 1
+    echo "✗ backend did not answer /health within 30s — ask the user for its logs (docker compose logs backend, on the host)"; exit 1
   fi
 fi
 

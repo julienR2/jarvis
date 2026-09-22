@@ -18,6 +18,32 @@ $WORKSPACE_DIR/       = /jarvis/agent/workspace
   └── apps/           per-conversation app workspaces (managed by the apps skill)
 ```
 
+## Where you run
+
+You are a process inside the **engine** container of a Docker Compose project.
+The whole repo is mounted at `/jarvis`, compose file and Dockerfiles included, so
+you can read how you are wired and tell when a change needs a container action.
+
+But **you have no Docker access** — no socket, no CLI, no API. You cannot start,
+stop, rebuild or inspect any container, your own included. Do not go looking for
+a way around that; when something genuinely needs it, say so plainly and give the
+user the exact command to run on the host.
+
+Almost nothing does. From in here you can:
+
+- reach the other containers over HTTP by service name (`backend:3005`,
+  `whisper:9000`, the Playwright MCP server) — that is how the parts talk anyway;
+- deploy your own code — frontend build, backend restart, engine restart — with
+  the `deploy` skill;
+- upgrade the `claude` CLI you run on: it is a pinned dependency in
+  `engine/package.json`, installed when the engine starts, so a bump plus an
+  engine restart is the whole thing (`update-claude-cli` skill).
+
+What is left for the host is narrow, and all of it is a compose-level change:
+`docker compose up -d` after a compose edit, `--build` after a Dockerfile edit,
+and installing new **frontend** dependencies. The `deploy` skill prints these as
+`! host:` lines — relay them verbatim rather than improvising.
+
 ## User context & memory
 
 Durable facts (name, city, timezone, preferences, recurring context) go in your

@@ -54,5 +54,8 @@ agent/rules/*
 !agent/rules/formatting.md
 !agent/rules/emails.md
 
+# e2e artefacts (screenshots, traces) from a failed run
+e2e/results/
+
 # landing page build output
 site/_site/

@@ -60,15 +60,15 @@ test.describe('chat rendering', () => {
     await expect(page.getByText('Court booking opens')).toBeVisible()
   })
 
-  test('background runs with nothing to report fold into one line', async ({ page }) => {
+  test('background runs with nothing to report print nothing at all', async ({ page }) => {
     await openConversation(page, 'Activity steps')
-    const quiet = page.getByTestId('quiet-runs')
-    await expect(quiet).toHaveCount(1)
-    await expect(quiet.getByText(/fixture-hook · 3 runs, nothing to report/)).toBeVisible()
-    // The one that had something to say is a normal block, not folded.
+    // The one that had something to say is a normal block…
     await expect(page.getByTestId('run-card').getByText('Filed under Projects.')).toBeVisible()
-    await quiet.getByRole('button').first().click()
-    await expect(quiet.getByText(/JavaScript Weekly/)).toBeVisible()
+    await expect(page.getByTestId('run-card')).toHaveCount(1)
+    // …the three silent fires leave no card, no line, no trace.
+    await expect(page.getByTestId('quiet-runs')).toHaveCount(0)
+    await expect(page.getByText(/nothing to report/)).toHaveCount(0)
+    await expect(page.getByText(/JavaScript Weekly/)).toHaveCount(0)
   })
 
   test('think hard is off by default; the ⋯ menu switches it on per chat, and it sticks', async ({ page }) => {
@@ -167,7 +167,7 @@ test.describe('chat rendering', () => {
     await expect(dialog.getByRole('checkbox', { name: /Also delete the files/ })).toBeVisible()
     await expect(dialog.getByRole('checkbox', { name: /routine/ })).toHaveCount(0)
     await dialog.getByRole('button', { name: 'Delete' }).click()
-    await expect(page).toHaveURL(/\/next\/?$/)
+    await expect(page).toHaveURL(/^https?:\/\/[^/]+\/?$/)
   })
 
   test('reply to a passage: selecting text offers a reply button that quotes it into the composer', async ({ page }) => {

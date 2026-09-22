@@ -74,7 +74,7 @@ test.describe('routines', () => {
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('routine-form')).toBeHidden()
 
-    // Leave the instance as found: the suite shares it with whoever uses next.
+    // Leave the instance as found, so the specs do not depend on their order.
     page.once('dialog', (d) => d.accept())
     await row.getByTitle('Delete this routine').click()
     await expect(row).toBeHidden()

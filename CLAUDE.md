@@ -6,14 +6,36 @@ A self-hosted, full-stack AI assistant powered by Claude Code CLI, with a chat w
 
 The Jarvis repo itself is git-controlled. When Claude modifies backend/frontend code, changes can be reviewed (diff), committed, or reverted through the API. The backend mounts the whole repo at `/jarvis` (working dir), so source, agent config, workspace, and data all live under one tree.
 
-**Previewing**: the `next` stack (compose profile `next`) is this same checkout in
-dev mode on its own throwaway database, served at `/next/` on the same origin —
-prod's frontend proxies it, so no reverse-proxy change is needed. A save is live
-there in about a second, which is how a change gets shown before it is deployed.
+**Showing a change**: prod serves the last deployed build, so a page cannot be
+previewed by pointing at it. Instead `e2e/` starts a throwaway stack on demand —
+the source on disk, its own `mktemp` database seeded with fixtures, a vite dev
+server and a stub engine — and `e2e/shot.sh <route>…` screenshots it into the
+conversation's uploads folder. About ten seconds, no Docker, and prod's data is
+never opened.
 
-**Deploying**: prod runs without file watchers, so an edit under `backend/`, `frontend/` or `engine/` is inert until the `deploy` skill runs (`agent/skills/deploy/deploy.sh`). It typechecks, runs the UI e2e suite against next (`e2e/`, ~45 checks on seeded fixtures, ~25 s), builds the frontend, restarts the backend through `POST /internal/restart`, and restarts the engine only when told to (`--engine`). None of it needs Docker: it runs from the engine container. Edits under `agent/` are read at runtime by prod and need no deploy; next runs its own copy under `agent/next/config`, refreshed when the stack comes up (or synced by hand, see the `jarvis` skill). Next's engine is not hot-reloaded either: `POST http://next-engine:3010/restart` with the internal secret bounces it.
+**Deploying**: prod runs without file watchers, so an edit under `backend/`,
+`frontend/` or `engine/` is inert until the `deploy` skill runs
+(`agent/skills/deploy/deploy.sh`). It typechecks, runs the UI e2e suite against
+that same throwaway stack (`e2e/`, ~55 checks on seeded fixtures, ~35 s), builds
+the frontend, restarts the backend through `POST /internal/restart`, and restarts
+the engine only when told to (`--engine`). None of it needs Docker: it runs from
+the engine container. Edits under `agent/` are read at runtime and need no deploy.
 
-**Recovery strategy**: First try discarding uncommitted changes (`/api/git/discard`). If the repo is clean but still broken, revert the last commit (`/api/git/revert`). Either way the running code only changes after a deploy — or, if the backend itself is down, after the `jarvis` project is brought up again: the `homelab` skill's `POST /start/jarvis` does it from inside the container (it restarts the engine too, so the current conversation ends), or `docker compose up -d` on the host.
+**Updating the Claude CLI**: it is a pinned dependency in `engine/package.json`,
+not a global install baked into the image, and the engine runs `npm install` on
+every start. So bumping the pin and restarting the engine (`deploy.sh --engine`)
+is the whole upgrade — no image rebuild.
+
+**Recovery strategy**: First try discarding uncommitted changes
+(`/api/git/discard`). If the repo is clean but still broken, revert the last
+commit (`/api/git/revert`). Either way the running code only changes after a
+deploy — or, if the backend itself is down, after `docker compose up -d` on the
+host, which nothing inside the containers can do.
+
+**No Docker inside**: the agent has the compose file and Dockerfiles to read, but
+no socket, CLI or API. What it cannot apply itself — compose changes, Dockerfile
+changes, new frontend dependencies — `deploy.sh` prints as `! host:` lines for
+you to run.
 
 ## Typechecking your own edits
 

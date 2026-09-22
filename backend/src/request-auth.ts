@@ -61,11 +61,11 @@ export function applyApiKey(req: FastifyRequest, token: string | null): Identity
 /**
  * A valid session JWT whose account exists on THIS instance.
  *
- * Signature alone is not enough: the `next` stack shares the signing secret so
- * the owner's session carries over to it, and that cuts both ways — a token
- * minted over there for an account that exists only over there (the e2e user)
- * must not open this instance. Rejecting unknown ids keeps the sharing exactly
- * as wide as the accounts the two databases have in common.
+ * Signature alone is not enough: a throwaway instance (the stack `e2e/` starts)
+ * inherits the same signing secret from the environment, so a token minted there
+ * for an account that exists only there — the e2e user — must not open this one.
+ * Rejecting unknown ids keeps the sharing exactly as wide as the accounts the two
+ * databases have in common.
  */
 export async function verifySession(req: FastifyRequest): Promise<void> {
   await req.jwtVerify()
