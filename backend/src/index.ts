@@ -19,7 +19,7 @@ import {
 import { sectionRoutes } from './routes/sections.js'
 import { cronRoutes } from './routes/crons.js'
 import { runRoutes } from './routes/runs.js'
-import { runByKey, reconcileStaleRuns } from './runs.js'
+import { runByKey, reconcileStaleRuns, markQuietMessages } from './runs.js'
 import { seedFixtures } from './fixtures.js'
 import { webhookRoutes, webhookTriggerRoute } from './routes/webhooks.js'
 import { uploadRoutes, UPLOADS_DIR, MAX_FILE_SIZE } from './routes/uploads.js'
@@ -70,7 +70,7 @@ await app.register(helmet, {
 await app.register(rateLimit, {
   global: true,
   // 300/min per client is plenty for a person; the e2e suite is not a person.
-  // The next stack lifts it through RATE_LIMIT_MAX rather than being exempt.
+  // The e2e stack lifts it through RATE_LIMIT_MAX rather than being exempt.
   max: Number(process.env.RATE_LIMIT_MAX) || 300,
   timeWindow: '1 minute',
   // Exempt static asset routes: apps can serve hundreds of images (grids,
@@ -179,8 +179,11 @@ if (config.adminEmail && config.adminPassword) {
   }
 }
 
-// Throwaway instances (the next stack, e2e) start with something to look at.
+// Throwaway instances (the stack e2e/ starts) begin with something to look at.
 if (process.env.SEED_FIXTURES === '1') seedFixtures()
+
+// Quiet runs closed before their messages were stamped as such.
+markQuietMessages()
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 

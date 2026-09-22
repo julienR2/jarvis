@@ -1,5 +1,5 @@
 /**
- * Seed data for a throwaway instance — the `next` stack, and the e2e run.
+ * Seed data for a throwaway instance — the stack `e2e/run.sh` starts.
  *
  * Runs at boot on an empty database when SEED_FIXTURES=1. Everything it creates
  * is there to exercise a renderer or a page without talking to the engine:
@@ -7,12 +7,9 @@
  * an app in the side pane, crons, webhooks, two runs parked on a question, an
  * API key.
  *
- * `rearm` (POST /internal/fixtures) puts the fixtures back in place WITHOUT
- * touching anything else: only the rows the fixtures own — fixed ids, listed
- * below — are deleted and re-inserted. The person's own chats, the sections
- * they moved things into, the e2e account and its password all stay. This is
- * what the e2e run does before it starts; a full wipe (POST /internal/reset)
- * is a separate, deliberate act.
+ * Nothing here re-arms or cleans up: the e2e run gets a database created
+ * seconds earlier and deleted when it ends, so a fresh picture costs a rerun.
+ * Prod never sets SEED_FIXTURES and so never reaches any of this.
  */
 import { mkdirSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
@@ -21,14 +18,12 @@ import bcrypt from 'bcrypt'
 import { getDb, uuid } from './db.js'
 import { config } from './config.js'
 import { generateApiKey, hashApiKey, keyHint } from './api-keys.js'
-import { emitGlobalEvent } from './sse.js'
 
 const MARKER_SECTION = '🧪 Fixtures'
 
-export function seedFixtures(opts: { rearm?: boolean } = {}): void {
+export function seedFixtures(): void {
   const db = getDb()
-  const present = !!db.prepare('SELECT 1 FROM sections WHERE name = ?').get(MARKER_SECTION)
-  if (present && !opts.rearm) return
+  if (db.prepare('SELECT 1 FROM sections WHERE name = ?').get(MARKER_SECTION)) return
   const admin = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get() as { id: number } | undefined
   if (!admin) {
     console.warn('[fixtures] no user yet — set ADMIN_EMAIL/ADMIN_PASSWORD so one exists at boot')
@@ -58,15 +53,15 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
   const now = Math.floor(Date.now() / 1000)
   const t = (minutesAgo: number) => now - minutesAgo * 60
 
-  // Everything below with a fixed id is fixture-owned and replaced on rearm.
+  // Everything below with a fixed id is fixture-owned.
   const cronId = '00000000-0000-4000-8000-0000000000c1'
   const yearlyId = '00000000-0000-4000-8000-0000000000c2'
   const askCronId = '00000000-0000-4000-8000-0000000000c3'
   const hookId = '00000000-0000-4000-8000-0000000000a1'
   const okHookId = '00000000-0000-4000-8000-0000000000a2'
 
-  // Sections are reused by name: a rearm must not move the person's chats out
-  // of a section they filed them under.
+  // Sections are looked up by name before being created, so a database that
+  // already has one keeps it rather than ending up with two.
   const sections = [MARKER_SECTION, '☀️ Daily', '🏗️ Projects'].map((name, i) => {
     const row = db.prepare('SELECT id FROM sections WHERE name = ?').get(name) as { id: string } | undefined
     return { id: row?.id ?? uuid(), name, position: i, exists: !!row }
@@ -99,17 +94,10 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
   db.prepare('UPDATE users SET onboarded = 1').run()
 
   const tx = db.transaction(() => {
-    if (present) {
-      // Conversations cascade to their messages and runs; crons and webhooks
-      // only lose their link, so they go by id too.
-      for (const id of Object.values(ID)) db.prepare('DELETE FROM conversations WHERE id = ?').run(id)
-      for (const id of [cronId, yearlyId, askCronId]) db.prepare('DELETE FROM crons WHERE id = ?').run(id)
-      for (const id of [hookId, okHookId]) db.prepare('DELETE FROM webhooks WHERE id = ?').run(id)
-    }
     for (const s of sections) if (!s.exists) insSection.run(s.id, s.name, s.position)
     const [fixtures, daily, projects] = sections
     // Projects is a topic: it carries a brief that every chat under it starts
-    // from. Rewritten on every rearm so a hand-edit on next does not stick.
+    // from.
     db.prepare('UPDATE sections SET context = ?, context_updated_at = ? WHERE id = ?').run([
       '**What this is** — side projects and the tooling around them: the fixture app, the blog, whatever is being built this month.',
       '',
@@ -130,8 +118,8 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
       '**What this is** — the seeded data every check runs against: a conversation per rendering case, three routines, a couple of runs waiting on an answer.',
       '',
       '**Decided**',
-      '- Fixed ids (`00000000-0000-4000-8000-00000000000N`) so a spec or a preview can deep-link and survive a reseed.',
-      '- Re-armed in place, never wiped: a person\'s own chats on next are theirs.',
+      '- Fixed ids (`00000000-0000-4000-8000-00000000000N`) so a spec can deep-link and survive a reseed.',
+      '- Seeded into a database that is created and deleted per run, never into a real one.',
       '- Named by what they exercise, not by what they contain.',
       '',
       '**Open**',
@@ -141,14 +129,14 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
       '**How to work here**',
       '- Add a row in `backend/src/fixtures.ts` when a page needs data, with a fixed id.',
       '- Count by name in specs, never the whole table.',
-      '- Rearm with `POST /internal/fixtures`; the suite does it in its setup.',
+      '- Every run starts from a database created seconds earlier; nothing to reset.',
       '',
       '**History**',
       '- Week 36: markdown, activity and brief conversations; the first app.',
       '- Week 37: the two waiting runs and the chat question; the API key per user.',
       '- Week 38: the second app, the unread thread, the quoted reply.',
     ].join('\n'), t(60 * 24 * 2), fixtures.id)
-    // Fixture groups start as topics-to-be: a hide on next must not stick.
+    // Fixture groups start as topics-to-be, never hidden.
     db.prepare('UPDATE sections SET brief_hidden = 0 WHERE id IN (?, ?, ?)').run(fixtures.id, daily.id, projects.id)
 
     // 1. Markdown — every construct the bubble renders.
@@ -289,7 +277,7 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     insMsg.run(uuid(), act, 'assistant', '[note:1] An invoice from the school, so it goes under Projects.\n\n[tool:1] Bash: curl copyparty/projects/', hookStamp, 'activity',
       '**Filed under Projects.** One attachment — the school invoice, 48 € — saved to the drive.', t(179))
     // Three more fires since that had nothing to report — the newsletter case.
-    // Quiet runs still write their messages; the chat folds them into one line.
+    // Quiet runs still write their messages, stamped quiet; the chat shows none of it.
     const skips: [number, string][] = [
       [50, '| Action | From | Subject |\n|---|---|---|\n| ⏭️ Skipped | JavaScript Weekly | Issue 703 |'],
       [35, '| Action | From | Subject |\n|---|---|---|\n| ⏭️ Skipped | GOG.com | Your order is complete |'],
@@ -298,7 +286,7 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
     for (const [ago, result] of skips) {
       const id = uuid()
       insRun.run(id, 'webhook', hookId, 'fixture-hook', act, `hook-${hookId}-q${ago}`, 'done', t(ago), t(ago) + 6, result, null, 1)
-      const stamp = JSON.stringify({ run_id: id, isolated: true })
+      const stamp = JSON.stringify({ run_id: id, isolated: true, quiet: true })
       insMsg.run(uuid(), act, 'user', 'Handle the payload.', stamp, null, null, t(ago))
       insMsg.run(uuid(), act, 'assistant', '[tool:1] Read skills/email-processor/SKILL.md', stamp, 'activity', result, t(ago) + 0)
     }
@@ -415,7 +403,6 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
 
     // Keys are per account, and the e2e account is what the checks sign in as:
     // every user here gets one, or the page reads "No API keys yet" to them.
-    // Kept across rearms — a key is not a fixture row anyone mutates.
     const users = db.prepare('SELECT id FROM users').all() as { id: number }[]
     const insKey = db.prepare('INSERT INTO api_keys (id, user_id, name, key_hash, prefix) VALUES (?, ?, ?, ?, ?)')
     for (const u of users) {
@@ -428,7 +415,7 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
   // Read state, for Today's inbox: most fixture chats are read; the unread
   // thread keeps its three new answers; the brief chat was worth a push
   // (notified, unread); the waiting chats are unread so their cards have the
-  // question to show. Rearm resets all of it.
+  // question to show.
   db.prepare(
     `UPDATE conversations SET last_read_at = updated_at + 1, notified_at = NULL
       WHERE id IN (?, ?, ?, ?, ?, ?)`,
@@ -448,9 +435,7 @@ export function seedFixtures(opts: { rearm?: boolean } = {}): void {
   db.prepare('UPDATE crons SET effort = ? WHERE id IN (?, ?, ?)').run('default', cronId, yearlyId, askCronId)
   db.prepare('UPDATE webhooks SET effort = ? WHERE id IN (?, ?)').run('default', hookId, okHookId)
 
-  console.log(`[fixtures] ${present ? 'rearmed' : 'seeded'}: 3 sections, 13 conversations, 3 crons, 2 webhooks, 7 runs (2 waiting) + 1 chat question, 1 api key per user, 1 e2e user`)
-  // Screens already open on this instance refetch what changed.
-  if (present) emitGlobalEvent({ type: 'runs', conversation_id: ID.brief })
+  console.log('[fixtures] seeded: 3 sections, 13 conversations, 3 crons, 2 webhooks, 7 runs (2 waiting) + 1 chat question, 1 api key per user, 1 e2e user')
 }
 
 const FIXTURE_APP_HTML = `<!doctype html>

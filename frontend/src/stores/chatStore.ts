@@ -11,6 +11,7 @@ import {
   type Section,
 } from '../api'
 import { closeNotificationsFor } from '../lib/notifications'
+import { isFinishedReply } from '../lib/transcript'
 
 type PatchableFields = Pick<
   Conversation,
@@ -181,7 +182,7 @@ function mergeMessages(prev: Message[], next: Message[]): Message[] {
  *
  * Counts what the server counts — an assistant row with no `type` and a
  * `result`, i.e. a real answer that has finished, not an activity line, an
- * error, or the turn currently streaming — so the divider lands on the same
+ * error, a quiet run, or the turn currently streaming — so the divider lands on the same
  * message the badge was counting. Returns the oldest loaded message when the
  * unread run reaches past the loaded page: the divider then reads "everything
  * from here", which is true, instead of not showing at all.
@@ -191,7 +192,7 @@ function findUnreadAnchor(messages: Message[], count: number): string | null {
   let seen = 0
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
-    if (msg.role !== 'assistant' || msg.type || msg.result == null) continue
+    if (!isFinishedReply(msg)) continue
     if (++seen === count) return msg.id
   }
   return messages[0].id

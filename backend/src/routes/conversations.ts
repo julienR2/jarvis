@@ -623,10 +623,15 @@ export function attachConversationStream(
   const closeRuns = (
     status: 'done' | 'error' | 'interrupted',
     detail?: { result?: string; error?: string },
-  ) => {
-    for (const id of attached.runIds) finishRun(id, status, detail)
+  ): boolean => {
+    let quiet = attached.runIds.size > 0
+    for (const id of attached.runIds) quiet = finishRun(id, status, detail) && quiet
     attached.runIds.clear()
+    return quiet
   }
+  // The turn just closed was a run with nothing to report: it prints nothing,
+  // so it raises no badge and no push either.
+  let quietTurn = false
 
   /**
    * A turn ended one way or another: nothing it was waiting on can be answered
@@ -926,7 +931,7 @@ export function attachConversationStream(
         // flag so it doesn't swallow a genuine error later in the session.
         cancelledConversations.delete(conversationId)
         closeQuestions()
-        if (!ev.pending) closeRuns('done', { result: resultText })
+        quietTurn = !ev.pending && closeRuns('done', { result: resultText })
         for (const cb of attached.onDoneQueue.splice(0)) cb(resultText)
         // Reset the per-turn state: the stream stays attached and the next
         // turn (steered, queued or wake-up) starts a fresh assistant message.
@@ -940,7 +945,7 @@ export function attachConversationStream(
         // - subscribe: always send (service worker suppresses if app visible)
         // - unsubscribe: never send
         // - auto: Claude decides via /internal/notify endpoint
-        if (conv.notify === 'subscribe') {
+        if (conv.notify === 'subscribe' && !quietTurn) {
           const plain = resultText
             .replace(/#{1,6}\s+/g, '') // headings
             .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1') // bold/italic
@@ -1028,7 +1033,7 @@ export function attachConversationStream(
         })
       }
 
-      if (ev.type === 'done' || ev.type === 'error') {
+      if ((ev.type === 'done' && !quietTurn) || ev.type === 'error') {
         // Notify global SSE subscribers (for sidebar unread badges)
         emitGlobalEvent({
           type: 'new_message',
@@ -1221,6 +1226,7 @@ export async function conversationRoutes(app: FastifyInstance) {
            AND m.type IS NULL
            AND m.result IS NOT NULL
            AND m.created_at > COALESCE(c.last_read_at, 0)
+           AND COALESCE(m.metadata, '') NOT LIKE '%"quiet":true%'
         ) AS unread_count,
         (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
         (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook
@@ -1265,6 +1271,7 @@ export async function conversationRoutes(app: FastifyInstance) {
              AND m.type IS NULL
              AND m.result IS NOT NULL
              AND m.created_at > COALESCE(c.last_read_at, 0)
+             AND COALESCE(m.metadata, '') NOT LIKE '%"quiet":true%'
           ) AS unread_count,
           (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
           (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook

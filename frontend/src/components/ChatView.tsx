@@ -27,9 +27,9 @@ import ResizeHandle from './ResizeHandle'
 import { useIsDesktop } from '../hooks/useIsDesktop'
 import { ContentTitle } from './ContentLayout'
 import RoutinesPill from './RoutinesPill'
-import RunBlock, { QuietRuns } from './RunBlock'
+import RunBlock from './RunBlock'
 import SelectionReply from './SelectionReply'
-import { foldQuietRuns, groupMessagesByDay } from '../lib/transcript'
+import { dropQuietRuns, groupMessagesByDay, isFinishedReply } from '../lib/transcript'
 import { answerFromComposer } from './AnswerCard'
 
 /** Shared so the jump button can find the divider without threading a ref
@@ -300,8 +300,8 @@ export default function ChatView({
   // Finished answers, the unit the unread count and the arrow badge share
   // (the server counts the same rows for the sidebar badge).
   const finishedCount = useMemo(
-    () => messages.filter((m) => m.role === 'assistant' && !m.type && m.result != null).length,
-    [messages],
+    () => messages.filter((m) => isFinishedReply(m, runsById)).length,
+    [messages, runsById],
   )
   // How many replies arrived since you last looked — counted from the divider,
   // so it matches exactly what sits below it.
@@ -311,8 +311,8 @@ export default function ChatView({
     if (i < 0) return 0
     return messages
       .slice(i)
-      .filter((m) => m.role === 'assistant' && !m.type && m.result != null).length
-  }, [messages, unreadAnchor])
+      .filter((m) => isFinishedReply(m, runsById)).length
+  }, [messages, unreadAnchor, runsById])
 
   // At the bottom everything is seen; the badge starts counting from here.
   useEffect(() => {
@@ -628,13 +628,11 @@ export default function ChatView({
                         <Loader2 size={16} className='animate-spin text-text-muted' />
                       </div>
                     )}
-                    {foldQuietRuns(groupMessagesByDay(messages, unreadAnchor), runsById).map((item) =>
+                    {dropQuietRuns(groupMessagesByDay(messages, unreadAnchor), runsById).map((item) =>
                       item.type === 'separator' ? (
                         <DateSeparator key={item.key} label={item.label} />
                       ) : item.type === 'unread' ? (
                         <UnreadSeparator key={item.key} onDismiss={dismissUnread} />
-                      ) : item.type === 'quietRuns' ? (
-                        <QuietRuns key={item.key} blocks={item.blocks} />
                       ) : item.type === 'runBlock' ? (
                         <RunBlock
                           key={item.key}

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { AlertCircle, ChevronRight, Clock, Link2, Loader2, MessageCircleQuestion, Settings2, Square } from 'lucide-react'
 import type { Message, Run } from '../api'
 import MessageBubble from './MessageBubble'
-import { firstLine, formatTime } from '../lib/runs'
 
 /**
  * A cron or webhook's contribution to the transcript, as ordinary messages.
@@ -106,75 +105,4 @@ function State({ run, running }: { run?: Run; running: boolean }) {
     default:
       return null
   }
-}
-
-/**
- * A stretch of runs that had nothing to report, folded into one grey line.
- *
- * Fifteen "skipped" triages a day used to be fifteen cards. Here they are one
- * sentence — how many, which routines, over what span — that opens into the
- * list, and from there into any one run's messages for whoever wants them.
- */
-export function QuietRuns({ blocks }: { blocks: { run: Run; msgs: Message[] }[] }) {
-  const [open, setOpen] = useState(false)
-  const [shown, setShown] = useState<string | null>(null)
-  const names = [...new Set(blocks.map((b) => b.run.source_name))]
-  const first = blocks[0].run.started_at
-  const last = blocks[blocks.length - 1].run.started_at
-  const span = first === last ? formatTime(first) : `${formatTime(first)} – ${formatTime(last)}`
-  const n = blocks.length
-
-  return (
-    <div className='my-3' data-testid='quiet-runs'>
-      <button
-        type='button'
-        onClick={() => setOpen((v) => !v)}
-        className='flex w-full items-center gap-2 text-[11.5px] text-text-muted transition-colors hover:text-text-secondary'
-        aria-expanded={open}
-      >
-        <span className='shrink-0'>
-          {names.join(', ')} · {n} {n === 1 ? 'run' : 'runs'}, nothing to report
-        </span>
-        <span className='h-px flex-1 border-t border-dashed border-border' />
-        <span className='shrink-0'>{span}</span>
-        <ChevronRight size={10} className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
-      </button>
-      {open && (
-        <div className='mt-1.5 ml-2 border-l border-border pl-3'>
-          {blocks.map(({ run, msgs }) => (
-            <div key={run.id}>
-              <button
-                type='button'
-                onClick={() => setShown((s) => (s === run.id ? null : run.id))}
-                className='flex w-full items-baseline gap-2 py-1 text-left text-[12px] text-text-muted transition-colors hover:text-text-primary'
-              >
-                <span className='shrink-0 tabular-nums'>{formatTime(run.started_at)}</span>
-                <span className='min-w-0 flex-1 truncate'>{run.result ? quietLine(run.result) : run.source_name}</span>
-              </button>
-              {shown === run.id && (
-                <div className='pb-1 pl-11'>
-                  <RunBlock run={run} msgs={msgs} live={false} />
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/**
- * One line for a quiet run. A triage answers with a table, whose first line is
- * the header — the row is what says which mail was skipped.
- */
-function quietLine(result: string): string {
-  const lines = result.split('\n').map((l) => l.trim()).filter(Boolean)
-  if (lines[0]?.startsWith('|')) {
-    const body = lines.slice(1).find((l) => l.startsWith('|') && !/^\|[\s:|-]+\|$/.test(l))
-    if (body) {
-      return body.split('|').map((c) => c.trim()).filter(Boolean).join(' · ')
-    }
-  }
-  return firstLine(result)
 }

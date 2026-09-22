@@ -87,9 +87,9 @@ export function finishRun(
   id: string,
   status: Exclude<RunStatus, 'running' | 'needs_you'>,
   detail?: { result?: string; error?: string },
-): void {
+): boolean {
   const run = getRun(id)
-  if (!run || !isActive(run.status)) return
+  if (!run || !isActive(run.status)) return false
   const quiet = status === 'done' && isQuietResult(detail?.result) ? 1 : 0
   getDb()
     .prepare(
@@ -97,7 +97,25 @@ export function finishRun(
         WHERE id = ? AND status IN ${ACTIVE_SQL}`,
     )
     .run(status, detail?.result ?? null, detail?.error ?? null, quiet, id)
+  if (quiet) markQuietMessages(id)
   emitRuns(run.conversation_id)
+  return quiet === 1
+}
+
+/**
+ * A quiet run prints nothing, so its messages say so themselves: the chat
+ * hides them and the unread count skips them without needing the run row,
+ * which is gone from the client's list once the run is old.
+ */
+export function markQuietMessages(runId?: string): void {
+  getDb()
+    .prepare(
+      `UPDATE messages SET metadata = json_set(metadata, '$.quiet', json('true'))
+        WHERE metadata LIKE '%"run_id"%' AND json_valid(metadata)
+          AND json_extract(metadata, '$.quiet') IS NULL
+          AND json_extract(metadata, '$.run_id') IN (SELECT id FROM runs WHERE quiet = 1 AND (? IS NULL OR id = ?))`,
+    )
+    .run(runId ?? null, runId ?? null)
 }
 
 /**

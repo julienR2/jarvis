@@ -12,11 +12,11 @@ import {
 import AnswerCard, { answerFromComposer } from './AnswerCard'
 import ChatInput from './ChatInput'
 import MessageBubble from './MessageBubble'
-import RunBlock, { QuietRuns } from './RunBlock'
+import RunBlock from './RunBlock'
 import StatusPill from './StatusPill'
 import { useChatStore } from '../stores/chatStore'
 import { firstLine, relative } from '../lib/runs'
-import { foldQuietRuns, groupMessagesByDay } from '../lib/transcript'
+import { dropQuietRuns, groupMessagesByDay } from '../lib/transcript'
 
 export type InboxReason = 'action' | 'notified' | 'unread'
 
@@ -97,7 +97,7 @@ export default function InboxCard({
   }
 
   const runsById = useMemo(() => new Map(runs.map((r) => [r.id, r])), [runs])
-  const items = useMemo(() => foldQuietRuns(groupMessagesByDay(shown, null), runsById), [shown, runsById])
+  const items = useMemo(() => dropQuietRuns(groupMessagesByDay(shown, null), runsById), [shown, runsById])
 
   // Collapsed, one line says what is new: the question, the error, or the
   // latest answer's first line.
@@ -213,9 +213,7 @@ export default function InboxCard({
                     item.label === 'Today' ? null : (
                       <div key={item.key} className='my-2 text-center text-[10.5px] uppercase tracking-wide text-text-muted/70'>{item.label}</div>
                     )
-                  ) : item.type === 'unread' ? null : item.type === 'quietRuns' ? (
-                    <QuietRuns key={item.key} blocks={item.blocks} />
-                  ) : item.type === 'runBlock' ? (
+                  ) : item.type === 'unread' ? null : item.type === 'runBlock' ? (
                     <RunBlock key={item.key} run={runsById.get(item.runId)} msgs={item.msgs} live={false} />
                   ) : (
                     <MessageBubble key={item.msg.id} msg={item.msg} />
