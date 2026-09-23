@@ -693,8 +693,7 @@ export default function ChatView({
                           key={item.msg.id}
                           msg={item.msg}
                           // The newest message while a turn runs is the one
-                          // being written, and it keeps its current run of
-                          // steps unfolded.
+                          // being written, and it shows the step it is on.
                           live={isProcessing && item.msg.id === lastMessageId}
                         />
                       ),

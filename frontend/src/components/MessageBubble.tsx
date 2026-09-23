@@ -39,12 +39,9 @@ function CopyButton({ getText }: { getText: () => string }) {
 
 function getAssistantCopyText(msg: Message): string {
   if (!hasActivityLines(msg.content)) return msg.content
-  // Copy what's on screen, in the order it's on screen: prose and notes, never
-  // the collapsed tool steps.
+  // Copy what's on screen: the prose, never the steps.
   return buildGroups(parseActivityContent(msg.content).activityLines, msg.result)
-    .flatMap((g) =>
-      g.kind === 'prose' ? [g.text] : g.cycles.flatMap((c) => c.notes),
-    )
+    .flatMap((g) => (g.kind === 'prose' ? [g.text] : []))
     .join('\n\n')
 }
 
@@ -239,96 +236,36 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
     () => buildGroups(parseActivityContent(msg.content).activityLines, msg.result),
     [msg.content, msg.result],
   )
-  // Per-cycle override of the default open state, keyed by position. Safe to
-  // key on the indices: groups and cycles are only ever appended as a turn goes
-  // on, so a position never comes to mean a different cycle.
-  const [toggled, setToggled] = useState<Record<string, boolean>>({})
-  // Folded by default: one line for the whole turn's machinery — the latest
-  // note while it runs, a count once done. A click unfolds the notes with their
-  // steps; a click on any note folds it all back.
-  const [unfolded, setUnfolded] = useState(false)
-  const folded = !unfolded
-  const stepGroups = groups.filter((g): g is StepsGroup => g.kind === 'steps')
-  const totals = stepGroups.reduce(
-    (acc, g) => {
-      for (const c of g.cycles) {
-        acc.notes += c.notes.length
-        acc.tools += c.tools.length
-      }
-      return acc
-    },
-    { notes: 0, tools: 0 },
-  )
-  const lastGroupIsSteps = groups.length > 0 && groups[groups.length - 1].kind === 'steps'
-  const latest = (key: 'notes' | 'tools'): string | null => {
-    for (let i = stepGroups.length - 1; i >= 0; i--) {
-      for (let j = stepGroups[i].cycles.length - 1; j >= 0; j--) {
-        const list = stepGroups[i].cycles[j][key]
-        if (list.length) return list[list.length - 1]
-      }
-    }
-    return null
-  }
-  const latestNote = latest('notes')
-  const latestTool = latest('tools')
+  // Only the answer is drawn. The machinery shows while it runs — one line
+  // saying what Jarvis is on — and leaves no trace once the turn moves on.
+  const prose = groups.filter((g) => g.kind === 'prose')
+  const last = groups[groups.length - 1]
+  const doing = live && last?.kind === 'steps' ? last.cycles[last.cycles.length - 1] : null
 
-  // A turn that only ever called tools gets no timestamp row, as before — there
-  // is nothing to date but the steps themselves.
-  const hasText = groups.some((g) =>
-    g.kind === 'prose' ? true : g.cycles.some((c) => c.notes.length > 0),
-  )
-
+  if (!prose.length && !doing) return null
   return (
     // Same anchor as the plain bubble: a selection in a real answer (which
     // nearly always carries activity lines and lands here) must be replyable.
     <div data-message-id={msg.id} className='flex items-start mb-5 animate-fade-in group transition-colors'>
       <div className='max-w-full min-w-0'>
-        {groups.map((g, i) => {
-          if (g.kind === 'prose') {
-            return (
-              <div key={i} className='markdown text-base leading-relaxed mb-3'>
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeRaw]}
-                  components={markdownComponents}
-                >
-                  {g.text}
-                </ReactMarkdown>
-              </div>
-            )
-          }
-          // The cycle in progress stays open, so what Jarvis is doing right now
-          // is readable without a click; it folds itself away when the turn
-          // moves on to the next cycle, or ends.
-          const liveCycle =
-            !!live && i === groups.length - 1 ? g.cycles.length - 1 : -1
-          // Folded: the machinery is not drawn where it happened but as one
-          // line under the answer (see below) — the answer is the message, the
-          // steps are a footnote to it.
-          if (folded) return null
-          return (
-            <StepsBlock
-              key={i}
-              cycles={g.cycles}
-              isOpen={(j) => toggled[`${i}:${j}`] ?? j === liveCycle}
-              onToggle={(j, open) =>
-                setToggled((t) => ({ ...t, [`${i}:${j}`]: !open }))
-              }
-              onNoteClick={() => setUnfolded(false)}
-            />
-          )
-        })}
-        {folded && stepGroups.length > 0 && (
-          <QuietLine
-            live={!!live && lastGroupIsSteps}
-            latestNote={latestNote}
-            latestTool={latestTool}
-            tools={totals.tools}
-            notes={totals.notes}
-            onOpen={() => setUnfolded(true)}
+        {prose.map((g, i) => (
+          <div key={i} className='markdown text-base leading-relaxed mb-3'>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeRaw]}
+              components={markdownComponents}
+            >
+              {g.text}
+            </ReactMarkdown>
+          </div>
+        ))}
+        {doing && (
+          <LiveLine
+            note={doing.notes[doing.notes.length - 1] ?? null}
+            tool={doing.tools[doing.tools.length - 1] ?? null}
           />
         )}
-        {msg.created_at && hasText && (
+        {msg.created_at && prose.length > 0 && (
           <div className='text-[10px] text-text-muted/50 mt-1 flex items-center gap-1.5'>
             {formatTime(msg.created_at)}
             <CopyButton getText={() => getAssistantCopyText(msg)} />
@@ -340,178 +277,22 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
 }
 
 /**
- * Whether a click on a block of text was meant for the block itself.
- *
- * Notes and steps fold on a press anywhere in them, which is only pleasant if
- * it stays out of the way of the two things a press can also mean: following a
- * link (or working the toggle, which handles itself and would otherwise fire
- * twice), and selecting text — releasing the mouse after a selection is not a
- * request to fold away what was just selected.
+ * What Jarvis is on while a turn runs: one muted line with a spinner — his note
+ * when he wrote one, otherwise the step itself ("Reading
+ * skills/email-processor/SKILL.md"). No count, nothing to unfold: the steps are
+ * not a level of detail the chat keeps.
  */
-function isPlainClick(e: React.MouseEvent): boolean {
-  if ((e.target as HTMLElement).closest('a, button')) return false
-  return !window.getSelection()?.toString()
-}
-
-// Three lines at text-[13px]/leading-snug, which is where a reasoning summary
-// stops being a glanceable label and starts being a wall.
-const NOTE_CLAMP_PX = 54
-
-/**
- * The folded form of a message's machinery — a footnote under the answer, not
- * a box in the middle of it.
- *
- * While the turn runs it is one muted line with a spinner: the latest note in
- * Jarvis's words when reasoning is on, otherwise the step he is on ("Reading
- * skills/email-processor/SKILL.md"). Once it is over it shrinks to a count you
- * can open. No frame either way: a chat reads as a conversation, and the trail
- * is one click away for whoever wants it.
- */
-function QuietLine({
-  live,
-  latestNote,
-  latestTool,
-  tools,
-  notes,
-  onOpen,
-}: {
-  live: boolean
-  latestNote: string | null
-  latestTool: string | null
-  tools: number
-  notes: number
-  onOpen: () => void
-}) {
-  const count = `${tools} step${tools !== 1 ? 's' : ''}`
-  if (live) {
-    const doing = latestNote ?? latestTool
-    return (
-      <div
-        role='button'
-        tabIndex={0}
-        onClick={onOpen}
-        onKeyDown={(e) => e.key === 'Enter' && onOpen()}
-        title='Show all the steps'
-        className='mb-2 flex max-w-full cursor-pointer items-start gap-2 text-[13px] leading-relaxed text-text-muted transition-colors hover:text-text-secondary'
-      >
-        <Loader2 size={13} className='mt-1 shrink-0 animate-spin text-accent' />
-        <div className='min-w-0 flex-1'>
-          {doing ? (
-            latestNote ? <Markdown text={doing} /> : <span className='line-clamp-1'>{doing}</span>
-          ) : (
-            <span>Working…</span>
-          )}
-          {tools > 1 && (
-            <div className='text-[11px] text-text-muted/60'>{count} so far ▾</div>
-          )}
-        </div>
+function LiveLine({ note, tool }: { note: string | null; tool: string | null }) {
+  return (
+    <div className='mb-2 flex max-w-full items-start gap-2 text-[13px] leading-relaxed text-text-muted'>
+      <Loader2 size={13} className='mt-1 shrink-0 animate-spin text-accent' />
+      <div className='min-w-0 flex-1'>
+        {note ? (
+          <Markdown text={note} />
+        ) : (
+          <span className='line-clamp-1'>{tool ?? 'Working…'}</span>
+        )}
       </div>
-    )
-  }
-  return (
-    <button
-      type='button'
-      onClick={onOpen}
-      title='Show the steps'
-      className='mb-1 flex max-w-full items-center gap-1 text-left text-[11.5px] text-text-muted/70 transition-colors hover:text-text-secondary'
-    >
-      <ChevronRight size={10} className='shrink-0' />
-      <span className='min-w-0 truncate'>
-        {count}
-        {notes ? ` · ${notes} note${notes !== 1 ? 's' : ''}` : ''}
-      </span>
-    </button>
-  )
-}
-
-/**
- * A note in full, in his words. Clicking it folds the whole block back to its
- * one line — the same gesture that opened it, in reverse.
- */
-function NoteText({ text, onClick }: { text: string; onClick?: () => void }) {
-  return (
-    <div
-      onClick={onClick}
-      title={onClick ? 'Fold the steps' : undefined}
-      className={`markdown text-sm leading-relaxed text-text-muted ${onClick ? 'cursor-pointer' : ''}`}
-    >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-        {text}
-      </ReactMarkdown>
-    </div>
-  )
-}
-
-/**
- * One run of activity between two prose blocks: what Jarvis said it was doing,
- * and the mechanical steps that did it, alternating as they happened.
- *
- * The whole run carries a single rail, so it reads as one block rather than as
- * a stack of unrelated fragments — but each cycle keeps its own toggle, so the
- * steps stay attached to the note that introduced them instead of pooling at
- * the bottom under a note that may have had nothing to do with them.
- *
- * Notes are rendered as markdown like any other prose of his: reasoning
- * summaries come with emphasis and lists, which read as literal asterisks
- * otherwise.
- */
-function StepsBlock({
-  cycles,
-  isOpen,
-  onToggle,
-  onNoteClick,
-}: {
-  cycles: Cycle[]
-  isOpen: (cycle: number) => boolean
-  onToggle: (cycle: number, open: boolean) => void
-  /** A press on a note folds the block; steps keep their own toggle. */
-  onNoteClick?: () => void
-}) {
-  return (
-    <div className='mb-3 flex flex-col gap-1.5 border-l-2 border-border pl-3'>
-      {cycles.map((cycle, j) => {
-        const open = isOpen(j)
-        return (
-          <div key={j} className='flex flex-col gap-1.5'>
-            {cycle.notes.map((text, i) => (
-              <NoteText key={i} text={text} onClick={onNoteClick} />
-            ))}
-
-            {cycle.tools.length > 0 && (
-              // The expanded list folds on a press anywhere in it, so closing a
-              // run doesn't mean hunting back up for the one-line header that
-              // opened it.
-              <div
-                className='cursor-pointer'
-                onClick={(e) => isPlainClick(e) && onToggle(j, open)}
-              >
-                <button
-                  onClick={() => onToggle(j, open)}
-                  className='flex items-center gap-1 text-[11px] text-text-muted/60 hover:text-text-muted transition-colors'
-                >
-                  <ChevronRight
-                    size={10}
-                    className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
-                  />
-                  <span>
-                    {cycle.tools.length} step
-                    {cycle.tools.length !== 1 ? 's' : ''}
-                  </span>
-                </button>
-                {open && (
-                  <ul className='mt-1 ml-3 flex flex-col gap-0.5 text-xs list-disc list-inside'>
-                    {cycle.tools.map((text, i) => (
-                      <li key={i} className='text-text-muted'>
-                        {text}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </div>
-        )
-      })}
     </div>
   )
 }

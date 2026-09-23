@@ -10,7 +10,7 @@ import MessageBubble from './MessageBubble'
  * A run is not content — the message it produced is. So the run gets one thin
  * line of provenance (what fired, and its state only while that state is
  * news — the time is the message's own, underneath) and its messages render exactly like any other assistant turn: the
- * answer in full, the steps folded to one line underneath. The routine's own
+ * answer in full, no steps. The routine's own
  * prompt is machinery and stays behind a click.
  *
  * `run` can be missing — the runs list is capped, so an old enough block

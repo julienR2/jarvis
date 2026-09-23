@@ -14,30 +14,15 @@ test.describe('chat rendering', () => {
     await expect(page.getByRole('link', { name: 'link' })).toHaveAttribute('href', 'https://example.com')
   })
 
-  test('activity: folded to one line, notes on a click, steps on another, a note folds it back', async ({ page }) => {
+  test('activity: only the answer — no step line, no trail to unfold', async ({ page }) => {
     await openConversation(page, 'Activity steps')
-    // The answer is the point; the machinery is one line.
     await expect(page.getByText('10 photos')).toBeVisible()
-    const line = page.getByRole('button', { name: /3 steps · 2 notes/ })
-    await expect(line).toBeVisible()
-    await expect(page.getByRole('button', { name: /^2 steps$/ })).toBeHidden()
-
-    // Unfold: the notes in full, tool calls still folded.
-    await line.click()
-    const note = page.getByText('Twelve files, but two are duplicates by hash')
-    await expect(note).toBeVisible()
-    const steps = page.getByRole('button', { name: /^2 steps$/ })
-    await expect(steps).toBeVisible()
-    await expect(page.getByText('ls /workspace/gallery/2026-09')).toBeHidden()
-
-    // Steps keep their own toggle…
-    await steps.click()
-    await expect(page.getByText('ls /workspace/gallery/2026-09')).toBeVisible()
-
-    // …and a press on a note folds everything back to the line.
-    await note.click()
-    await expect(line).toBeVisible()
-    await expect(note).toBeHidden()
+    // The machinery leaves no trace once the turn is over: no count, no notes,
+    // no tool calls, nothing to click open.
+    await expect(page.getByText(/\d+ steps?\b/)).toHaveCount(0)
+    await expect(page.getByTitle('Show the steps')).toHaveCount(0)
+    await expect(page.getByText('Twelve files, but two are duplicates by hash')).toHaveCount(0)
+    await expect(page.getByText('ls /workspace/gallery/2026-09')).toHaveCount(0)
   })
 
   test('background run: a normal message under one line of provenance', async ({ page }) => {
