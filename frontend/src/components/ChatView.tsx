@@ -19,7 +19,7 @@ import {
 } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { useChatEvents } from '../hooks/useChatEvents'
-import MessageBubble, { markdownComponents } from './MessageBubble'
+import MessageBubble, { Markdown, formatTime, hasActivityLines, liveStatus, markdownComponents } from './MessageBubble'
 import ChatInput from './ChatInput'
 import { DEFAULT_EFFORT, useModelCatalogue } from './ModelSelector'
 import AppPreview from './AppPreview'
@@ -701,7 +701,7 @@ export default function ChatView({
                     <LiveTurn conversationId={conversationId} />
                     {/* Parked is not thinking: the loader rests while he waits on you.
                         The question itself sits on the composer, below. */}
-                    <JarvisIndicator isThinking={isProcessing && !pending} />
+                    <JarvisIndicator isThinking={isProcessing && !pending} live={isProcessing ? messages[messages.length - 1] : undefined} />
                   </>
                 )}
               </div>
@@ -847,8 +847,13 @@ function LiveTurn({ conversationId }: { conversationId?: string }) {
   )
 }
 
-function JarvisIndicator({ isThinking }: { isThinking: boolean }) {
+/**
+ * The Jarvis loader at the foot of the list. While a turn runs it is the
+ * spinner: what he is on sits next to it, and the turn's time comes last.
+ */
+function JarvisIndicator({ isThinking, live }: { isThinking: boolean; live?: Message }) {
   const [staticFrame, setStaticFrame] = useState<string | null>(null)
+  const status = useMemo(() => (isThinking && live ? liveStatus(live) : null), [isThinking, live])
 
   useEffect(() => {
     const img = new Image()
@@ -863,13 +868,28 @@ function JarvisIndicator({ isThinking }: { isThinking: boolean }) {
   }, [])
 
   return (
-    <div className='flex items-start mb-3'>
-      <img
-        key={isThinking ? 'thinking' : 'idle'}
-        src={isThinking ? `${BASE_PATH}/images/jarvis_loading.gif` : (staticFrame || `${BASE_PATH}/images/jarvis_loading.gif`)}
-        alt='Jarvis'
-        className='w-10 h-10 mix-blend-multiply dark:mix-blend-screen'
-      />
+    <div data-testid='jarvis-indicator' className='mb-3'>
+      <div className='flex items-center gap-2'>
+        <img
+          key={isThinking ? 'thinking' : 'idle'}
+          src={isThinking ? `${BASE_PATH}/images/jarvis_loading.gif` : (staticFrame || `${BASE_PATH}/images/jarvis_loading.gif`)}
+          alt='Jarvis'
+          className='w-10 h-10 shrink-0 mix-blend-multiply dark:mix-blend-screen'
+        />
+        {status && (
+          <div data-testid='live-status' className='min-w-0 flex-1 text-[13px] leading-relaxed text-text-muted'>
+            {status.note ? (
+              <Markdown text={status.note} />
+            ) : (
+              <span className='line-clamp-1'>{status.tool ?? 'Working…'}</span>
+            )}
+          </div>
+        )}
+      </div>
+      {/* The bubble drops its own time while live (ActivityBubble) — it lands here. */}
+      {isThinking && live && live.role !== 'user' && hasActivityLines(live.content) && live.created_at && (
+        <div className='text-[10px] text-text-muted/50 mt-1'>{formatTime(live.created_at)}</div>
+      )}
     </div>
   )
 }

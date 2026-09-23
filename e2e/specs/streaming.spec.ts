@@ -87,6 +87,41 @@ test.describe('streaming', () => {
     await emit(page, { type: 'thinking', thinking: false })
   })
 
+  test('while a turn runs, what Jarvis is on sits next to the Jarvis loader — no spinner — and the time comes last', async ({ page }) => {
+    await openConversation(page, 'Markdown showcase')
+    await expect(page.getByText('a quote, to close.')).toBeInViewport()
+    await emit(page, { type: 'thinking', thinking: true })
+    const conversation_id = page.url().split('/c/')[1]
+    const created_at = Math.floor(Date.now() / 1000)
+    const live = (content: string) => ({ type: 'message', message: { id: 'live-turn', conversation_id, role: 'assistant', content, created_at, seq: 1e9 } })
+    await emit(page, live('[note:1] Checking the gallery folder first.\n\n[tool:1] ls /workspace/gallery'))
+
+    const indicator = page.getByTestId('jarvis-indicator')
+    await expect(indicator.getByTestId('live-status')).toHaveText('Checking the gallery folder first.')
+    await expect(indicator.getByAltText('Jarvis')).toHaveAttribute('src', /jarvis_loading\.gif$/)
+    await expect(page.getByTestId('chat-scroll').locator('.animate-spin')).toHaveCount(0)
+    // Loader and status on one row, the time under them.
+    const [img, status, time] = await Promise.all([
+      indicator.getByAltText('Jarvis').boundingBox(),
+      indicator.getByTestId('live-status').boundingBox(),
+      indicator.getByText(/^\d{1,2}:\d{2}/).boundingBox(),
+    ])
+    expect(status!.x).toBeGreaterThan(img!.x + img!.width - 1)
+    expect(Math.abs(status!.y + status!.height / 2 - (img!.y + img!.height / 2))).toBeLessThan(12)
+    expect(time!.y).toBeGreaterThanOrEqual(img!.y + img!.height)
+
+    // Prose written mid-turn: the answer so far in the list, no time on it yet.
+    await emit(page, live('[note:1] Checking the gallery folder first.\n\n[chunk:2] Found 10 photos.\n\n[tool:3] cp a b'))
+    await expect(page.getByText('Found 10 photos.')).toBeVisible()
+    await expect(indicator.getByTestId('live-status')).toHaveText('cp a b')
+    await expect(page.locator('[data-message-id="live-turn"]').getByText(/^\d{1,2}:\d{2}/)).toHaveCount(0)
+
+    // Turn over: the status goes, the time is back on the answer.
+    await emit(page, { type: 'thinking', thinking: false })
+    await expect(indicator.getByTestId('live-status')).toHaveCount(0)
+    await expect(page.locator('[data-message-id="live-turn"]').getByText(/^\d{1,2}:\d{2}/)).toBeVisible()
+  })
+
   test('scrolled up, an older page landing above does not move the text either', async ({ page }) => {
     // The showcase is short: the page is served with "more above", and two
     // pages of made-up history are handed out by the test — the first one at

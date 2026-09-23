@@ -6,7 +6,6 @@ import remarkGfm from 'remark-gfm'
 import { FileText, ChevronRight, Copy, Check } from 'lucide-react'
 import { withMediaToken } from '../api'
 import type { Message, Attachment, ReplyTo } from '../api'
-import { Loader2 } from 'lucide-react'
 import type { Components, ExtraProps } from 'react-markdown'
 
 interface Props {
@@ -231,18 +230,34 @@ function hasActivityLines(content: string): boolean {
   return ACTIVITY_MARKER.test(content)
 }
 
+/**
+ * What Jarvis is on while a turn runs — his latest note when he wrote one,
+ * otherwise the step itself ("Reading skills/email-processor/SKILL.md"). Null
+ * once the turn is back to writing prose. The chat draws it next to the Jarvis
+ * loader at the foot of the list, not in the bubble: no count, nothing to
+ * unfold, the steps are not a level of detail the chat keeps.
+ */
+export function liveStatus(msg: Message): { note: string | null; tool: string | null } | null {
+  if (msg.role === 'user' || !hasActivityLines(msg.content)) return null
+  const groups = buildGroups(parseActivityContent(msg.content).activityLines, msg.result)
+  const last = groups[groups.length - 1]
+  if (last?.kind !== 'steps') return null
+  const cycle = last.cycles[last.cycles.length - 1]
+  return { note: cycle.notes[cycle.notes.length - 1] ?? null, tool: cycle.tools[cycle.tools.length - 1] ?? null }
+}
+
+export { formatTime, hasActivityLines }
+
 function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
   const groups = useMemo(
     () => buildGroups(parseActivityContent(msg.content).activityLines, msg.result),
     [msg.content, msg.result],
   )
-  // Only the answer is drawn. The machinery shows while it runs — one line
-  // saying what Jarvis is on — and leaves no trace once the turn moves on.
+  // Only the answer is drawn. What Jarvis is on shows by the loader below the
+  // list while the turn runs (see liveStatus), and leaves no trace after.
   const prose = groups.filter((g) => g.kind === 'prose')
-  const last = groups[groups.length - 1]
-  const doing = live && last?.kind === 'steps' ? last.cycles[last.cycles.length - 1] : null
 
-  if (!prose.length && !doing) return null
+  if (!prose.length) return null
   return (
     // Same anchor as the plain bubble: a selection in a real answer (which
     // nearly always carries activity lines and lands here) must be replyable.
@@ -259,38 +274,12 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
             </ReactMarkdown>
           </div>
         ))}
-        {doing && (
-          <LiveLine
-            note={doing.notes[doing.notes.length - 1] ?? null}
-            tool={doing.tools[doing.tools.length - 1] ?? null}
-          />
-        )}
-        {msg.created_at && prose.length > 0 && (
+        {/* While live, the time sits under the loader instead — last in line. */}
+        {msg.created_at && !live && (
           <div className='text-[10px] text-text-muted/50 mt-1 flex items-center gap-1.5'>
             {formatTime(msg.created_at)}
             <CopyButton getText={() => getAssistantCopyText(msg)} />
           </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/**
- * What Jarvis is on while a turn runs: one muted line with a spinner — his note
- * when he wrote one, otherwise the step itself ("Reading
- * skills/email-processor/SKILL.md"). No count, nothing to unfold: the steps are
- * not a level of detail the chat keeps.
- */
-function LiveLine({ note, tool }: { note: string | null; tool: string | null }) {
-  return (
-    <div className='mb-2 flex max-w-full items-start gap-2 text-[13px] leading-relaxed text-text-muted'>
-      <Loader2 size={13} className='mt-1 shrink-0 animate-spin text-accent' />
-      <div className='min-w-0 flex-1'>
-        {note ? (
-          <Markdown text={note} />
-        ) : (
-          <span className='line-clamp-1'>{tool ?? 'Working…'}</span>
         )}
       </div>
     </div>
