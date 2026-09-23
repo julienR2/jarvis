@@ -200,7 +200,6 @@ export default function ChatView({
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [moving, setMoving] = useState(false)
-  const bottomRef = useRef<HTMLDivElement>(null)
   const topSentinelRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -237,11 +236,50 @@ export default function ChatView({
     }
   }, [initialMessage])
 
-  // Start each conversation at the bottom (col-reverse: scrollTop 0 = bottom).
-  // With unread answers the divider effect below then moves up to them.
-  useEffect(() => {
+  // The list flows top-down like a page, so text streaming in below the reader
+  // moves nothing on screen: holding still costs no code. Following the stream
+  // is the one thing done on purpose, and only while pinned — at the very
+  // bottom, where a chat opens and where scrolling all the way down puts you
+  // back. (It used to be flex-col-reverse, anchored to the bottom, with every
+  // streamed chunk offset by hand when scrolled up; the offsets fought the
+  // browser's own anchoring and the text still crept.)
+  const pinnedRef = useRef(true)
+  const lastScrollTopRef = useRef(0)
+  // The first item not yet scrolled past, and where it sat. What changes above
+  // it — an older page landing, an image loading up there — would push the
+  // reading down; putting it back is what browsers call scroll anchoring, done
+  // here because Safari has none (`overflow-anchor` is off on the list so the
+  // others don't do it twice).
+  const anchorRef = useRef<{ el: Element; top: number } | null>(null)
+
+  function recordAnchor() {
     const container = scrollContainerRef.current
-    if (container) container.scrollTop = 0
+    const content = contentRef.current
+    if (!container || !content) return
+    const top = container.getBoundingClientRect().top
+    anchorRef.current = null
+    for (const el of content.children) {
+      // The older-page loader stays first whatever lands under it: anchored
+      // to it, a page arriving would push the reading down by its height.
+      if (el === topSentinelRef.current) continue
+      const r = el.getBoundingClientRect()
+      if (r.bottom > top) {
+        anchorRef.current = { el, top: r.top }
+        return
+      }
+    }
+  }
+
+  function pinToBottom() {
+    const container = scrollContainerRef.current
+    pinnedRef.current = true
+    if (container) container.scrollTop = container.scrollHeight
+  }
+
+  // Start each conversation at the bottom. With unread answers the divider
+  // effect below then moves up to them.
+  useEffect(() => {
+    pinToBottom()
     positionedRef.current = null
     seenRef.current = 0
     setAwayFromBottom(false)
@@ -256,46 +294,43 @@ export default function ChatView({
     return () => useChatStore.getState().clearUnreadAnchor(conversationId)
   }, [conversationId])
 
-  // Follow the conversation as it grows — but only when already at the bottom.
-  // Scrolled up means the user is reading history: neither new messages nor
-  // prepended older pages should yank the viewport away. (The list lives in a
-  // flex-col-reverse container, so a prepend keeps visible messages in place
-  // and scrollTop is 0 at the bottom, going negative upward.)
-  // A message of the user's own is the exception: they just sent it (typed, or
-  // dictated a few seconds earlier), so it is always brought into view. Left to
-  // the rule above it could land below the fold whenever the viewport had
-  // drifted, which is how a voice message or an image attachment came across as
-  // never having been sent at all.
-  useEffect(() => {
-    const container = scrollContainerRef.current
-    const ownMessageLast = messages[messages.length - 1]?.role === 'user'
-    if (!ownMessageLast && container && Math.abs(container.scrollTop) > 100) return
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isProcessing])
-
-  // While a turn streams and the user has scrolled up to read, the text under
-  // their eyes must not move. The col-reverse layout anchors the viewport to
-  // the bottom, so every chunk of new text pushes the visible lines upward —
-  // unreadable while it lasts. Compensate: when the content grows and we are
-  // away from the bottom, move scrollTop by the same amount, which keeps the
-  // distance from the top constant instead. At the bottom nothing changes,
-  // the stream is followed as before. Only while processing: an older page
-  // prepended at the top is the one growth the layout already handles right.
+  // The list grew or shrank, or the pane did (composer, keyboard): pinned, stay
+  // at the bottom; reading, keep the anchor where it was. Runs after layout and
+  // before paint, so neither shows as a jump.
   useEffect(() => {
     const container = scrollContainerRef.current
     const content = contentRef.current
-    if (!isProcessing || !container || !content) return
-    let lastHeight = content.getBoundingClientRect().height
+    if (!container || !content) return
     const observer = new ResizeObserver(() => {
-      const height = content.getBoundingClientRect().height
-      const delta = height - lastHeight
-      lastHeight = height
-      if (delta === 0 || Math.abs(container.scrollTop) <= 100) return
-      container.scrollTop -= delta
+      if (pinnedRef.current) {
+        container.scrollTop = container.scrollHeight
+        return
+      }
+      const anchor = anchorRef.current
+      if (anchor?.el.isConnected) {
+        const shift = anchor.el.getBoundingClientRect().top - anchor.top
+        if (shift !== 0) container.scrollTop += shift
+      }
+      recordAnchor()
+      // Growth below fires no scroll event: the arrow is kept honest from here.
+      setAwayFromBottom(container.scrollHeight - container.clientHeight - container.scrollTop > 150)
     })
     observer.observe(content)
+    observer.observe(container)
     return () => observer.disconnect()
-  }, [isProcessing])
+  }, [conversationId])
+
+  // A message of the user's own is always brought into view: they just sent it
+  // (typed, or dictated a few seconds earlier). Left to the pin it could land
+  // below the fold whenever they had scrolled up, which is how a voice message
+  // or an image attachment came across as never having been sent at all.
+  const lastOwnRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const last = messages[messages.length - 1]
+    if (last?.role !== 'user' || last.id === lastOwnRef.current) return
+    lastOwnRef.current = last.id
+    pinToBottom()
+  }, [messages])
 
   // Finished answers, the unit the unread count and the arrow badge share
   // (the server counts the same rows for the sidebar badge).
@@ -331,14 +366,18 @@ export default function ChatView({
     if (!el) return
     positionedRef.current = conversationId
     el.scrollIntoView({ block: 'start' })
+    pinnedRef.current = false
+    recordAnchor()
     seenRef.current = finishedCount - unreadCount
     setAwayFromBottom(true)
   }, [conversationId, unreadAnchor, messages.length])
 
   const newBelow = awayFromBottom ? Math.max(0, finishedCount - seenRef.current) : 0
 
+  // A jump, not a glide: a smooth scroll aims at where the bottom was when it
+  // started and lands short of it if the answer grew meanwhile.
   function scrollToBottom() {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    pinToBottom()
   }
 
   function dismissUnread() {
@@ -453,9 +492,17 @@ export default function ChatView({
     const container = scrollContainerRef.current
     if (!container) return
 
-    // col-reverse: 0 is the bottom, negative is up. The arrow appears once
-    // the latest messages are genuinely out of view, not on the first pixel.
-    setAwayFromBottom(Math.abs(container.scrollTop) > 150)
+    // Pinned at the very bottom; unpinned only by going up. Measured from
+    // here alone, the pin's own jump would undo itself: by the time its scroll
+    // event fires the typewriter has often added a line, and the list reads as
+    // "not quite at the bottom". The arrow appears once the latest messages are
+    // genuinely out of view, not on the first pixel.
+    const fromBottom = container.scrollHeight - container.clientHeight - container.scrollTop
+    if (fromBottom <= 8) pinnedRef.current = true
+    else if (container.scrollTop < lastScrollTopRef.current) pinnedRef.current = false
+    lastScrollTopRef.current = container.scrollTop
+    if (!pinnedRef.current) recordAnchor()
+    setAwayFromBottom(fromBottom > 150)
 
     const containerTop = container.getBoundingClientRect().top
     const separators = container.querySelectorAll<HTMLElement>('[data-date-label]')
@@ -617,8 +664,8 @@ export default function ChatView({
               </span>
             </div>
 
-            <div ref={scrollContainerRef} className={`h-full overflow-y-auto overflow-x-clip flex flex-col-reverse pb-6 ${messages.length === 0 ? 'pt-4' : 'pt-0'}`} onScroll={handleScroll}>
-              <div ref={contentRef} className='max-w-3xl mx-auto px-4 md:px-6 min-w-0 w-full'>
+            <div ref={scrollContainerRef} data-testid='chat-scroll' className={`h-full overflow-y-auto overflow-x-clip [overflow-anchor:none] flex flex-col pb-6 ${messages.length === 0 ? 'pt-4' : 'pt-0'}`} onScroll={handleScroll}>
+              <div ref={contentRef} className='mt-auto max-w-3xl mx-auto px-4 md:px-6 min-w-0 w-full'>
                 {showSkeleton ? (
                   <MessageSkeleton />
                 ) : (
@@ -658,7 +705,6 @@ export default function ChatView({
                     <JarvisIndicator isThinking={isProcessing && !pending} />
                   </>
                 )}
-                <div ref={bottomRef} />
               </div>
             </div>
           </div>
