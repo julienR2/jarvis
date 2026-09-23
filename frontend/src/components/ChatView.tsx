@@ -19,7 +19,7 @@ import {
 } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { useChatEvents } from '../hooks/useChatEvents'
-import MessageBubble, { Markdown, formatTime, hasActivityLines, liveStatus, markdownComponents } from './MessageBubble'
+import MessageBubble, { Markdown, liveStatus, markdownComponents } from './MessageBubble'
 import ChatInput from './ChatInput'
 import { DEFAULT_EFFORT, useModelCatalogue } from './ModelSelector'
 import AppPreview from './AppPreview'
@@ -849,7 +849,7 @@ function LiveTurn({ conversationId }: { conversationId?: string }) {
 
 /**
  * The Jarvis loader at the foot of the list. While a turn runs it is the
- * spinner: what he is on sits next to it, and the turn's time comes last.
+ * spinner: what he is on sits next to it. No time until the turn ends.
  */
 function JarvisIndicator({ isThinking, live }: { isThinking: boolean; live?: Message }) {
   const [staticFrame, setStaticFrame] = useState<string | null>(null)
@@ -886,10 +886,6 @@ function JarvisIndicator({ isThinking, live }: { isThinking: boolean; live?: Mes
           </div>
         )}
       </div>
-      {/* The bubble drops its own time while live (ActivityBubble) — it lands here. */}
-      {isThinking && live && live.role !== 'user' && hasActivityLines(live.content) && live.created_at && (
-        <div className='text-[10px] text-text-muted/50 mt-1'>{formatTime(live.created_at)}</div>
-      )}
     </div>
   )
 }

@@ -246,8 +246,6 @@ export function liveStatus(msg: Message): { note: string | null; tool: string | 
   return { note: cycle.notes[cycle.notes.length - 1] ?? null, tool: cycle.tools[cycle.tools.length - 1] ?? null }
 }
 
-export { formatTime, hasActivityLines }
-
 function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
   const groups = useMemo(
     () => buildGroups(parseActivityContent(msg.content).activityLines, msg.result),
@@ -274,7 +272,7 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
             </ReactMarkdown>
           </div>
         ))}
-        {/* While live, the time sits under the loader instead — last in line. */}
+        {/* No time while the turn runs — it appears once the answer is done. */}
         {msg.created_at && !live && (
           <div className='text-[10px] text-text-muted/50 mt-1 flex items-center gap-1.5'>
             {formatTime(msg.created_at)}
@@ -346,7 +344,8 @@ export default function MessageBubble({ msg, live }: Props) {
             </ReactMarkdown>
           </div>
         )}
-        {msg.created_at && (
+        {/* An answer being written has no time yet — it gets one once the turn ends. */}
+        {msg.created_at && (isUser || !live) && (
           <div className={`text-[10px] text-text-muted/50 mt-1 flex items-center gap-1.5 ${isUser ? 'justify-end' : 'justify-start'}`}>
             {formatTime(msg.created_at)}
             <CopyButton getText={() => msg.content} />
