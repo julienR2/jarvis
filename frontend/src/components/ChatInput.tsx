@@ -20,6 +20,8 @@ interface Props {
   isProcessing: boolean
   conversationId?: string
   autoFocus?: boolean
+  /** Focus the input each time this changes to a new truthy value. */
+  focusKey?: unknown
   /** Replaces the default prompt. */
   placeholder?: string
   /**
@@ -47,7 +49,7 @@ interface Props {
   onEffortChange?: (effort: Effort) => void
 }
 
-export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing, conversationId, autoFocus, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange }: Props) {
+export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing, conversationId, autoFocus, focusKey, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange }: Props) {
   const [input, setInput] = useState(initialText || '')
   // A fresh quote is an invitation to type under it.
   useEffect(() => {
@@ -66,6 +68,9 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
       setTimeout(() => textareaRef.current?.focus(), 100)
     }
   }, [autoFocus])
+  useEffect(() => {
+    if (focusKey) setTimeout(() => textareaRef.current?.focus(), 50)
+  }, [focusKey])
 
   // Handle initial text from share intent
   useEffect(() => {
@@ -335,23 +340,24 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
             }}
           />
 
-          {/* Bottom bar — attach left, model + actions right */}
+          {/* Bottom bar — attach and model left, actions right */}
           <div className="flex items-center justify-between px-2 pb-2">
-            {/* Attach button */}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="p-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-bg transition-colors disabled:opacity-30"
-              title="Attach file"
-            >
-              <Paperclip size={16} />
-            </button>
-
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5 min-w-0">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-bg transition-colors disabled:opacity-30"
+                title="Attach file"
+              >
+                <Paperclip size={16} />
+              </button>
               {/* Not while answering: an answer continues the turn that asked,
                   on whatever it runs on — it is not a new message. */}
               {model && !asksQuestion && onModelChange && onEffortChange && (
-                <ModelSelector model={model} effort={effort} onModelChange={onModelChange} onEffortChange={onEffortChange} />
+                <ModelSelector model={model} effort={effort} onModelChange={onModelChange} onEffortChange={onEffortChange} subtle />
               )}
+            </div>
+
+            <div className="flex items-center gap-1">
               {/* AudioButton always mounted to preserve state; visible when idle mic or actively recording */}
               <div className={showMic || audioActive ? '' : 'hidden'}>
                 <AudioButton

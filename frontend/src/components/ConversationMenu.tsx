@@ -1,13 +1,7 @@
-import {
-  useState,
-  useEffect,
-  useRef,
-  forwardRef,
-  useImperativeHandle,
-  useCallback,
-} from 'react'
+import { useState, useRef, forwardRef, useImperativeHandle } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Repeat, Pencil, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2 } from 'lucide-react'
+import Popover from './Popover'
 import ShareDialog from './ShareDialog'
 import DeleteConversationDialog from './DeleteConversationDialog'
 import type { DeleteOptions } from '../api'
@@ -58,29 +52,13 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     const [sharing, setSharing] = useState(false)
     const [deleting, setDeleting] = useState(false)
     const btnRef = useRef<HTMLButtonElement>(null)
-    const containerRef = useRef<HTMLDivElement>(null)
 
     useImperativeHandle(ref, () => ({
       open() { setOpen(true) },
     }))
 
-    const handleOutside = useCallback((e: MouseEvent | TouchEvent) => {
-      if (containerRef.current?.contains(e.target as Node)) return
-      setOpen(false)
-    }, [])
-
-    useEffect(() => {
-      if (!open) return
-      window.addEventListener('click', handleOutside)
-      window.addEventListener('touchstart', handleOutside)
-      return () => {
-        window.removeEventListener('click', handleOutside)
-        window.removeEventListener('touchstart', handleOutside)
-      }
-    }, [open, handleOutside])
-
     return (
-      <div ref={containerRef} className={`relative items-center ${triggerClassName || 'flex'} ${open ? '!flex' : ''}`}>
+      <div className={`relative items-center ${triggerClassName || 'flex'} ${open ? '!flex' : ''}`}>
         <button
           ref={btnRef}
           onClick={() => setOpen(o => !o)}
@@ -90,8 +68,10 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
           <MoreHorizontal size={14} />
         </button>
 
-        {open && (
-          <div onClick={(e) => e.stopPropagation()} className='absolute right-0 top-full mt-1 z-[200] min-w-[150px] bg-surface border border-border rounded-xl shadow-md/5 p-1 overflow-hidden'>
+        <Popover anchor={btnRef} open={open} onClose={() => setOpen(false)} className='min-w-[150px] bg-surface border border-border rounded-xl shadow-md/5 p-1'>
+          {/* The panel is portalled, but React events still bubble to the row
+              that rendered it — a click here must not also open the chat. */}
+          <div onClick={(e) => e.stopPropagation()}>
 
             {!compact && (
               <>
@@ -232,7 +212,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
               Delete
             </button>
           </div>
-        )}
+        </Popover>
 
         {sharing && conversationId && (
           <ShareDialog

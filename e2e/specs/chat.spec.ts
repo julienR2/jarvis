@@ -132,33 +132,32 @@ test.describe('chat rendering', () => {
     await expect(page.getByTestId('jump-to-bottom')).toBeHidden()
   })
 
-  test('delete: the dialog asks about files and routines, both unchecked; Cancel keeps everything', async ({ page }) => {
+  test('delete: the dialog asks about what the chat has — here a routine, off by default; Cancel keeps everything', async ({ page }) => {
     await openConversation(page, 'Morning brief')
     await page.getByRole('main').locator('button[title*="onversation options"]:visible').first().click()
     await page.getByRole('button', { name: 'Delete' }).click()
     const dialog = page.getByRole('dialog')
-    await expect(dialog.getByText('Delete this conversation?')).toBeVisible()
-    const files = dialog.getByRole('checkbox', { name: /Also delete the files/ })
-    const routines = dialog.getByRole('checkbox', { name: /Also delete its routine/ })
-    await expect(files).not.toBeChecked()
-    await expect(routines).not.toBeChecked()
-    await expect(dialog.getByText('Otherwise they are archived')).toBeVisible()
+    await expect(dialog.getByText('Delete this chat?')).toBeVisible()
+    const routines = dialog.getByRole('switch', { name: /Also delete its routine/ })
+    await expect(routines).toHaveAttribute('aria-checked', 'false')
     await expect(dialog.getByText('Otherwise they keep running and open a new chat')).toBeVisible()
+    // No uploads, no app: nothing to ask about files.
+    await expect(dialog.getByRole('switch', { name: /Also delete .*file|app/ })).toHaveCount(0)
     await dialog.getByRole('button', { name: 'Cancel' }).click()
     await expect(dialog).toHaveCount(0)
     await expect(page).toHaveURL(/000000000003$/)
   })
 
-  test('delete: a chat without routines is asked about its files only, and Delete removes it', async ({ page }) => {
-    await page.getByText('New chat').click()
-    await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/)
+  test('delete: a chat with nothing attached is just asked to confirm, and Delete removes it', async ({ page }) => {
+    await openConversation(page, 'Scratch')
     await page.getByRole('main').locator('button[title*="onversation options"]:visible').first().click()
     await page.getByRole('button', { name: 'Delete' }).click()
     const dialog = page.getByRole('dialog')
-    await expect(dialog.getByRole('checkbox', { name: /Also delete the files/ })).toBeVisible()
-    await expect(dialog.getByRole('checkbox', { name: /routine/ })).toHaveCount(0)
+    await expect(dialog.getByText('Delete this chat?')).toBeVisible()
+    await expect(dialog.getByRole('switch')).toHaveCount(0)
     await dialog.getByRole('button', { name: 'Delete' }).click()
     await expect(page).toHaveURL(/^https?:\/\/[^/]+\/?$/)
+    await expect(page.getByRole('complementary').getByText('Scratch', { exact: true })).toHaveCount(0)
   })
 
   test('reply to a passage: selecting text offers a reply button that quotes it into the composer', async ({ page }) => {

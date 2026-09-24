@@ -16,7 +16,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="docs/demo-light.gif">
-    <img src="docs/demo.gif" alt="A tour of Jarvis: home, chat, generated apps, the git diff view, connectors, crons, models and plugins" width="760">
+    <img src="docs/demo.gif" alt="A tour of Jarvis: home, chat, generated apps, the git diff view, connectors, crons and models" width="760">
   </picture>
 </p>
 
@@ -40,7 +40,6 @@ The idea is less "deploy and use" and more "deploy and shape." You start with a 
 | **Cron jobs** | Scheduled prompts with full conversation context. "Summarize my inbox at 7am" — the agent writes the cron itself. |
 | **Webhooks** | HTTP endpoints that trigger the agent with arbitrary payloads. Pairs well with n8n, Home Assistant, iOS Shortcuts. |
 | **Skills** | Markdown instruction sets that auto-activate on context. The agent can write new skills for itself. |
-| **Plugins** | Add Claude Code plugin marketplaces from Settings, install and toggle. Enabled plugins load in every conversation, cron and webhook. |
 | **Browser** | A real Chromium the agent drives through Playwright, for sites that need clicking rather than fetching. |
 | **Voice input** | Audio transcribed by a bundled Whisper and injected into the conversation. |
 | **Sharing** | Send someone a link to a conversation, read-only or with replies. No account needed on their side. |
@@ -115,20 +114,6 @@ cannot draw.
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-image-light.png">
     <img src="docs/screenshot-image.png" alt="A generated pixel art image in the conversation" width="700">
-  </picture>
-</p>
-
-### Plugins
-
-Claude Code plugins — skills, agents, commands and hooks packaged together —
-installed from a marketplace without touching the container. Everything installs
-at user scope, so an enabled plugin is available to every conversation, cron and
-webhook.
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-plugins-light.png">
-    <img src="docs/screenshot-plugins.png" alt="Plugins settings page — marketplaces, installed plugins, and the catalogue" width="700">
   </picture>
 </p>
 
@@ -281,8 +266,6 @@ The point of Jarvis is that it adapts to you. A few ways in:
 **Add connectors from the UI.** Settings → Connectors. Built-in options include Gmail, GitHub, Slack, Linear, and others. Credentials are stored in SQLite and injected into the Claude process at runtime — no `.env` changes, no restarts.
 
 **Create custom connectors.** Give it a name and a set of environment variable fields. That is it — no code required. The values are available to Claude immediately.
-
-**Install plugins.** Settings → Plugins. Add a marketplace by `owner/repo`, a git URL, or a local path (`anthropics/claude-code` is the official one), then install what you want from its catalogue. Plugins go in at user scope, so an enabled one is available to every conversation, cron and webhook — warm chats pick it up on their next message. Plugins that gate themselves behind an opt-in flag file get a third state, **Always on**, which sets that flag so the plugin injects itself into every session instead of waiting to be called. Under the hood this drives `claude plugin` in the engine container, so `agent/settings.json` stays exactly as the CLI expects it.
 
 **Write skills.** Skills are Markdown files in `agent/skills/<name>/SKILL.md`. Each describes a capability — when to use it, what tools to call, what APIs to hit. Claude reads the relevant skill automatically based on conversation context. You can also ask Claude to write skills for itself: "create a skill that queries my Notion database."
 

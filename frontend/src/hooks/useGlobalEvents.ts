@@ -45,6 +45,11 @@ export function useGlobalEvents() {
         window.dispatchEvent(new CustomEvent(RUNS_NUDGE_EVENT))
         return
       }
+      if (ev.type === 'conversations_removed') {
+        // Empty chats the backend swept. Dropped locally, like a delete.
+        useChatStore.getState().forgetConversations(ev.ids)
+        return
+      }
       if (ev.type === 'sections') {
         // A topic's brief was rewritten (by Jarvis, or from another tab): the
         // topic page and the sidebar read the list, so refetch it.

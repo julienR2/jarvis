@@ -3,10 +3,9 @@
  *
  * The suite is UI-only: it never sends a message and so never needs a `claude`
  * process. But several pages still ask the backend something the backend can
- * only answer by asking the engine — the plugins list behind Settings →
- * Advanced, "is this conversation running", deciding a parked approval. With no
- * engine there, the backend answers 502 and the console guard fails the test
- * for a reason that has nothing to do with the page.
+ * only answer by asking the engine — "is this conversation running", deciding
+ * a parked approval. With no engine there, the backend answers 502 and the
+ * console guard fails the test for a reason that has nothing to do with the page.
  *
  * So: the smallest server that says "nothing is running, nothing is installed".
  * Plain node, no dependencies, no state. Anything not listed gets `{ok: true}`
@@ -21,9 +20,8 @@ const PORT = Number(process.env.PORT || 3110)
 // sessions — which is what the specs assert on: denying a seeded approval finds
 // no session to deliver it to, and the UI says the run is no longer waiting.
 const ROUTES = [
-  [/^\/plugins$/, { marketplaces: [], installed: [], available: [] }, 200],
   [/^\/running\//, { running: false }, 200],
-  [/^\/status$/, { invocations: [], sessions: [], conversations: [] }, 200],
+  [/^\/status$/, { sessions: [], conversations: [] }, 200],
   [/^\/answer\//, { error: 'no session holds this prompt' }, 404],
 ]
 

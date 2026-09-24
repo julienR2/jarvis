@@ -341,7 +341,7 @@ function ProviderDefaults({
             value={defaultModel}
             disabled={saving}
             onChange={(e) => save({ anthropicModel: e.target.value })}
-            className='rounded-lg border border-border bg-bg px-2 py-1 text-text-primary outline-none focus:border-accent disabled:opacity-60'
+            className='max-w-[200px] truncate rounded-lg border border-border bg-bg px-2 py-1 text-text-primary outline-none focus:border-accent disabled:opacity-60'
           >
             {/* The stored default may not be in the list (a model that has since
                 been retired) — keep it selectable rather than silently showing

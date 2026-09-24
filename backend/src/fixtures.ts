@@ -48,6 +48,8 @@ export function seedFixtures(): void {
     inboxNotified: '00000000-0000-4000-8000-00000000000b',
     inboxUnread: '00000000-0000-4000-8000-00000000000c',
     inboxToRead: '00000000-0000-4000-8000-00000000000d',
+    // Deleted by the delete-dialog spec: nothing else may rely on it.
+    scratch: '00000000-0000-4000-8000-00000000000e',
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -212,6 +214,12 @@ export function seedFixtures(): void {
     const setModel = db.prepare('UPDATE messages SET model = ? WHERE id = ?')
     setModel.run('claude-opus-5-5', quotedMsg)
     setModel.run('claude-haiku-4-5', twinMsg)
+
+    // 2c'. A plain chat with no files and no routines — the delete dialog asks
+    // it nothing beyond the delete itself.
+    insConv.run(ID.scratch, 'Scratch', t(520), t(519), fixtures.id, null, null)
+    insMsg.run(uuid(), ID.scratch, 'user', 'Remind me what a torque wrench is for.', null, null, null, t(520))
+    insMsg.run(uuid(), ID.scratch, 'assistant', '[chunk:1] Tightening bolts to a set force.', null, null, 'Tightening bolts to a set force.', t(519))
 
     // 2d. Today's inbox, one chat per reason. Read states are set at the end.
     const answer = (conv: string, user: string, text: string, at: number) => {
@@ -424,8 +432,8 @@ export function seedFixtures(): void {
   // question to show.
   db.prepare(
     `UPDATE conversations SET last_read_at = updated_at + 1, notified_at = NULL
-      WHERE id IN (?, ?, ?, ?, ?, ?)`,
-  ).run(ID.markdown, ID.activity, ID.app, ID.app2, ID.quoted, ID.unread)
+      WHERE id IN (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(ID.markdown, ID.activity, ID.app, ID.app2, ID.quoted, ID.unread, ID.scratch)
   db.prepare('UPDATE conversations SET last_read_at = ? WHERE id = ?').run(t(240), ID.unread)
   db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = ? WHERE id = ?').run(t(120), t(61), ID.brief)
   // The inbox trio: notified (a push went out after it was last read), unread

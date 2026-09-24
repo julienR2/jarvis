@@ -12,7 +12,6 @@ import {
   recycleIdleSessions,
   type SessionEvent,
 } from './sessions.js'
-import { registerPluginRoutes } from './plugins.js'
 
 const PORT = parseInt(process.env.PORT || '3010')
 
@@ -257,15 +256,9 @@ app.post('/restart', async () => {
 })
 
 // POST /recycle — close idle sessions so the next turn spawns with fresh
-// config (provider switch, plugin change). Busy sessions finish their turn on
+// config (a provider switch). Busy sessions finish their turn on
 // the old config and are reported back.
 app.post('/recycle', async () => recycleIdleSessions())
-
-// ── Plugins ──────────────────────────────────────────────────────────────────
-// Marketplace + plugin management (`claude plugin …`). Behind the same Bearer
-// check as everything else here — these commands clone repos and change what
-// every future session loads.
-registerPluginRoutes(app)
 
 // Health check
 app.get('/health', async () => ({ ok: true }))

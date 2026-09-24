@@ -1,85 +1,9 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import {
-  ChevronRight,
-  Folder,
-  FolderOpen,
-  FileText,
-  Copy,
-  Check,
-} from 'lucide-react'
-import { api, type CodeEntry, type CodeFile, type Commit } from '../api'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { ChevronRight, Folder, FolderOpen, FileText, Copy, Check, Loader2 } from 'lucide-react'
+import { api, type CodeEntry, type CodeFile, type CodeListing, type CodeListingEntry } from '../api'
 import { useToast } from '../hooks/useToast'
 import ContentLayout from './ContentLayout'
-
-type Tab = 'agent' | 'all' | 'changed' | 'commits'
-
-type TreeNode =
-  | {
-      type: 'file'
-      name: string
-      path: string
-      status: string | null
-    }
-  | {
-      type: 'dir'
-      name: string
-      path: string
-      children: TreeNode[]
-      hasChanges: boolean
-    }
-
-type DirNode = Extract<TreeNode, { type: 'dir' }>
-
-function buildTree(entries: CodeEntry[]): DirNode {
-  const root: DirNode = {
-    type: 'dir',
-    name: '',
-    path: '',
-    children: [],
-    hasChanges: false,
-  }
-  for (const { path, status } of entries) {
-    const parts = path.split('/')
-    let cur: DirNode = root
-    for (let i = 0; i < parts.length; i++) {
-      const name = parts[i]
-      const isLast = i === parts.length - 1
-      const curPath = parts.slice(0, i + 1).join('/')
-      if (isLast) {
-        cur.children.push({ type: 'file', name, path: curPath, status })
-      } else {
-        let next = cur.children.find(
-          (c) => c.type === 'dir' && c.name === name,
-        ) as DirNode | undefined
-        if (!next) {
-          next = {
-            type: 'dir',
-            name,
-            path: curPath,
-            children: [],
-            hasChanges: false,
-          }
-          cur.children.push(next)
-        }
-        cur = next
-      }
-    }
-  }
-  function post(n: TreeNode): boolean {
-    if (n.type === 'file') return !!n.status
-    let has = false
-    for (const c of n.children) if (post(c)) has = true
-    n.hasChanges = has
-    n.children.sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
-      return a.name.localeCompare(b.name)
-    })
-    return has
-  }
-  post(root)
-  return root
-}
 
 // Dominant status marker: D > ? > A > M > R/C/U
 function statusInfo(status: string | null): {
@@ -99,781 +23,197 @@ function statusInfo(status: string | null): {
     : null
 }
 
-export default function CodeBrowser() {
-  const params = useParams()
-  const splat = (params['*'] || '').replace(/^\/+/, '')
+/** Folders open this session, so coming back from a file finds the tree as left. */
+const OPEN_KEY = 'code-open-dirs'
+const ONLY_KEY = 'code-changes-only'
 
-  const [searchParams, setSearchParams] = useSearchParams()
-  const TABS: Tab[] = ['agent', 'all', 'changed', 'commits']
-  const tabParam = searchParams.get('tab') as Tab | null
-  const initialTab = tabParam && TABS.includes(tabParam) ? tabParam : 'agent'
-  const expandedParam = searchParams.get('open')
-  const initialExpanded = expandedParam ? new Set(expandedParam.split(',')) : new Set<string>()
-
-  const updateParams = useCallback((t: Tab, exp: Set<string>) => {
-    const p: Record<string, string> = {}
-    if (t !== 'agent') p.tab = t
-    if (exp.size > 0) p.open = [...exp].join(',')
-    setSearchParams(p, { replace: true })
-  }, [setSearchParams])
-
-  const [tab, _setTab] = useState<Tab>(initialTab)
-  const setTab = useCallback((t: Tab) => {
-    _setTab(t)
-    updateParams(t, expandedRef.current)
-  }, [updateParams])
-
-  const [agentEntries, setAgentEntries] = useState<CodeEntry[] | null>(null)
-  const [agentError, setAgentError] = useState<string | null>(null)
-  const [entries, setEntries] = useState<CodeEntry[] | null>(null)
-  const [commits, setCommits] = useState<Commit[] | null>(null)
-  const [treeError, setTreeError] = useState<string | null>(null)
-  const [commitsError, setCommitsError] = useState<string | null>(null)
-
-  const [expanded, _setExpanded] = useState<Set<string>>(initialExpanded)
-  const expandedRef = useRef(expanded)
-  const setExpanded = useCallback((update: Set<string> | ((prev: Set<string>) => Set<string>)) => {
-    _setExpanded(prev => {
-      const next = typeof update === 'function' ? update(prev) : update
-      expandedRef.current = next
-      updateParams(tab, next)
-      return next
-    })
-  }, [updateParams, tab])
-
-  const [expandedCommits, setExpandedCommits] = useState<Set<string>>(new Set())
-  const [commitFiles, setCommitFiles] = useState<Record<string, CodeEntry[]>>({})
-
-  const reload = useCallback(() => {
-    api.getAgentTree().then(setAgentEntries).catch((e) => setAgentError(e.message))
-    api.getCodeTree().then(setEntries).catch((e) => setTreeError(e.message))
-    // The commit list changes too when work is committed or reverted.
-    api.getCommits().then(setCommits).catch((e) => setCommitsError(e.message))
-  }, [])
-
-  useEffect(() => {
-    api.getAgentTree().then(setAgentEntries).catch((e) => setAgentError(e.message))
-    api.getCodeTree().then(setEntries).catch((e) => setTreeError(e.message))
-  }, [])
-
-  useEffect(() => {
-    if (tab === 'commits' && !commits && !commitsError) {
-      api.getCommits().then(setCommits).catch((e) => setCommitsError(e.message))
-    }
-  }, [tab, commits, commitsError])
-
-  // Detail routes: /code/commit/<hash>/<filepath> or /code/<filepath>
-  const commitFileMatch = splat.match(/^commit\/([a-f0-9]{4,40})\/(.+)$/)
-  if (commitFileMatch) {
-    return <CommitFileView hash={commitFileMatch[1]} path={commitFileMatch[2]} />
+function readSession<T>(key: string, fallback: T): T {
+  try {
+    const raw = sessionStorage.getItem(key)
+    return raw ? (JSON.parse(raw) as T) : fallback
+  } catch {
+    return fallback
   }
-  if (splat) return <FileView path={splat} />
-
-  return (
-    <MainView
-      tab={tab}
-      setTab={setTab}
-      onReload={reload}
-      agentEntries={agentEntries}
-      agentError={agentError}
-      entries={entries}
-      treeError={treeError}
-      commits={commits}
-      commitsError={commitsError}
-      expanded={expanded}
-      setExpanded={setExpanded}
-      expandedCommits={expandedCommits}
-      setExpandedCommits={setExpandedCommits}
-      commitFiles={commitFiles}
-      setCommitFiles={setCommitFiles}
-    />
-  )
+}
+function writeSession(key: string, value: unknown): void {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    /* private window — the tree just won't be remembered */
+  }
 }
 
-function MainView({
-  tab,
-  setTab,
-  agentEntries,
-  agentError,
-  entries,
-  treeError,
-  commits,
-  commitsError,
-  expanded,
-  setExpanded,
-  expandedCommits,
-  setExpandedCommits,
-  commitFiles,
-  setCommitFiles,
-  onReload,
-}: {
-  tab: Tab
-  setTab: (t: Tab) => void
-  onReload: () => void
-  agentEntries: CodeEntry[] | null
-  agentError: string | null
-  entries: CodeEntry[] | null
-  treeError: string | null
-  commits: Commit[] | null
-  commitsError: string | null
-  expanded: Set<string>
-  setExpanded: React.Dispatch<React.SetStateAction<Set<string>>>
-  expandedCommits: Set<string>
-  setExpandedCommits: React.Dispatch<React.SetStateAction<Set<string>>>
-  commitFiles: Record<string, CodeEntry[]>
-  setCommitFiles: React.Dispatch<React.SetStateAction<Record<string, CodeEntry[]>>>
-}) {
-  const changedCount = entries?.filter((e) => e.status).length ?? 0
+/**
+ * The repo as a tree, one folder at a time.
+ *
+ * Folders load when opened, so a node_modules is one row until someone opens
+ * it. What changed stands out — the file with its status letter, every folder
+ * above it with a count — and what git ignores is dimmed rather than hidden,
+ * since agent/ (config, workspace, data) is mostly ignored and still worth
+ * browsing. "Changes only" swaps the tree for just the changed files.
+ */
+export default function CodeBrowser() {
+  const splat = (useParams()['*'] || '').replace(/^\/+/, '')
+  if (splat) return <FileView path={splat} />
+  return <TreeView />
+}
+
+function TreeView() {
+  const [onlyChanges, setOnlyChanges] = useState<boolean>(() => readSession(ONLY_KEY, false))
+  const [open, setOpen] = useState<Set<string>>(() => new Set(readSession<string[]>(OPEN_KEY, [])))
+  const [listings, setListings] = useState<Record<string, CodeListing | 'loading' | 'error'>>({})
+  const [changes, setChanges] = useState<CodeEntry[] | null>(null)
+
+  const load = useCallback((path: string) => {
+    setListings((l) => ({ ...l, [path]: l[path] && l[path] !== 'error' ? l[path] : 'loading' }))
+    api.listCode(path)
+      .then((listing) => setListings((l) => ({ ...l, [path]: listing })))
+      .catch(() => setListings((l) => ({ ...l, [path]: 'error' })))
+  }, [])
+
+  const reload = useCallback(() => {
+    load('')
+    for (const p of open) load(p)
+    api.getCodeChanges().then(setChanges).catch(() => setChanges([]))
+  }, [load, open])
+
+  // First paint: the root, every folder left open, and the change list (its
+  // count heads the page whichever view is on).
+  useEffect(() => { reload() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => writeSession(OPEN_KEY, [...open]), [open])
+  useEffect(() => writeSession(ONLY_KEY, onlyChanges), [onlyChanges])
+
+  function toggle(path: string) {
+    setOpen((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else {
+        next.add(path)
+        if (!listings[path] || listings[path] === 'error') load(path)
+      }
+      return next
+    })
+  }
+
+  const changeCount = changes?.length ?? 0
 
   return (
     <ContentLayout title='Code'>
-      {/* Tab pill */}
-      <div className='flex items-center gap-2 mb-4'>
-        <div className='inline-flex rounded-lg bg-surface border border-border p-0.5'>
-          <TabButton active={tab === 'agent'} onClick={() => setTab('agent')}>
-            Config
-          </TabButton>
-          <TabButton active={tab === 'all'} onClick={() => setTab('all')}>
-            Source
-          </TabButton>
-          <TabButton active={tab === 'changed'} onClick={() => setTab('changed')}>
-            Changed
-            {changedCount > 0 && <Badge>{changedCount}</Badge>}
-          </TabButton>
-          <TabButton active={tab === 'commits'} onClick={() => setTab('commits')}>
-            Commits
-          </TabButton>
+      <div>
+        <div className='flex items-center gap-3 mb-3'>
+          <span className='text-xs text-text-muted' data-testid='code-change-count'>
+            {changes === null ? '…' : changeCount === 0 ? 'No uncommitted changes' : `${changeCount} changed file${changeCount > 1 ? 's' : ''}`}
+          </span>
+          <label className='ml-auto flex items-center gap-2 text-xs text-text-secondary cursor-pointer select-none'>
+            Changes only
+            <button
+              role='switch'
+              aria-checked={onlyChanges}
+              aria-label='Changes only'
+              onClick={() => setOnlyChanges((v) => !v)}
+              className={`relative h-4 w-7 rounded-full transition-colors ${onlyChanges ? 'bg-accent' : 'bg-border'}`}
+            >
+              <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${onlyChanges ? 'left-[14px]' : 'left-0.5'}`} />
+            </button>
+          </label>
+        </div>
+
+        <RecoveryActions onDone={reload} hasChanges={changeCount > 0} />
+
+        <div className='mt-3 rounded-xl border border-border bg-surface py-2 pr-2 font-mono text-[13px]' data-testid='code-tree'>
+          {onlyChanges && changeCount === 0 && changes !== null ? (
+            <div className='px-3 py-2 font-sans text-sm text-text-muted'>Nothing changed since the last commit.</div>
+          ) : (
+            <Level path='' depth={0} listings={listings} open={open} onToggle={toggle} onlyChanges={onlyChanges} />
+          )}
         </div>
       </div>
-
-      <p className='text-xs text-text-muted mb-3'>
-        {tab === 'agent'
-          ? "Jarvis's configuration — system prompt, skills, rules and settings. Includes files that aren't committed."
-          : tab === 'all'
-            ? "Jarvis's own source code, as committed to git."
-            : tab === 'changed'
-              ? 'Source files modified since the last commit.'
-              : 'Recent commits to the Jarvis repo.'}
-      </p>
-
-      {tab === 'changed' && (
-        <RecoveryActions onDone={onReload} hasChanges={changedCount > 0} />
-      )}
-
-      {tab === 'commits' ? (
-        <CommitsList
-          commits={commits}
-          error={commitsError}
-          expandedCommits={expandedCommits}
-          setExpandedCommits={setExpandedCommits}
-          commitFiles={commitFiles}
-          setCommitFiles={setCommitFiles}
-        />
-      ) : tab === 'agent' ? (
-        <FileTree
-          entries={agentEntries}
-          error={agentError}
-          onlyChanged={false}
-          expanded={expanded}
-          setExpanded={setExpanded}
-          basePath='/code/agent'
-        />
-      ) : (
-        <FileTree
-          entries={entries}
-          error={treeError}
-          onlyChanged={tab === 'changed'}
-          expanded={expanded}
-          setExpanded={setExpanded}
-        />
-      )}
     </ContentLayout>
   )
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
+function Level({ path, depth, listings, open, onToggle, onlyChanges }: {
+  path: string
+  depth: number
+  listings: Record<string, CodeListing | 'loading' | 'error'>
+  open: Set<string>
+  onToggle: (path: string) => void
+  /** Same tree, same folds — only what changed is kept. */
+  onlyChanges: boolean
 }) {
+  const listing = listings[path]
+  if (!listing || listing === 'loading') return <Spinner depth={depth} />
+  if (listing === 'error') return <div className='py-1 font-sans text-xs text-danger' style={{ paddingLeft: pad(depth) }}>Could not read this folder.</div>
+  const entries = onlyChanges
+    ? listing.entries.filter((e) => (e.dir ? e.changes > 0 : !!e.status))
+    : listing.entries
+  return (
+    <>
+      {entries.map((e) =>
+        e.dir ? (
+          <div key={e.path}>
+            <DirRow entry={e} depth={depth} open={open.has(e.path)} onToggle={() => onToggle(e.path)} />
+            {open.has(e.path) && <Level path={e.path} depth={depth + 1} listings={listings} open={open} onToggle={onToggle} onlyChanges={onlyChanges} />}
+          </div>
+        ) : (
+          <FileRow key={e.path} name={e.name} path={e.path} status={e.status} ignored={e.ignored} depth={depth} />
+        ),
+      )}
+      {listing.truncated && (
+        <div className='py-1 font-sans text-[11px] text-text-muted italic' style={{ paddingLeft: pad(depth) }}>
+          Only the first {listing.entries.length} entries are listed.
+        </div>
+      )}
+      {entries.length === 0 && (
+        <div className='py-1 font-sans text-[11px] text-text-muted italic' style={{ paddingLeft: pad(depth) }}>Empty</div>
+      )}
+    </>
+  )
+}
+
+const pad = (depth: number) => 30 + depth * 18
+
+function DirRow({ entry, depth, open, onToggle }: { entry: CodeListingEntry; depth: number; open: boolean; onToggle: () => void }) {
+  const changed = entry.changes > 0
   return (
     <button
-      onClick={onClick}
-      className={`px-3 py-1 text-xs rounded-md transition-colors flex items-center gap-1.5 ${active ? 'bg-surface2 text-text-primary' : 'text-text-muted hover:text-text-primary'}`}
+      onClick={onToggle}
+      className={`w-full flex items-center gap-1.5 py-1 pr-3 text-left hover:bg-surface2 transition-colors ${entry.ignored ? 'opacity-45' : ''} ${changed ? 'text-amber-600 dark:text-amber-400' : 'text-text-primary'}`}
+      style={{ paddingLeft: pad(depth) - 16 }}
+      aria-expanded={open}
     >
-      {children}
+      <ChevronRight size={12} className={`shrink-0 text-text-muted transition-transform ${open ? 'rotate-90' : ''}`} />
+      {open ? <FolderOpen size={13} className='shrink-0 text-text-muted' /> : <Folder size={13} className='shrink-0 text-text-muted' />}
+      <span className='truncate'>{entry.name}</span>
+      {changed && <span className='ml-auto shrink-0 font-sans text-[10px]'>{entry.changes}</span>}
     </button>
   )
 }
 
-function Badge({ children }: { children: React.ReactNode }) {
-  return (
-    <span className='text-[10px] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent font-medium'>
-      {children}
-    </span>
-  )
-}
-
-function FileTree({
-  entries,
-  error,
-  onlyChanged,
-  expanded,
-  setExpanded,
-  basePath = '/code',
-}: {
-  entries: CodeEntry[] | null
-  error: string | null
-  onlyChanged: boolean
-  expanded: Set<string>
-  setExpanded: React.Dispatch<React.SetStateAction<Set<string>>>
-  basePath?: string
-}) {
+function FileRow({ name, path, status, ignored, depth }: { name: string; path: string; status: string | null; ignored: boolean; depth: number }) {
   const navigate = useNavigate()
-
-  const tree = useMemo(() => (entries ? buildTree(entries) : null), [entries])
-  const changedCount = entries?.filter((e) => e.status).length ?? 0
-
-  const effectiveExpanded = useMemo(() => {
-    if (!onlyChanged || !tree) return expanded
-    const s = new Set<string>()
-    function walk(n: TreeNode) {
-      if (n.type === 'dir') {
-        if (n.hasChanges) s.add(n.path)
-        n.children.forEach(walk)
-      }
-    }
-    walk(tree)
-    return s
-  }, [onlyChanged, tree, expanded])
-
-  function toggle(path: string) {
-    if (onlyChanged) return // auto-managed in this mode
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(path)) next.delete(path)
-      else next.add(path)
-      return next
-    })
-  }
-
+  const info = statusInfo(status)
   return (
-    <>
-      {error && (
-        <div className='text-danger text-sm p-3 rounded-lg bg-danger/10 border border-danger/20'>
-          {error}
-        </div>
-      )}
-
-      {!entries && !error && (
-        <div className='text-text-muted text-sm'>Loading…</div>
-      )}
-
-      {tree && (
-        <div className='text-sm font-mono'>
-          <TreeChildren
-            nodes={tree.children}
-            depth={0}
-            onlyChanged={onlyChanged}
-            expanded={effectiveExpanded}
-            onToggle={toggle}
-            onOpen={(p) => navigate(`${basePath}/${p}`)}
-          />
-          {onlyChanged && changedCount === 0 && (
-            <div className='text-text-muted text-sm font-sans py-4'>
-              No changes — the working tree is clean.
-            </div>
-          )}
-        </div>
-      )}
-    </>
+    <button
+      onClick={() => navigate(`/code/${path}`)}
+      className={`w-full flex items-center gap-1.5 py-1 pr-3 text-left hover:bg-surface2 transition-colors ${ignored ? 'opacity-45' : ''} ${info ? info.color : 'text-text-secondary'}`}
+      style={{ paddingLeft: pad(depth) }}
+    >
+      <FileText size={13} className='shrink-0 text-text-muted' />
+      <span className={`truncate ${info?.strike ? 'line-through' : ''}`}>{name}</span>
+      {info && <span className='ml-auto shrink-0 font-sans text-[10px] font-semibold'>{info.label}</span>}
+    </button>
   )
 }
 
-function TreeChildren({
-  nodes,
-  depth,
-  onlyChanged,
-  expanded,
-  onToggle,
-  onOpen,
-}: {
-  nodes: TreeNode[]
-  depth: number
-  onlyChanged: boolean
-  expanded: Set<string>
-  onToggle: (path: string) => void
-  onOpen: (path: string) => void
-}) {
-  const visible = onlyChanged
-    ? nodes.filter((n) =>
-        n.type === 'file' ? !!n.status : n.hasChanges,
-      )
-    : nodes
-
+function Spinner({ depth }: { depth: number }) {
   return (
-    <>
-      {visible.map((n) => (
-        <TreeRow
-          key={n.path}
-          node={n}
-          depth={depth}
-          onlyChanged={onlyChanged}
-          expanded={expanded}
-          onToggle={onToggle}
-          onOpen={onOpen}
-        />
-      ))}
-    </>
-  )
-}
-
-function TreeRow({
-  node,
-  depth,
-  onlyChanged,
-  expanded,
-  onToggle,
-  onOpen,
-}: {
-  node: TreeNode
-  depth: number
-  onlyChanged: boolean
-  expanded: Set<string>
-  onToggle: (path: string) => void
-  onOpen: (path: string) => void
-}) {
-  const indent = { paddingLeft: `${depth * 14 + 8}px` }
-  const isDir = node.type === 'dir'
-  const isOpen = isDir && expanded.has(node.path)
-  const si = !isDir ? statusInfo(node.status) : null
-  const toast = useToast()
-
-  // Long-press / click suppression
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const longPressed = useRef(false)
-
-  function copyPath() {
-    navigator.clipboard
-      .writeText(node.path)
-      .then(() => toast.success('Path copied'))
-      .catch(() => toast.error('Could not copy path'))
-  }
-
-  function activate() {
-    if (longPressed.current) {
-      longPressed.current = false
-      return
-    }
-    if (isDir) onToggle(node.path)
-    else onOpen(node.path)
-  }
-
-  function startLongPress() {
-    longPressed.current = false
-    if (longPressTimer.current) clearTimeout(longPressTimer.current)
-    longPressTimer.current = setTimeout(() => {
-      longPressed.current = true
-      copyPath()
-    }, 500)
-  }
-
-  function cancelLongPress() {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current)
-      longPressTimer.current = null
-    }
-  }
-
-  return (
-    <>
-      <div
-        role='button'
-        tabIndex={0}
-        onClick={activate}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            activate()
-          }
-        }}
-        onTouchStart={startLongPress}
-        onTouchEnd={cancelLongPress}
-        onTouchMove={cancelLongPress}
-        onContextMenu={(e) => {
-          if (longPressed.current) e.preventDefault()
-        }}
-        style={indent}
-        className='group w-full flex items-center gap-1.5 py-1 pr-2 rounded hover:bg-surface2 transition-colors text-left cursor-pointer select-none'
-      >
-        {isDir ? (
-          <>
-            <ChevronRight
-              size={12}
-              className={`text-text-muted transition-transform shrink-0 ${isOpen ? 'rotate-90' : ''}`}
-            />
-            {isOpen ? (
-              <FolderOpen size={14} className='text-text-muted shrink-0' />
-            ) : (
-              <Folder size={14} className='text-text-muted shrink-0' />
-            )}
-            <span
-              className={`truncate ${node.hasChanges ? 'text-text-primary' : 'text-text-secondary'}`}
-            >
-              {node.name}
-            </span>
-            {node.hasChanges && (
-              <span className='w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0' />
-            )}
-          </>
-        ) : (
-          <>
-            <span className='w-3 shrink-0' />
-            <FileText size={13} className='text-text-muted shrink-0' />
-            <span
-              className={`truncate ${si ? si.color : 'text-text-secondary'} ${si?.strike ? 'line-through' : ''}`}
-            >
-              {node.name}
-            </span>
-            {si && (
-              <span
-                className={`ml-auto text-[10px] font-semibold ${si.color} shrink-0`}
-              >
-                {si.label}
-              </span>
-            )}
-          </>
-        )}
-
-        <button
-          type='button'
-          onClick={(e) => {
-            e.stopPropagation()
-            copyPath()
-          }}
-          title='Copy path'
-          className={`shrink-0 p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface hidden group-hover:inline-flex ${si ? '' : 'ml-auto'}`}
-        >
-          <Copy size={12} />
-        </button>
-      </div>
-
-      {isDir && isOpen && (
-        <TreeChildren
-          nodes={node.children}
-          depth={depth + 1}
-          onlyChanged={onlyChanged}
-          expanded={expanded}
-          onToggle={onToggle}
-          onOpen={onOpen}
-        />
-      )}
-    </>
-  )
-}
-
-// ── Commits list ─────────────────────────────────────────────────────────────
-
-function shortHash(hash: string): string {
-  return hash.slice(0, 7)
-}
-
-function relativeDate(iso: string): string {
-  const then = new Date(iso).getTime()
-  const diff = Date.now() - then
-  const m = 60_000, h = 60 * m, d = 24 * h
-  if (diff < m) return 'just now'
-  if (diff < h) return `${Math.floor(diff / m)}m ago`
-  if (diff < d) return `${Math.floor(diff / h)}h ago`
-  if (diff < 30 * d) return `${Math.floor(diff / d)}d ago`
-  return new Date(iso).toLocaleDateString()
-}
-
-function CommitsList({
-  commits,
-  error,
-  expandedCommits,
-  setExpandedCommits,
-  commitFiles,
-  setCommitFiles,
-}: {
-  commits: Commit[] | null
-  error: string | null
-  expandedCommits: Set<string>
-  setExpandedCommits: React.Dispatch<React.SetStateAction<Set<string>>>
-  commitFiles: Record<string, CodeEntry[]>
-  setCommitFiles: React.Dispatch<React.SetStateAction<Record<string, CodeEntry[]>>>
-}) {
-  if (error) {
-    return (
-      <div className='text-danger text-sm p-3 rounded-lg bg-danger/10 border border-danger/20'>
-        {error}
-      </div>
-    )
-  }
-  if (!commits) return <div className='text-text-muted text-sm'>Loading…</div>
-  if (commits.length === 0) {
-    return <div className='text-text-muted text-sm'>No commits yet.</div>
-  }
-  return (
-    <div className='flex flex-col'>
-      {commits.map((c) => (
-        <CommitRow
-          key={c.hash}
-          commit={c}
-          isExpanded={expandedCommits.has(c.hash)}
-          files={commitFiles[c.hash]}
-          setExpandedCommits={setExpandedCommits}
-          setCommitFiles={setCommitFiles}
-        />
-      ))}
+    <div className='py-1 text-text-muted' style={{ paddingLeft: pad(depth) }}>
+      <Loader2 size={12} className='animate-spin' />
     </div>
   )
 }
-
-function CommitRow({
-  commit,
-  isExpanded,
-  files,
-  setExpandedCommits,
-  setCommitFiles,
-}: {
-  commit: Commit
-  isExpanded: boolean
-  files: CodeEntry[] | undefined
-  setExpandedCommits: React.Dispatch<React.SetStateAction<Set<string>>>
-  setCommitFiles: React.Dispatch<React.SetStateAction<Record<string, CodeEntry[]>>>
-}) {
-  const navigate = useNavigate()
-  const toast = useToast()
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const longPressed = useRef(false)
-
-  function copy(value: string, label: string) {
-    navigator.clipboard
-      .writeText(value)
-      .then(() => toast.success(`${label} copied`))
-      .catch(() => toast.error(`Could not copy ${label.toLowerCase()}`))
-  }
-
-  function toggleExpand() {
-    setExpandedCommits((prev) => {
-      const next = new Set(prev)
-      if (next.has(commit.hash)) next.delete(commit.hash)
-      else next.add(commit.hash)
-      return next
-    })
-    if (!isExpanded && !files) {
-      api
-        .getCommit(commit.hash)
-        .then((d) =>
-          setCommitFiles((prev) => ({ ...prev, [commit.hash]: d.files })),
-        )
-        .catch(() => toast.error('Could not load commit files'))
-    }
-  }
-
-  function activate() {
-    if (longPressed.current) {
-      longPressed.current = false
-      return
-    }
-    toggleExpand()
-  }
-
-  function startLongPress() {
-    longPressed.current = false
-    if (longPressTimer.current) clearTimeout(longPressTimer.current)
-    longPressTimer.current = setTimeout(() => {
-      longPressed.current = true
-      copy(commit.hash, 'Hash')
-    }, 500)
-  }
-
-  function cancelLongPress() {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current)
-      longPressTimer.current = null
-    }
-  }
-
-  // Build the tree once files are available, auto-expand all folders for clarity
-  const tree = useMemo(() => (files ? buildTree(files) : null), [files])
-  const autoExpanded = useMemo(() => {
-    const s = new Set<string>()
-    if (!tree) return s
-    function walk(n: TreeNode) {
-      if (n.type === 'dir') {
-        s.add(n.path)
-        n.children.forEach(walk)
-      }
-    }
-    walk(tree)
-    return s
-  }, [tree])
-
-  return (
-    <>
-      <div
-        role='button'
-        tabIndex={0}
-        onClick={activate}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            activate()
-          }
-        }}
-        onTouchStart={startLongPress}
-        onTouchEnd={cancelLongPress}
-        onTouchMove={cancelLongPress}
-        onContextMenu={(e) => {
-          if (longPressed.current) e.preventDefault()
-        }}
-        className='group flex items-center gap-2 py-2 pr-2 pl-1 border-b border-border cursor-pointer select-none hover:bg-surface2 transition-colors'
-      >
-        <ChevronRight
-          size={12}
-          className={`text-text-muted transition-transform shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
-        />
-        <div className='flex-1 min-w-0'>
-          <div className='text-sm text-text-primary truncate'>{commit.message}</div>
-          <div className='text-[11px] text-text-muted flex items-center gap-2 mt-0.5'>
-            <span className='font-mono'>{shortHash(commit.hash)}</span>
-            <span>·</span>
-            <span className='truncate'>{commit.author}</span>
-            <span>·</span>
-            <span className='shrink-0'>{relativeDate(commit.date)}</span>
-          </div>
-        </div>
-        <div className='shrink-0 hidden group-hover:flex items-center gap-1'>
-          <button
-            type='button'
-            onClick={(e) => { e.stopPropagation(); copy(commit.hash, 'Hash') }}
-            title='Copy hash'
-            className='p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface'
-          >
-            <Copy size={12} />
-          </button>
-          <button
-            type='button'
-            onClick={(e) => { e.stopPropagation(); copy(commit.message, 'Message') }}
-            title='Copy message'
-            className='p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface'
-          >
-            <FileText size={12} />
-          </button>
-        </div>
-      </div>
-
-      {isExpanded && (
-        <div className='border-b border-border text-sm font-mono py-1'>
-          {!files && <div className='text-text-muted text-sm font-sans px-3 py-2'>Loading…</div>}
-          {tree && (
-            <TreeChildren
-              nodes={tree.children}
-              depth={0}
-              onlyChanged={false}
-              expanded={autoExpanded}
-              onToggle={() => { /* auto-expanded, no-op */ }}
-              onOpen={(p) => navigate(`/code/commit/${commit.hash}/${p}`)}
-            />
-          )}
-        </div>
-      )}
-    </>
-  )
-}
-
-// ── Commit file view (diff of a single file at a specific commit) ───────────
-
-function CommitFileView({ hash, path }: { hash: string; path: string }) {
-  const navigate = useNavigate()
-  const toast = useToast()
-  const [diff, setDiff] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
-
-  useEffect(() => {
-    setDiff(null)
-    setError(null)
-    api
-      .getCommitFile(hash, path)
-      .then((r) => setDiff(r.diff))
-      .catch((e) => setError(e.message))
-  }, [hash, path])
-
-  async function copyPath() {
-    try {
-      await navigator.clipboard.writeText(path)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      toast.error('Could not copy path')
-    }
-  }
-
-  const parts = path.split('/')
-
-  return (
-    <ContentLayout
-      title={
-        <span className='flex items-center min-w-0 text-xs'>
-          <button
-            onClick={() => navigate('/code')}
-            className='shrink-0 text-text-muted hover:text-accent transition-colors'
-          >
-            Code
-          </button>
-          <span className='shrink-0 text-text-muted mx-1.5'>/</span>
-          <span className='shrink-0 text-text-muted font-mono'>{shortHash(hash)}</span>
-          {parts.length > 2 && (
-            <>
-              <span className='shrink-0 text-text-muted mx-1.5'>/</span>
-              <span className='shrink-0 text-text-muted'>…</span>
-            </>
-          )}
-          <span className='shrink-0 text-text-muted mx-1.5'>/</span>
-          <span className='text-text-primary font-medium truncate min-w-0 font-mono'>
-            {parts[parts.length - 1]}
-          </span>
-        </span>
-      }
-    >
-      <div className='flex items-center gap-2 mb-3 text-xs'>
-        <span className='text-text-muted font-mono truncate'>{path}</span>
-        <button
-          onClick={copyPath}
-          title='Copy path'
-          className='ml-auto shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'
-        >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          <span>{copied ? 'Copied' : 'Copy path'}</span>
-        </button>
-      </div>
-
-      {error && (
-        <div className='text-danger text-sm p-3 rounded-lg bg-danger/10 border border-danger/20'>
-          {error}
-        </div>
-      )}
-
-      {diff === null && !error && (
-        <div className='text-text-muted text-sm'>Loading…</div>
-      )}
-
-      {diff !== null && (
-        <DiffBlock diff={diff} emptyLabel='No changes to this file in this commit.' />
-      )}
-    </ContentLayout>
-  )
-}
-
-// ── File view ────────────────────────────────────────────────────────────────
 
 function FileView({ path }: { path: string }) {
   const navigate = useNavigate()
@@ -902,12 +242,20 @@ function FileView({ path }: { path: string }) {
 
   const parts = path.split('/')
 
+  // Back to the tree with the folder holding this file (and its parents) open.
+  function revealInTree(dirParts: string[]) {
+    const open = new Set(readSession<string[]>(OPEN_KEY, []))
+    for (let i = 1; i <= dirParts.length; i++) open.add(dirParts.slice(0, i).join('/'))
+    writeSession(OPEN_KEY, [...open])
+    navigate('/code')
+  }
+
   return (
     <ContentLayout
       title={
         <span className='flex items-center min-w-0 text-xs'>
           <button
-            onClick={() => navigate('/code')}
+            onClick={() => revealInTree(parts.slice(0, -1))}
             className='shrink-0 text-text-muted hover:text-accent transition-colors'
           >
             Code
@@ -922,7 +270,7 @@ function FileView({ path }: { path: string }) {
             <>
               <span className='shrink-0 text-text-muted mx-1.5'>/</span>
               <button
-                onClick={() => navigate(`/code/${parts.slice(0, -2).join('/')}`)}
+                onClick={() => revealInTree(parts.slice(0, -1))}
                 className='text-text-muted hover:text-accent transition-colors truncate min-w-0'
               >
                 {parts[parts.length - 2]}

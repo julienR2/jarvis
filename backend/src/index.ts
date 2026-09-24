@@ -28,7 +28,7 @@ import { appRoutes } from './routes/apps.js'
 import { internalRoutes } from './routes/internal.js'
 import { gitRoutes } from './routes/git.js'
 import { connectorRoutes } from './routes/connectors.js'
-import { pluginRoutes } from './routes/plugins.js'
+import { skillRoutes } from './routes/skills.js'
 import { manifestRoutes } from './routes/manifest.js'
 import { sharedRoutes } from './routes/shared.js'
 import { browserRoutes } from './routes/browser.js'
@@ -39,6 +39,7 @@ import { startFrontendWatch } from './frontend-watch.js'
 import { initPush } from './push.js'
 import { subscribeGlobal, addGlobalClient, removeGlobalClient } from './sse.js'
 import { engineStatus } from './engine.js'
+import { startEmptyChatSweep } from './empty-chats.js'
 import type { ConvRow } from './types.js'
 
 // ── Fastify type augmentation ────────────────────────────────────────────────
@@ -59,8 +60,6 @@ const app = Fastify({
   // login). See config.trustProxy for the TRUST_PROXY env contract.
   trustProxy: config.trustProxy,
 })
-
-// ── Plugins ──────────────────────────────────────────────────────────────────
 
 await app.register(helmet, {
   contentSecurityPolicy: false,      // frontend is a separate origin; CSP belongs there
@@ -200,7 +199,7 @@ await app.register(appRoutes, { prefix: '/api/apps' })
 await app.register(internalRoutes, { prefix: '/internal' })
 await app.register(gitRoutes, { prefix: '/api/git' })
 await app.register(connectorRoutes, { prefix: '/api/connectors' })
-await app.register(pluginRoutes, { prefix: '/api/plugins' })
+await app.register(skillRoutes, { prefix: '/api/skills' })
 await app.register(manifestRoutes, { prefix: '/api' })
 await app.register(sharedRoutes, { prefix: '/api/shared' })
 await app.register(browserRoutes)
@@ -321,6 +320,8 @@ async function reconnectActiveSessions(): Promise<void> {
 // to is gone with the old process, so close those runs out rather than leave
 // them showing a Stop button for a session nothing is listening to.
 reconnectActiveSessions().then(reconcileStaleRuns)
+
+startEmptyChatSweep()
 
 // ── Start ────────────────────────────────────────────────────────────────────
 

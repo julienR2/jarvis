@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { CheckCheck } from 'lucide-react'
 import ChatInput from '../components/ChatInput'
 import { useModelCatalogue } from '../components/ModelSelector'
 import InboxCard, { type InboxReason } from '../components/InboxCard'
@@ -20,10 +21,18 @@ import { reloadRecentRuns, useRecentRuns } from '../lib/runs'
  * the chat's own composer; it leaves when you mark it read, open it, or answer.
  * Collapsing one is "later": it stays, and stays unread.
  *
- * A quiet day is the greeting and the composer and nothing else.
+ * A quiet day is the greeting, the composer and "all caught up".
+ *
+ * It is also where a new chat starts: "New chat" opens this page with the
+ * composer focused, and the chat only exists once something is sent.
  */
 export default function TodayPage() {
   const navigate = useNavigate()
+  // Set by "New chat" — a fresh token each press, so the focus happens again.
+  const navState = useLocation().state as { compose?: number; draft?: string } | null
+  const composeKey = navState?.compose
+  // A request started elsewhere ("Edit in chat" on a skill) lands in the composer.
+  const draft = navState?.draft
   const conversations = useChatStore((s) => s.conversations)
   const sections = useChatStore((s) => s.sections)
   // Since yesterday: a failure from last night still waits, a run started late
@@ -87,6 +96,22 @@ export default function TodayPage() {
   }
 
   const dateLine = new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })
+  const counts = {
+    action: entries.filter((e) => e.reason === 'action').length,
+    notified: entries.filter((e) => e.reason === 'notified').length,
+    unread: entries.filter((e) => e.reason === 'unread').length,
+  }
+  const summary = [
+    counts.action && `${counts.action} need${counts.action === 1 ? 's' : ''} you`,
+    counts.notified && `${counts.notified} worth a look`,
+    counts.unread && `${counts.unread} unread`,
+  ].filter(Boolean).join(' · ')
+  // What waits on you is never swept by "mark all": an answer or a decision
+  // is still owed there.
+  const readable = entries.filter((e) => e.reason !== 'action')
+  function markAllRead() {
+    for (const e of readable) useChatStore.getState().markRead(e.conv.id)
+  }
 
   return (
     <div className='flex flex-col h-full'>
@@ -94,57 +119,87 @@ export default function TodayPage() {
         <div className='flex items-center gap-2 h-12 px-3 md:px-6'>
           <SidebarToggle />
           <h1 className='text-sm font-medium text-text-primary'>Today</h1>
-          <span className='text-xs text-text-muted'>{dateLine}</span>
         </div>
       </div>
 
       <div className='flex-1 overflow-y-auto'>
-        {/* Hero — Jarvis waving, as home always opened. The composer right under it. */}
-        <div className='flex flex-col items-center px-4 pt-8 pb-1'>
+        {/* The landing: Jarvis and the composer, centred in most of the first
+            screen, on a faint warm glow. What is new follows below the fold of
+            that welcome rather than competing with it. */}
+        <section
+          className='flex min-h-[64vh] flex-col items-center justify-center px-4 py-10'
+          style={{ background: 'radial-gradient(ellipse 60% 55% at 50% 42%, var(--color-accent-subtle), transparent 70%)' }}
+        >
           <img
             src={`${BASE_PATH}/images/jarvis_wave.gif`}
             alt='Jarvis'
-            className='mb-3 h-20 w-20 mix-blend-multiply dark:mix-blend-screen'
+            className='h-28 w-28 mix-blend-multiply dark:mix-blend-screen'
           />
-          <h2 className='text-2xl font-light text-text-primary'>{getGreeting()}</h2>
-          <p className='mt-1 text-sm text-text-muted'>How can I help you today?</p>
-        </div>
-        <div className='pt-2'>
-          <ChatInput
-            onSend={start}
-            onSendAudio={startWithAudio}
-            onCancel={() => {}}
-            isProcessing={false}
-            model={model}
-            effort={effort}
-            onModelChange={setPicked}
-            onEffortChange={setEffort}
-          />
-        </div>
+          <h2 className='mt-3 text-3xl font-light text-text-primary'>{getGreeting()}</h2>
+          {/* The composer already asks how to help; the line under the greeting
+              says what day it is instead of saying that twice. */}
+          <p className='mt-1.5 text-sm text-text-muted'>{dateLine}</p>
+          <div className='mt-8 w-full max-w-xl'>
+            <ChatInput
+              onSend={start}
+              onSendAudio={startWithAudio}
+              onCancel={() => {}}
+              isProcessing={false}
+              focusKey={composeKey}
+              initialText={draft}
+              compact
+              model={model}
+              effort={effort}
+              onModelChange={setPicked}
+              onEffortChange={setEffort}
+            />
+          </div>
+        </section>
 
-        <div className='max-w-3xl mx-auto px-4 md:px-6 pb-10'>
+        <div className='max-w-2xl mx-auto px-4 md:px-6 pb-10'>
           {loadError && runs === null && (
             <div className='py-6 text-center text-sm text-text-muted'>
               Couldn't load today's inbox. <button onClick={() => reloadRecentRuns()} className='underline hover:text-text-primary'>Try again</button>
             </div>
           )}
 
-          {entries.length > 0 && (
-            <div className='mt-6 flex flex-col gap-3' data-testid='today-inbox'>
-              {entries.map((e) => (
-                <InboxCard
-                  key={e.conv.id}
-                  conversation={e.conv}
-                  runs={e.runs}
-                  failed={e.failed}
-                  reason={e.reason}
-                  sectionName={sectionName(e.conv.section_id)}
-                  onOpen={() => navigate(`/c/${e.conv.id}`)}
-                  onRead={() => markRead(e)}
-                  onRetry={retry}
-                  onStop={stop}
-                />
-              ))}
+          {entries.length > 0 ? (
+            <>
+              <div className='mb-2 flex items-center gap-2'>
+                <h3 className='shrink-0 text-xs font-medium uppercase tracking-wide text-text-muted'>New</h3>
+                <span className='min-w-0 truncate text-xs text-text-muted' data-testid='today-summary'>{summary}</span>
+                {readable.length > 1 && (
+                  <button
+                    onClick={markAllRead}
+                    className='ml-auto shrink-0 inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1 text-xs text-text-muted hover:bg-surface2 hover:text-text-primary transition-colors'
+                    title='Mark every chat here read, except what waits on you'
+                    aria-label='Mark all read'
+                  >
+                    <CheckCheck size={13} /> <span className='hidden sm:inline'>Mark all read</span>
+                  </button>
+                )}
+              </div>
+              <div className='flex flex-col gap-3' data-testid='today-inbox'>
+                {entries.map((e) => (
+                  <InboxCard
+                    key={e.conv.id}
+                    conversation={e.conv}
+                    runs={e.runs}
+                    failed={e.failed}
+                    reason={e.reason}
+                    sectionName={sectionName(e.conv.section_id)}
+                    onOpen={() => navigate(`/c/${e.conv.id}`)}
+                    onRead={() => markRead(e)}
+                    onRetry={retry}
+                    onStop={stop}
+                  />
+                ))}
+              </div>
+            </>
+          ) : runs !== null && (
+            <div className='mt-10 flex flex-col items-center gap-1.5 text-center text-sm text-text-muted' data-testid='today-empty'>
+              <CheckCheck size={18} className='opacity-60' />
+              All caught up.
             </div>
           )}
         </div>

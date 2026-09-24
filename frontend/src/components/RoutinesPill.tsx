@@ -4,6 +4,7 @@ import { Clock, Link2, Loader2, Plus, Repeat, Settings2, Square, Zap } from 'luc
 import { api, type Run } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { describeSchedule, relative } from '../lib/runs'
+import Popover from './Popover'
 import type { Routine } from './RoutineForm'
 
 /**
@@ -27,20 +28,7 @@ export default function RoutinesPill({
   const [open, setOpen] = useState(false)
   const [routines, setRoutines] = useState<Routine[] | null>(null)
   const [busy, setBusy] = useState<Record<string, boolean>>({})
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  const handleOutside = useCallback((e: Event) => {
-    if (!containerRef.current?.contains(e.target as Node)) setOpen(false)
-  }, [])
-  useEffect(() => {
-    if (!open) return
-    window.addEventListener('click', handleOutside)
-    window.addEventListener('touchstart', handleOutside)
-    return () => {
-      window.removeEventListener('click', handleOutside)
-      window.removeEventListener('touchstart', handleOutside)
-    }
-  }, [open, handleOutside])
+  const btnRef = useRef<HTMLButtonElement>(null)
 
   // Fetched when opened, not on mount: most visits to a chat never look here.
   const load = useCallback(async () => {
@@ -87,8 +75,9 @@ export default function RoutinesPill({
   }
 
   return (
-    <div ref={containerRef} className='relative flex items-center shrink-0'>
+    <div className='relative flex items-center shrink-0'>
       <button
+        ref={btnRef}
         onClick={() => setOpen((o) => !o)}
         data-testid='routines-pill'
         className={
@@ -102,12 +91,8 @@ export default function RoutinesPill({
         {running ? `${running} running` : null}
       </button>
 
-      {open && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className='absolute right-0 top-full mt-1 z-[200] w-80 rounded-xl border border-border bg-surface p-1 shadow-md/5'
-          data-testid='routines-popover'
-        >
+      <Popover anchor={btnRef} open={open} onClose={() => setOpen(false)} className='w-80 max-w-[calc(100vw-16px)] rounded-xl border border-border bg-surface p-1 shadow-md/5'>
+        <div onClick={(e) => e.stopPropagation()} data-testid='routines-popover'>
           {runs.length > 0 && (
             <div className='border-b border-border pb-1 mb-1'>
               {runs.map((run) => (
@@ -180,7 +165,7 @@ export default function RoutinesPill({
             </button>
           </div>
         </div>
-      )}
+      </Popover>
     </div>
   )
 }

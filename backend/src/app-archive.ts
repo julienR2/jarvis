@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, renameSync, rmSync, cpSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, cpSync } from 'fs'
 import { join } from 'path'
 import { config } from './config.js'
 
@@ -29,6 +29,24 @@ export function archiveUploadsDir(conversationId: string): void {
 export function purgeConversationFiles(conversationId: string, appPath?: string | null): void {
   rmSync(join(config.workspaceDir, 'apps', appDirName(conversationId, appPath)), { recursive: true, force: true })
   rmSync(join(config.workspaceDir, 'uploads', conversationId), { recursive: true, force: true })
+}
+
+/**
+ * What deleting a chat would take with it on disk: how many uploaded files,
+ * and whether it has an app. The delete dialog only asks about what exists.
+ */
+export function conversationFiles(conversationId: string, appPath?: string | null): { uploads: number; app: boolean } {
+  const count = (dir: string): number => {
+    if (!existsSync(dir)) return 0
+    return readdirSync(dir, { withFileTypes: true }).reduce(
+      (n, e) => n + (e.isDirectory() ? count(join(dir, e.name)) : 1),
+      0,
+    )
+  }
+  return {
+    uploads: count(join(config.workspaceDir, 'uploads', conversationId)),
+    app: existsSync(join(config.workspaceDir, 'apps', appDirName(conversationId, appPath))),
+  }
 }
 
 function appDirName(conversationId: string, appPath?: string | null): string {

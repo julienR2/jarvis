@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect, useLayoutEffect, useSyncExternalStore } from 'react'
+import { useState, useRef, useSyncExternalStore } from 'react'
 import { ChevronDown, Check, Brain } from 'lucide-react'
 import GatewayModelPicker from './GatewayModelPicker'
+import Popover from './Popover'
 import type { Effort } from '../api'
 
 export interface ModelOption {
@@ -220,89 +221,64 @@ interface Props {
   onModelChange: (model: string) => void
   onEffortChange: (effort: Effort) => void
   disabled?: boolean
-  /** 'up' opens above the button (chat input), 'down' opens below (forms) */
+  /** 'up' prefers above the button (chat input), 'down' below (forms); flips when there's no room. */
   direction?: 'up' | 'down'
+  /** A quiet trigger for the chat input; forms keep the filled one. */
+  subtle?: boolean
 }
 
-export default function ModelSelector({ model, effort, onModelChange, onEffortChange, disabled, direction = 'up' }: Props) {
+export default function ModelSelector({ model, effort, onModelChange, onEffortChange, disabled, direction = 'up', subtle }: Props) {
   const [showMenu, setShowMenu] = useState(false)
-  const [hOffset, setHOffset] = useState(0)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
 
   const { models: catalogue, anthropic, gateway } = useModelCatalogue()
   const [picking, setPicking] = useState(false)
   const selectedModel = catalogue.find(m => m.id === model) || { id: model, name: modelName(model), desc: '' }
   const supportsEffort = modelSupportsEffort(model)
 
-  useEffect(() => {
-    if (!showMenu) return
-    function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setShowMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [showMenu])
-
-  useLayoutEffect(() => {
-    if (!showMenu) {
-      setHOffset(0)
-      return
-    }
-    if (!dropdownRef.current) return
-    const rect = dropdownRef.current.getBoundingClientRect()
-    const margin = 8
-    if (rect.left < margin) {
-      setHOffset(margin - rect.left)
-    } else if (rect.right > window.innerWidth - margin) {
-      setHOffset(window.innerWidth - margin - rect.right)
-    }
-  }, [showMenu])
-
-  const positionClass = direction === 'up'
-    ? 'absolute bottom-full right-0 mb-2'
-    : 'absolute top-full right-0 mt-2'
-
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative min-w-0">
       <button
+        ref={btnRef}
         onClick={() => setShowMenu(v => !v)}
         disabled={disabled}
         title="Model"
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-text-secondary bg-bg hover:bg-border/60 transition-colors disabled:opacity-30"
+        className={subtle
+          ? `flex items-center gap-1 min-w-0 max-w-[220px] whitespace-nowrap px-2 py-1.5 rounded-xl text-xs text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors disabled:opacity-30 ${showMenu ? 'bg-surface2 text-text-primary' : ''}`
+          : 'flex items-center gap-1.5 min-w-0 max-w-[260px] whitespace-nowrap px-2.5 py-1.5 rounded-xl text-xs font-medium text-text-secondary bg-bg hover:bg-border/60 transition-colors disabled:opacity-30'}
       >
-        <span className="text-text-primary font-semibold">{selectedModel.name}</span>
+        <span className={`truncate ${subtle ? '' : 'text-text-primary font-semibold'}`} title={selectedModel.name}>{selectedModel.name}</span>
         {supportsEffort && effort === 'high' && (
-          <Brain size={11} className="text-accent" />
+          <Brain size={11} className="shrink-0 text-accent" />
         )}
-        <ChevronDown size={12} className="text-text-muted" />
+        <ChevronDown size={12} className="shrink-0 text-text-muted" />
       </button>
 
-      {showMenu && (
-        <div
-          ref={dropdownRef}
-          style={{ transform: hOffset ? `translateX(${hOffset}px)` : undefined }}
-          className={`${positionClass} w-72 bg-surface border border-border rounded-2xl shadow-lg overflow-hidden z-50`}
-        >
+      <Popover
+        anchor={btnRef}
+        open={showMenu}
+        onClose={() => setShowMenu(false)}
+        placement={direction === 'up' ? 'top-start' : 'bottom-end'}
+        gap={8}
+        className="w-64 max-w-[calc(100vw-16px)] bg-surface border border-border rounded-xl shadow-md/5"
+      >
           {/* Models list */}
-          <div className="p-2">
+          <div className="p-1">
             {anthropic.map((m, i) => (
               <button
                 key={m.id}
                 onClick={() => { onModelChange(m.id); setShowMenu(false) }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left ${
+                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors text-left ${
                   model === m.id
-                    ? 'bg-accent/10'
-                    : 'hover:bg-bg'
+                    ? 'bg-selected'
+                    : 'hover:bg-surface2'
                 }`}
               >
-                <div className="flex-1">
-                  <div className={`text-sm font-semibold ${model === m.id ? 'text-accent' : 'text-text-primary'}`}>{m.name}</div>
-                  <div className="text-xs text-text-muted mt-0.5">{m.desc}</div>
+                <div className="flex-1 min-w-0">
+                  <div className={`text-sm ${model === m.id ? 'text-accent' : 'text-text-primary'}`}>{m.name}</div>
+                  <div className="text-[11px] text-text-muted truncate">{m.desc}</div>
                 </div>
-                {model === m.id && <Check size={16} className="text-accent shrink-0" />}
+                {model === m.id && <Check size={13} className="text-accent shrink-0" />}
               </button>
             ))}
             {gateway.length > 0 && (
@@ -311,36 +287,33 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
               // are configured.
               <button
                 onClick={() => { setShowMenu(false); setPicking(true) }}
-                className={`w-full flex items-center gap-2 text-left px-3 py-2.5 rounded-xl transition-colors ${
-                  isGatewayModel(model) ? 'bg-accent/10' : 'hover:bg-bg'
+                className={`w-full flex items-center gap-2 text-left px-2 py-1.5 rounded-lg transition-colors ${
+                  isGatewayModel(model) ? 'bg-selected' : 'hover:bg-surface2'
                 }`}
               >
                 <span className='flex-1 min-w-0'>
                   <span
-                    className={`block text-sm font-semibold truncate ${
+                    className={`block text-sm truncate ${
                       isGatewayModel(model) ? 'text-accent' : 'text-text-primary'
                     }`}
                     title={isGatewayModel(model) ? selectedModel.name : undefined}
                   >
                     {isGatewayModel(model) ? selectedModel.name : 'OpenRouter'}
                   </span>
-                  <span className='block text-xs text-text-muted truncate'>
+                  <span className='block text-[11px] text-text-muted truncate'>
                     {gateway.length} models
                   </span>
                 </span>
-                <ChevronDown size={14} className='shrink-0 -rotate-90 text-text-muted' />
+                <ChevronDown size={13} className='shrink-0 -rotate-90 text-text-muted' />
               </button>
             )}
           </div>
 
-          <div className="h-px bg-border" />
-
           {/* Effort selector */}
-          <div className="border-t border-border px-1 py-1">
+          <div className="border-t border-border p-1">
             <EffortSwitch effort={effort} onChange={onEffortChange} disabled={!supportsEffort} />
           </div>
-        </div>
-      )}
+      </Popover>
 
       {picking && (
         <GatewayModelPicker

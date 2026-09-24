@@ -24,9 +24,13 @@ test.describe('sidebar', () => {
     await expect(page.getByRole('button', { name: 'Share conversation' })).toHaveCount(0)
   })
 
-  test('new chat creates a conversation and opens it', async ({ page }) => {
+  test('new chat is Today with the composer focused — no conversation is created', async ({ page }) => {
+    await page.goto('c/00000000-0000-4000-8000-000000000001')
+    await expect(page.getByRole('complementary').getByText('Markdown showcase')).toBeVisible()
+    const before = await page.getByRole('complementary').locator('[class*="cursor-pointer"]').count()
     await page.getByText('New chat').click()
-    await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/)
-    await expect(page.getByPlaceholder('How can I help you today?')).toBeVisible()
+    await expect(page).toHaveURL(/^https?:\/\/[^/]+\/?$/)
+    await expect(page.getByPlaceholder('How can I help you today?')).toBeFocused()
+    await expect(page.getByRole('complementary').locator('[class*="cursor-pointer"]')).toHaveCount(before)
   })
 })

@@ -288,35 +288,6 @@ export async function isRunning(conversationId: string): Promise<boolean> {
   }
 }
 
-// ── Plugins ──────────────────────────────────────────────────────────────────
-
-/**
- * Pass a plugin/marketplace call through to the engine, which owns the `claude`
- * binary and the config dir the CLI writes to. Errors come back as the CLI's
- * own message so the settings page can show it verbatim.
- */
-export async function pluginRequest<T>(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<T> {
-  const res = await fetch(`${ENGINE_URL}/plugins${path}`, {
-    method,
-    headers: {
-      ...authHeader(),
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
-  const data = (await res.json().catch(() => ({}))) as any
-  if (!res.ok) {
-    const err = new Error(data?.error ?? `Engine returned ${res.status}`)
-    ;(err as any).statusCode = res.status
-    throw err
-  }
-  return data as T
-}
-
 /**
  * Ask the engine to actually run `claude` with a candidate credential set.
  * Format checks can't tell a valid token from an expired one — only a real

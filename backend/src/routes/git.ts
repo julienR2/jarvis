@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
-import { execFileSync } from 'child_process'
+import { execFileSync, spawnSync } from 'child_process'
 import { readFileSync, readdirSync, statSync } from 'fs'
-import { join, relative, resolve } from 'path'
+import { dirname, join, relative, resolve } from 'path'
 
 const REPO_DIR = process.env.JARVIS_REPO_DIR || '/jarvis'
 const MAX_FILE_SIZE = 1_000_000
@@ -67,6 +67,27 @@ function walkDir(dir: string, base: string, out: string[] = []): string[] {
   }
   return out
 }
+
+/**
+ * Which of these repo-relative paths git ignores (a directory is given with a
+ * trailing slash). check-ignore exits 1 when none are, so its status is not an
+ * error here — only its output counts.
+ */
+function ignoredOf(paths: string[]): Set<string> {
+  if (paths.length === 0) return new Set()
+  const r = spawnSync('git', ['check-ignore', '--stdin'], {
+    cwd: REPO_DIR,
+    input: paths.join('\n'),
+    encoding: 'utf8',
+    timeout: 15000,
+    maxBuffer: 10 * 1024 * 1024,
+  })
+  return new Set((r.stdout || '').split('\n').filter(Boolean))
+}
+
+// A directory listing stops here: a dependency folder can hold thousands of
+// entries, and nobody reads past the first screens of one.
+const LS_LIMIT = 500
 
 export async function gitRoutes(app: FastifyInstance) {
   const auth = { onRequest: [app.authenticate] }
@@ -200,6 +221,66 @@ export async function gitRoutes(app: FastifyInstance) {
     return files.map((path) => ({ path, status: status.get(path) || null }))
   })
 
+  // One directory of the working tree, one level deep — the code browser
+  // expands folders on demand instead of loading the repo at once, so an app's
+  // node_modules costs nothing until someone opens it. Each entry says whether
+  // git ignores it; a file carries its status, a folder how many changed files
+  // it holds. Files deleted but not yet committed are listed too, since that is
+  // a change worth seeing and the disk no longer has them.
+  app.get<{ Querystring: { path?: string } }>('/ls', auth, async (req, reply) => {
+    const rel = (req.query.path || '').replace(/^\/+|\/+$/g, '')
+    const abs = rel ? resolveRepoPath(rel) : REPO_DIR
+    if (!abs) return reply.code(403).send({ error: 'Access denied' })
+
+    let dirents
+    try {
+      dirents = readdirSync(abs, { withFileTypes: true }).filter((d) => d.name !== '.git')
+    } catch {
+      return reply.code(404).send({ error: 'Not a directory' })
+    }
+    dirents.sort((a, b) =>
+      a.isDirectory() !== b.isDirectory() ? (a.isDirectory() ? -1 : 1) : a.name.localeCompare(b.name),
+    )
+    const truncated = dirents.length > LS_LIMIT
+    const listed = dirents.slice(0, LS_LIMIT)
+    const prefix = rel ? `${rel}/` : ''
+    const pathOf = (name: string) => prefix + name
+
+    // Inside an ignored folder everything is ignored; no need to ask per entry.
+    const parentIgnored = rel ? ignoredOf([`${rel}/`]).size > 0 : false
+    const ignored = parentIgnored
+      ? null
+      : ignoredOf(listed.map((d) => pathOf(d.name) + (d.isDirectory() ? '/' : '')))
+    // Untracked files one by one, not their folder as a single line: a folder
+    // counts its changed files, and "changes only" needs the files themselves.
+    const status = parentIgnored
+      ? new Map<string, string>()
+      : parseStatus(git('status', '--porcelain', '--untracked-files=all', '--', rel || '.'))
+
+    const entries = listed.map((d) => {
+      const path = pathOf(d.name)
+      const dir = d.isDirectory()
+      const isIgnored = parentIgnored || !!ignored?.has(path + (dir ? '/' : ''))
+      if (!dir) return { name: d.name, path, dir, ignored: isIgnored, status: status.get(path) ?? null, changes: 0 }
+      let changes = 0
+      for (const p of status.keys()) if (p.startsWith(`${path}/`)) changes++
+      return { name: d.name, path, dir, ignored: isIgnored, status: null, changes }
+    })
+    for (const [p, st] of status) {
+      if (st.includes('D') && dirname(p) === (rel || '.') && !entries.some((e) => e.path === p)) {
+        entries.push({ name: p.slice(prefix.length), path: p, dir: false, ignored: false, status: st, changes: 0 })
+      }
+    }
+    return { path: rel, entries, truncated }
+  })
+
+  // Every changed file, untracked ones listed one by one — the code browser's
+  // "changes only" view, and all it needs.
+  app.get('/changes', auth, async () => {
+    const status = parseStatus(git('status', '--porcelain', '--untracked-files=all'))
+    return [...status].map(([path, st]) => ({ path, status: st }))
+  })
+
   // Single file — returns status, diff (if changed), and content (if text)
   app.get<{ Querystring: { path?: string } }>('/file', auth, async (req, reply) => {
     const rel = req.query.path
@@ -207,6 +288,12 @@ export async function gitRoutes(app: FastifyInstance) {
 
     const abs = resolveRepoPath(rel)
     if (!abs) return reply.code(403).send({ error: 'Access denied' })
+    // Listed in the tree (dimmed, ignored) but never shown: these hold the
+    // instance's secrets, and a browser tab is no place for them.
+    const base = rel.split('/').pop() ?? ''
+    if ((/^\.env(\.|$)/.test(base) && base !== '.env.example') || base === 'secrets.json') {
+      return reply.code(403).send({ error: 'This file holds secrets and is not shown here.' })
+    }
 
     // Status
     const porcelain = git('status', '--porcelain', '--', rel).trim()

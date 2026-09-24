@@ -1025,9 +1025,9 @@ export function killSession(conversationId: string): boolean {
  * Close every idle session so the next message respawns it.
  *
  * Used after a config change the CLI only reads at spawn time — installing or
- * enabling a plugin, say. Nothing is lost: the backend keeps the claude session
+ * a provider switch, say. Nothing is lost: the backend keeps the claude session
  * id and the replacement starts with --resume, so the conversation picks up
- * where it left off, now with the new plugin set. Busy sessions are left alone
+ * where it left off, now with the new config. Busy sessions are left alone
  * (killing a live turn would strand it) and reported back to the caller.
  */
 export function recycleIdleSessions(): { recycled: string[]; busy: string[] } {

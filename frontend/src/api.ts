@@ -164,6 +164,9 @@ export const api = {
   // dialog's two checkboxes, both off by default.
   /** Mark read without opening — Today's ✓ on a chat's card. */
   markConversationRead: (id: string) => request<{ ok: boolean }>('POST', `/conversations/${id}/read`),
+  /** What a delete would touch besides the messages. */
+  getConversationFootprint: (id: string) =>
+    request<{ uploads: number; app: boolean; routines: number }>('GET', `/conversations/${id}/footprint`),
   deleteConversation: (id: string, opts: DeleteOptions = {}) => {
     const q = new URLSearchParams()
     if (opts.files) q.set('files', 'delete')
@@ -319,6 +322,9 @@ export const api = {
   // Code (repo browser)
   getAgentTree: () => request<CodeEntry[]>('GET', '/git/agent-tree'),
   getCodeTree: () => request<CodeEntry[]>('GET', '/git/tree'),
+  /** One folder of the repo, one level deep. */
+  listCode: (path: string) => request<CodeListing>('GET', `/git/ls?path=${encodeURIComponent(path)}`),
+  getCodeChanges: () => request<CodeEntry[]>('GET', '/git/changes'),
   getCodeFile: (path: string) =>
     request<CodeFile>('GET', `/git/file?path=${encodeURIComponent(path)}`),
   getCommits: (limit = 50) =>
@@ -354,30 +360,10 @@ export const api = {
     request<ConnectorDetail>('PATCH', `/connectors/${id}`, def),
   deleteConnector: (id: string) => request<{ ok: boolean }>('DELETE', `/connectors/${id}`),
 
-  // Plugins & marketplaces
-  getPlugins: () => request<PluginState>('GET', '/plugins'),
-  addMarketplace: (source: string) =>
-    request<PluginMutation>('POST', '/plugins/marketplaces', { source }),
-  updateMarketplace: (name: string) =>
-    request<PluginMutation>('POST', `/plugins/marketplaces/${encodeURIComponent(name)}/update`),
-  removeMarketplace: (name: string) =>
-    request<PluginMutation>('DELETE', `/plugins/marketplaces/${encodeURIComponent(name)}`),
-  installPlugin: (pluginId: string) =>
-    request<PluginMutation>('POST', '/plugins/install', { pluginId }),
-  setPluginEnabled: (pluginId: string, enabled: boolean) =>
-    request<PluginMutation>('POST', `/plugins/${encodeURIComponent(pluginId)}/enabled`, {
-      enabled,
-    }),
-  setPluginAlwaysOn: (pluginId: string, alwaysOn: boolean) =>
-    request<PluginMutation>('POST', `/plugins/${encodeURIComponent(pluginId)}/always-on`, {
-      alwaysOn,
-    }),
-  updatePlugin: (pluginId: string) =>
-    request<PluginMutation>('POST', `/plugins/${encodeURIComponent(pluginId)}/update`),
-  uninstallPlugin: (pluginId: string) =>
-    request<PluginMutation>('DELETE', `/plugins/${encodeURIComponent(pluginId)}`),
-  getPluginDetails: (pluginId: string) =>
-    request<{ details: string }>('GET', `/plugins/${encodeURIComponent(pluginId)}/details`),
+  // Skills (read-only)
+  getSkills: () => request<SkillSummary[]>('GET', '/skills'),
+  getSkill: (name: string) => request<{ name: string; content: string; raw: string }>('GET', `/skills/${encodeURIComponent(name)}`),
+  saveSkill: (name: string, raw: string) => request<{ ok: boolean }>('PUT', `/skills/${encodeURIComponent(name)}`, { raw }),
 }
 
 // ── SSE connection ───────────────────────────────────────────────────────────
@@ -796,6 +782,23 @@ export interface CodeEntry {
   status: string | null
 }
 
+export interface CodeListingEntry {
+  name: string
+  path: string
+  dir: boolean
+  ignored: boolean
+  /** Porcelain status of a file; null when unchanged (and for folders). */
+  status: string | null
+  /** Changed files under a folder. */
+  changes: number
+}
+
+export interface CodeListing {
+  path: string
+  entries: CodeListingEntry[]
+  truncated: boolean
+}
+
 export interface CodeFile {
   path: string
   status: string | null
@@ -864,55 +867,6 @@ export interface ConnectorInput {
   proxy?: ConnectorProxy | null
 }
 
-// ── Plugins ──────────────────────────────────────────────────────────────────
-
-export interface Marketplace {
-  name: string
-  source: string
-  repo?: string
-  url?: string
-  path?: string
-  installLocation?: string
-}
-
-export interface InstalledPlugin {
-  id: string
-  name: string
-  marketplace: string
-  description?: string
-  version?: string
-  scope?: string
-  enabled: boolean
-  installedAt?: string
-  lastUpdated?: string
-  // Always-on = the plugin's opt-in flag file exists, so its SessionStart hook
-  // forces it into every session. Only some plugins read one.
-  alwaysOnSupported: boolean
-  alwaysOn: boolean
-}
-
-export interface AvailablePlugin {
-  pluginId: string
-  name: string
-  description?: string
-  marketplaceName: string
-  version?: string
-}
-
-export interface PluginState {
-  marketplaces: Marketplace[]
-  installed: InstalledPlugin[]
-  available: AvailablePlugin[]
-}
-
-// Every mutation answers with the refreshed state, so the page never needs a
-// follow-up GET — plus which conversations were recycled to pick the change up.
-export interface PluginMutation extends PluginState {
-  message: string
-  recycled: string[]
-  busy: string[]
-}
-
 export type ChatEvent =
   | { type: 'message'; message: Message }
   | { type: 'conversation'; id: string; title?: string }
@@ -930,6 +884,13 @@ export type ChatEvent =
   // clearLive.
   | { type: 'delta'; text: string }
 
+export interface SkillSummary {
+  name: string
+  description: string
+  /** Ships with the repo, rather than added on this instance. */
+  builtin: boolean
+}
+
 export type GlobalEvent =
   | { type: 'new_message'; conversation_id: string }
   // A new frontend build landed (Jarvis edited its own UI). The tab is running
@@ -943,6 +904,7 @@ export type GlobalEvent =
   | { type: 'question'; conversation_id: string; question: PendingQuestion | null }
   // A topic was renamed, rewritten or removed — refetch the sections.
   | { type: 'sections' }
+  | { type: 'conversations_removed'; ids: string[] }
 
 // ── Global SSE connection ────────────────────────────────────────────────────
 

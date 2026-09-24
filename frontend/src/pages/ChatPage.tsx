@@ -13,6 +13,7 @@ import CodeBrowser from '../components/CodeBrowser'
 import BrowserPage from '../components/BrowserPage'
 import UpdateBanner from '../components/UpdateBanner'
 import SettingsPage from './SettingsPage'
+import CustomizePage from './CustomizePage'
 import {
   SidebarToggleProvider,
   SidebarToggle,
@@ -90,9 +91,12 @@ export default function ChatPage() {
     })
   }, [])
 
-  async function newConversation() {
-    const conv = await useChatStore.getState().createConversation()
-    navigate(`/c/${conv.id}`)
+  // A new chat is Today's composer: nothing is created until something is
+  // sent, so opening one and walking away leaves nothing behind. The state is a
+  // fresh token each time, so a second press while already on Today still
+  // focuses the input.
+  function newConversation() {
+    navigate('/', { state: { compose: Date.now() } })
     setSidebarOpen(false)
   }
 
@@ -217,12 +221,13 @@ export default function ChatPage() {
             <Route path='/crons' element={<LegacyRoutinesRedirect />} />
             <Route path='/webhooks' element={<LegacyRoutinesRedirect />} />
             <Route path='/settings' element={<SettingsPage />} />
-            {/* The four settings pages became tabs; their addresses still land. */}
-            <Route path='/connectors' element={<Navigate to='/settings?tab=connectors' replace />} />
-            <Route path='/connection' element={<Navigate to='/settings?tab=models' replace />} />
-            <Route path='/api-keys' element={<Navigate to='/settings?tab=access' replace />} />
-            <Route path='/plugins' element={<Navigate to='/settings?tab=advanced' replace />} />
-            {/* Full-height tools, reached from Settings › Advanced. */}
+            <Route path='/settings/customize' element={<CustomizePage />} />
+            {/* Older settings addresses still land where their content went. */}
+            <Route path='/connectors' element={<Navigate to='/settings/customize?tab=connectors' replace />} />
+            <Route path='/connection' element={<Navigate to='/settings/customize' replace />} />
+            <Route path='/api-keys' element={<Navigate to='/settings' replace />} />
+            <Route path='/plugins' element={<Navigate to='/settings' replace />} />
+            {/* Full-height tools, reached from the Settings menu. */}
             <Route path='/browser' element={<BrowserPage />} />
             <Route path='/code/*' element={<CodeBrowser />} />
           </Routes>

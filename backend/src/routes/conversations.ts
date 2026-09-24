@@ -5,7 +5,7 @@ import { basename, extname, resolve, sep } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { activeRuns, finishRun, runStatus, stopRunsFor } from '../runs.js'
 import { ownerOrShare, resolveShareToken } from '../share-access.js'
-import { archiveAppDir, archiveUploadsDir, purgeConversationFiles } from '../app-archive.js'
+import { archiveAppDir, archiveUploadsDir, conversationFiles, purgeConversationFiles } from '../app-archive.js'
 import { rescheduleAll } from '../crons.js'
 import { ensureAppToken, rotateAppToken, generateShareToken } from '../app-tokens.js'
 import { UPLOADS_DIR } from './uploads.js'
@@ -1416,6 +1416,22 @@ export async function conversationRoutes(app: FastifyInstance) {
       .run(req.params.id)
     if (r.changes === 0) return reply.code(404).send({ error: 'Not found' })
     return { ok: true }
+  })
+
+  // GET /:id/footprint — what a delete would touch besides the messages, so the
+  // dialog asks only about what exists.
+  app.get<{ Params: { id: string } }>('/:id/footprint', auth, async (req, reply) => {
+    const conv = getDb()
+      .prepare('SELECT app_path FROM conversations WHERE id = ?')
+      .get(req.params.id) as Pick<ConvRow, 'app_path'> | undefined
+    if (!conv) return reply.code(404).send({ error: 'Not found' })
+    const { n: routines } = getDb()
+      .prepare(
+        `SELECT (SELECT COUNT(*) FROM crons WHERE conversation_id = ?)
+              + (SELECT COUNT(*) FROM webhooks WHERE conversation_id = ?) AS n`,
+      )
+      .get(req.params.id, req.params.id) as { n: number }
+    return { ...conversationFiles(req.params.id, conv.app_path), routines }
   })
 
   // DELETE /:id?files=delete&routines=delete

@@ -8,6 +8,7 @@ import { SidebarToggle } from '../components/ContentLayout'
 import { Markdown } from '../components/MessageBubble'
 import NeedsYouCard from '../components/NeedsYouCard'
 import NameModal from '../components/NameModal'
+import Popover from '../components/Popover'
 import { api, pendingQuestionOf, type Conversation } from '../api'
 import type { Routine } from '../components/RoutineForm'
 import { useChatStore } from '../stores/chatStore'
@@ -39,7 +40,7 @@ export default function TopicPage() {
   const [menu, setMenu] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [creating, setCreating] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLButtonElement>(null)
 
   const convIds = useMemo(() => new Set(conversations.map((c) => c.id)), [conversations])
   const loadRoutines = useCallback(async () => {
@@ -56,13 +57,6 @@ export default function TopicPage() {
     }
   }, [convIds])
   useEffect(() => { loadRoutines() }, [loadRoutines])
-
-  useEffect(() => {
-    if (!menu) return
-    const onOutside = (e: Event) => { if (!menuRef.current?.contains(e.target as Node)) setMenu(false) }
-    window.addEventListener('click', onOutside)
-    return () => window.removeEventListener('click', onOutside)
-  }, [menu])
 
   const waiting = conversations.filter((c) => !!pendingQuestionOf(c))
 
@@ -116,12 +110,11 @@ export default function TopicPage() {
           >
             <Plus size={13} /> New chat here
           </button>
-          <div ref={menuRef} className='relative'>
-            <button onClick={() => setMenu((m) => !m)} title='Topic options' className={`rounded-lg p-1.5 text-text-muted hover:bg-surface2 hover:text-text-primary ${menu ? 'bg-surface2 text-text-primary' : ''}`}>
+          <div className='relative'>
+            <button ref={menuRef} onClick={() => setMenu((m) => !m)} title='Topic options' className={`rounded-lg p-1.5 text-text-muted hover:bg-surface2 hover:text-text-primary ${menu ? 'bg-surface2 text-text-primary' : ''}`}>
               <MoreHorizontal size={15} />
             </button>
-            {menu && (
-              <div onClick={(e) => e.stopPropagation()} className='absolute right-0 top-full mt-1 z-[200] min-w-[160px] rounded-xl border border-border bg-surface p-1 shadow-md/5'>
+            <Popover anchor={menuRef} open={menu} onClose={() => setMenu(false)} className='min-w-[160px] rounded-xl border border-border bg-surface p-1 shadow-md/5'>
                 <MenuItem icon={<Pencil size={14} />} label='Rename' onClick={() => { setMenu(false); setRenaming(true) }} />
                 <MenuItem icon={<Repeat size={14} />} label='Routines' onClick={() => { setMenu(false); navigate(`/routines?section_id=${section.id}`) }} />
                 <MenuItem
@@ -135,8 +128,7 @@ export default function TopicPage() {
                     }
                   }}
                 />
-              </div>
-            )}
+            </Popover>
           </div>
         </div>
       </div>

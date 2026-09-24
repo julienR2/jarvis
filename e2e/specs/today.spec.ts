@@ -16,7 +16,7 @@ test.describe('today', () => {
 
   test('the greeting and the composer come first, the composer is not focused, and the inbox follows', async ({ page }) => {
     await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
-    await expect(page.getByText('How can I help you today?').first()).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^Good (morning|afternoon|evening|night)$/ })).toBeVisible()
     const composer = page.getByPlaceholder('How can I help you today?')
     await expect(composer).toBeVisible()
     await expect(composer).not.toBeFocused()

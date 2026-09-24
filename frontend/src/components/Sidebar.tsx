@@ -20,6 +20,10 @@ import {
   Monitor,
   BellOff,
   RefreshCw,
+  SlidersHorizontal,
+  Blocks,
+  Globe,
+  Code2,
 } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 import { reloadApp } from '../lib/reload'
@@ -30,6 +34,7 @@ import ConversationMenu, {
 } from './ConversationMenu'
 import NameModal from './NameModal'
 import SectionPicker from './SectionPicker'
+import Popover from './Popover'
 import type { Conversation, DeleteOptions, Section } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { api } from '../api'
@@ -102,9 +107,10 @@ export default function Sidebar({
   const { permission, requestPermission } = useNotifications()
   const { theme, preference, cycle } = useTheme()
 
-  // Settings owns its tabs and the two full-height tools reached from Advanced.
+  // Everything the Settings menu opens lights it up.
   const onSettings =
-    location.pathname === '/settings' ||
+    location.pathname.startsWith('/settings') ||
+    location.pathname === '/routines' ||
     location.pathname === '/browser' ||
     location.pathname.startsWith('/code')
 
@@ -145,11 +151,13 @@ export default function Sidebar({
     >
       {/* Header */}
       <div className='px-3 pt-4 pb-2 space-y-0.5'>
+        {/* Home, and a step above the two actions under it: the one place to
+            start from, so it reads as a place rather than another button. */}
         <button
           onClick={() => handleNav('/')}
-          className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${location.pathname === '/' ? 'text-text-primary bg-selected' : 'text-text-secondary hover:bg-surface2'}`}
+          className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${location.pathname === '/' ? 'text-text-primary bg-selected' : 'text-text-primary hover:bg-surface2'}`}
         >
-          <Sun size={16} />
+          <Sun size={16} className='text-accent' />
           <span>Today</span>
           <StatusDot />
         </button>
@@ -179,6 +187,7 @@ export default function Sidebar({
           />
         )}
       </div>
+      <div className='mx-4 mb-1 h-px bg-border' />
 
       {/* Scrollable list */}
       {/* Groups sit tight against each other; the breathing room lives *inside* an
@@ -210,23 +219,11 @@ export default function Sidebar({
 
       </div>
 
-      {/* Bottom nav: Settings, plus the three one-click toggles kept at hand.
-          Logout moved into Settings › Overview. */}
+      {/* Bottom nav: the Settings menu, plus the one-click toggles kept at hand. */}
       <div className='border-t border-border p-2'>
-        <NavItem
-          label='Routines'
-          icon={<Repeat size={15} />}
-          active={location.pathname === '/routines'}
-          onClick={() => handleNav('/routines')}
-        />
         <div className='flex items-center gap-1'>
           <div className='flex-1'>
-            <NavItem
-              label='Settings'
-              icon={<Settings size={15} />}
-              active={onSettings}
-              onClick={() => handleNav('/settings')}
-            />
+            <SettingsMenu active={onSettings} path={location.pathname} onNav={handleNav} />
           </div>
           <button
             onClick={reloadApp}
@@ -404,25 +401,12 @@ function SectionMenu({
   onDelete: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handleOutside(e: MouseEvent | TouchEvent) {
-      if (containerRef.current?.contains(e.target as Node)) return
-      setOpen(false)
-    }
-    window.addEventListener('click', handleOutside)
-    window.addEventListener('touchstart', handleOutside)
-    return () => {
-      window.removeEventListener('click', handleOutside)
-      window.removeEventListener('touchstart', handleOutside)
-    }
-  }, [open])
+  const btnRef = useRef<HTMLButtonElement>(null)
 
   return (
-    <div ref={containerRef} className='relative shrink-0'>
+    <div className='relative shrink-0'>
       <button
+        ref={btnRef}
         onClick={() => setOpen((o) => !o)}
         title='Topic options'
         className={`p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors ${
@@ -435,8 +419,7 @@ function SectionMenu({
       >
         <MoreHorizontal size={14} />
       </button>
-      {open && (
-        <div className='absolute right-0 top-full mt-1 z-[200] min-w-[150px] bg-surface border border-border rounded-xl shadow-md/5 p-1'>
+      <Popover anchor={btnRef} open={open} onClose={() => setOpen(false)} className='min-w-[150px] bg-surface border border-border rounded-xl shadow-md/5 p-1'>
           <MenuButton
             icon={<Repeat size={14} />}
             label='Routines'
@@ -482,8 +465,7 @@ function SectionMenu({
               onDelete()
             }}
           />
-        </div>
-      )}
+      </Popover>
     </div>
   )
 }
@@ -620,29 +602,55 @@ function ConvItem({
   )
 }
 
-function NavItem({
-  label,
-  icon,
-  active,
-  onClick,
-}: {
-  label: string
-  icon: React.ReactNode
-  active?: boolean
-  onClick: () => void
-}) {
+const SETTINGS_ITEMS: { path: string; label: string; hint: string; icon: React.ReactNode }[] = [
+  { path: '/settings', label: 'General', hint: 'Appearance, notifications, API keys', icon: <SlidersHorizontal size={14} /> },
+  { path: '/settings/customize', label: 'Customize', hint: 'Models, connectors, skills', icon: <Blocks size={14} /> },
+  { path: '/routines', label: 'Routines', hint: 'Crons and webhooks', icon: <Repeat size={14} /> },
+  { path: '/browser', label: 'Browser', hint: 'The logged-in Chromium', icon: <Globe size={14} /> },
+  { path: '/code', label: 'Code', hint: "Jarvis's source and its changes", icon: <Code2 size={14} /> },
+]
+
+/**
+ * Settings is a menu of the rarely-visited places, not a page of tabs: each
+ * entry is a page of its own, so none is squeezed into a tab's shape.
+ */
+function SettingsMenu({ active, path, onNav }: { active: boolean; path: string; onNav: (path: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const current = (p: string) => (p === '/code' ? path.startsWith('/code') : path === p)
   return (
-    <button
-      onClick={onClick}
-      className={`
-        w-full text-left px-3 py-2 text-sm rounded-lg flex items-center gap-2.5
-        ${active ? 'text-text-primary bg-selected' : 'text-text-secondary hover:text-text-primary hover:bg-surface2'}
-        transition-colors
-      `}
-    >
-      {icon}
-      {label}
-    </button>
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup='menu'
+        aria-expanded={open}
+        className={`w-full text-left px-3 py-2 text-sm rounded-lg flex items-center gap-2.5 transition-colors ${
+          active || open ? 'text-text-primary bg-selected' : 'text-text-secondary hover:text-text-primary hover:bg-surface2'
+        }`}
+      >
+        <Settings size={15} />
+        Settings
+      </button>
+      <Popover anchor={btnRef} open={open} onClose={() => setOpen(false)} placement='top-start' className='w-64 bg-surface border border-border rounded-xl shadow-md/5 p-1'>
+        <div role='menu'>
+          {SETTINGS_ITEMS.map((item) => (
+            <button
+              key={item.path}
+              role='menuitem'
+              onClick={() => { setOpen(false); onNav(item.path) }}
+              className={`w-full flex items-start gap-2.5 px-2 py-1.5 rounded-lg text-left transition-colors ${current(item.path) ? 'bg-selected' : 'hover:bg-surface2'}`}
+            >
+              <span className='mt-0.5 text-text-muted'>{item.icon}</span>
+              <span className='min-w-0'>
+                <span className='block text-sm text-text-primary'>{item.label}</span>
+                <span className='block text-[11px] text-text-muted truncate'>{item.hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </Popover>
+    </>
   )
 }
 

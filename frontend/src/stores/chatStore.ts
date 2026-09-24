@@ -71,6 +71,8 @@ interface ChatState {
   loadConversations: () => Promise<void>
   createConversation: (title?: string) => Promise<Conversation>
   deleteConversation: (id: string, opts?: DeleteOptions) => Promise<void>
+  /** Drop conversations the server already removed. */
+  forgetConversations: (ids: string[]) => void
 
   // ── Section actions ──────────────────────────────────────────────────────
   loadSections: () => Promise<void>
@@ -243,6 +245,20 @@ export const useChatStore = create<ChatState>()(
         s.order.unshift(conv.id)
       })
       return conv
+    },
+
+    forgetConversations(ids) {
+      set((s) => {
+        for (const id of ids) {
+          delete s.conversations[id]
+          delete s.messages[id]
+          delete s.hasMore[id]
+          delete s.loadingOlder[id]
+          delete s.processing[id]
+          delete s.convsLoaded[id]
+        }
+        s.order = s.order.filter((x) => !ids.includes(x))
+      })
     },
 
     async deleteConversation(id, opts) {
