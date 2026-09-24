@@ -138,9 +138,9 @@ export default function TodayPage() {
           {/* The composer already asks how to help; the line under the greeting
               says what day it is instead of saying that twice. */}
           <p className='mt-1.5 text-sm text-text-muted'>{dateLine}</p>
-          {/* Same box as the inbox below (max-w-2xl, md:px-6), so the composer
+          {/* Same box as the inbox below and a chat's column (max-w-3xl, md:px-6), so the composer
               and the cards line up edge to edge. */}
-          <div className='mt-8 w-full max-w-2xl md:px-6'>
+          <div className='mt-8 w-full max-w-3xl min-w-0 md:px-6'>
             <ChatInput
               onSend={start}
               onSendAudio={startWithAudio}
@@ -157,7 +157,7 @@ export default function TodayPage() {
           </div>
         </section>
 
-        <div className='max-w-2xl mx-auto px-4 md:px-6 pb-10'>
+        <div className='max-w-3xl mx-auto px-4 md:px-6 min-w-0 w-full pb-10'>
           {/* A quiet break between the welcome and what is new — there
               whether the inbox is full or caught up. */}
           <div className='mb-12 flex justify-center gap-1.5' aria-hidden='true' data-testid='today-separator'>
