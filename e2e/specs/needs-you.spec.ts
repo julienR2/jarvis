@@ -77,15 +77,48 @@ test.describe('needs you', () => {
     await expect(row).toHaveAttribute('data-status', 'needs_you')
     // Open by default, the options are right there.
     await expect(row.getByRole('button', { name: 'Beach' })).toBeVisible()
+    // Its second question waits its turn, here as in the chat (same composer).
+    await expect(row.getByRole('button', { name: 'Two days' })).toHaveCount(0)
     await row.getByRole('button', { name: 'Open', exact: true }).click()
     await expect(page).toHaveURL(/\/c\/00000000-0000-4000-8000-000000000007$/)
     // The composer carries the question; picking a chip fills the input.
+    // Two questions: one at a time, the input answering the one on screen.
     const card = page.getByTestId('answer-card')
     await expect(card.getByText('Beach or city for this trip?')).toBeVisible()
+    await expect(card.getByText('How long can you get away?')).toHaveCount(0)
+    await expect(card.getByTestId('question-step')).toHaveText('Trip · 1 of 2')
     const composerInput = page.getByPlaceholder('Or type your own answer…')
+    const next = card.getByRole('button', { name: 'Next' })
+    await expect(next).toBeDisabled()
     await card.getByRole('button', { name: 'City' }).click()
     await expect(composerInput).toHaveValue('City')
-    await expect(page.getByTitle('Answer', { exact: true })).toBeEnabled()
+    // Not the last question yet: Next moves on, there is no Answer to press.
+    await expect(page.getByTitle('Answer', { exact: true })).toHaveCount(0)
+    await next.click()
+    await expect(card.getByTestId('question-step')).toHaveText('Length · 2 of 2')
+    await expect(card.getByText('How long can you get away?')).toBeVisible()
+    await expect(composerInput).toHaveValue('')
+    await expect(card.getByRole('button', { name: 'Next' })).toHaveCount(0)
+    // A typed answer is as good as a pick.
+    await composerInput.fill('Three days')
+    // Back keeps both answers: the first comes back picked, the second waits.
+    await card.getByRole('button', { name: 'Previous' }).click()
+    await expect(card.getByRole('button', { name: 'City' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(composerInput).toHaveValue('City')
+    await composerInput.press('Enter')
+    await expect(composerInput).toHaveValue('Three days')
+    // The last question's Send answers them all at once. Intercepted: no engine
+    // holds this prompt, and answering for real would drop the fixture.
+    let sent: { answers?: Record<string, string> } | null = null
+    await page.route('**/conversations/*/answer', async (route) => {
+      sent = route.request().postDataJSON()
+      await route.fulfill({ json: { answered: true } })
+    })
+    await page.getByTitle('Answer', { exact: true }).click()
+    await expect.poll(() => sent?.answers).toEqual({
+      'Beach or city for this trip?': 'City',
+      'How long can you get away?': 'Three days',
+    })
   })
 
   test('the chat title bar shows the parked run and offers Stop', async ({ page }) => {

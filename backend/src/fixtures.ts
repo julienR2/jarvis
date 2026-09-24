@@ -393,7 +393,7 @@ export function seedFixtures(): void {
     insMsg.run(uuid(), chatConv, 'user', 'Help me plan a weekend somewhere warm.', null, null, null, t(8))
     insMsg.run(uuid(), chatConv, 'assistant', [
       '[note:1] A weekend, warm, from Lisbon — I should pin down the vibe before I dig.',
-      '[note:2] Waiting for you: Beach or city for this trip?',
+      '[note:2] Waiting for you: Beach or city for this trip? · How long can you get away?',
     ].join('\n\n'), null, null, null, t(7))
     db.prepare('UPDATE conversations SET pending_question = ? WHERE id = ?').run(JSON.stringify({
       request_id: 'req_fixture_trip',
@@ -410,6 +410,14 @@ export function seedFixtures(): void {
           options: [
             { label: 'Beach', description: 'Sun, sea and not much of a plan' },
             { label: 'City', description: 'Museums, food, a walkable centre' },
+          ],
+        }, {
+          header: 'Length',
+          question: 'How long can you get away?',
+          multiSelect: false,
+          options: [
+            { label: 'Two days', description: 'Saturday and Sunday' },
+            { label: 'Long weekend', description: 'Friday to Monday' },
           ],
         }],
       },

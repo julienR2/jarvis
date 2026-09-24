@@ -54,8 +54,8 @@ export default function NeedsYouCard({
   const Icon = run?.kind === 'webhook' ? Link2 : run?.kind === 'cron' ? Clock : MessageSquare
   const hint = pending ? describePending(pending) : ''
 
-  async function answer(text: string, attachments: Parameters<typeof answerFromComposer>[3]) {
-    if (pending) await answerFromComposer(conversation.id, pending, text, attachments)
+  async function answer(text: string, attachments: Parameters<typeof answerFromComposer>[3], answers?: Record<string, string>) {
+    if (pending) await answerFromComposer(conversation.id, pending, text, attachments, answers)
   }
   async function answerAudio(blob: Blob) {
     if (!pending) return

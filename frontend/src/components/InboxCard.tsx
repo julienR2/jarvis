@@ -99,8 +99,8 @@ export default function InboxCard({
 
   const status = failed ? 'error' : waitingRun || pending ? 'needs_you' : runningRun ? 'running' : reason
 
-  async function answer(text: string, attachments: Parameters<typeof answerFromComposer>[3]) {
-    if (pending) await answerFromComposer(conversation.id, pending, text, attachments)
+  async function answer(text: string, attachments: Parameters<typeof answerFromComposer>[3], answers?: Record<string, string>) {
+    if (pending) await answerFromComposer(conversation.id, pending, text, attachments, answers)
   }
   async function answerAudio(blob: Blob) {
     if (!pending) return

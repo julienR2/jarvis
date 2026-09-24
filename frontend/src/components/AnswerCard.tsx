@@ -92,20 +92,21 @@ export async function submitAnswer(
 /**
  * The composer's Send while a question is open — the chat's whole answer path.
  * The input holds one answer, whether picked (a chip set the value) or typed;
- * it is the answer to the question. Jarvis asks one question at a time, so a
- * single value is the whole answer; were it ever to ask several, the text
- * answers the first.
+ * for a lone question it is the whole answer. Several questions are stepped
+ * through one at a time in the composer, which then hands over every answer
+ * at once (`answers`); the text is only the last of them.
  */
 export async function answerFromComposer(
   conversationId: string,
   question: PendingQuestion,
   text: string,
   attachments: Attachment[],
+  answers?: Record<string, string>,
 ): Promise<void> {
   const questions = questionsOf(question)
   if (!questions.length || !text.trim()) return
   await submitAnswer(conversationId, question, {
-    answers: { [questions[0].question]: text.trim() },
+    answers: answers ?? { [questions[0].question]: text.trim() },
     attachments,
   })
 }

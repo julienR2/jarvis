@@ -426,12 +426,12 @@ export default function ChatView({
 
   useEffect(() => () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current) }, [])
 
-  function sendMessage(text: string, attachments: Attachment[] = []) {
+  function sendMessage(text: string, attachments: Attachment[] = [], answers?: Record<string, string>) {
     if (!conversationId) return
 
     // An empty send is allowed here: it confirms the options picked in the strip.
     if (composerAnswers && pending) {
-      void answerFromComposer(conversationId, pending, text.trim(), attachments)
+      void answerFromComposer(conversationId, pending, text.trim(), attachments, answers)
       return
     }
     if (!text.trim() && attachments.length === 0) return

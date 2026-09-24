@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion, Reply } from 'lucide-react'
+import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion, Reply, ChevronLeft, ChevronRight } from 'lucide-react'
 import AudioButton from './AudioButton'
 import AnswerCard, { OptionList, hasOptions } from './AnswerCard'
 import ModelSelector from './ModelSelector'
@@ -14,7 +14,9 @@ export interface PendingFile {
 }
 
 interface Props {
-  onSend: (text: string, attachments: Attachment[]) => void
+  /** `answers` comes only when a question with several parts was stepped
+   *  through: one answer per question, keyed by its text. */
+  onSend: (text: string, attachments: Attachment[], answers?: Record<string, string>) => void
   onSendAudio: (blob: Blob) => Promise<void>
   onCancel: () => void
   isProcessing: boolean
@@ -60,6 +62,27 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
   const [dragOver, setDragOver] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Several questions are answered one at a time: the input holds the answer
+  // to the one on screen, the others wait here until the last one is sent.
+  const questions = question ? questionsOf(question) : []
+  const multi = questions.length > 1
+  const [step, setStep] = useState(0)
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+  useEffect(() => {
+    setStep(0)
+    setAnswers({})
+  }, [question?.request_id])
+  const current = questions[Math.min(step, questions.length - 1)]
+  const lastStep = !multi || step >= questions.length - 1
+
+  function goToStep(i: number) {
+    if (!current || i < 0 || i >= questions.length) return
+    setAnswers((a) => ({ ...a, [current.question]: input.trim() }))
+    setInput(answers[questions[i].question] ?? '')
+    setStep(i)
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }
 
   // Auto-focus textarea when requested (e.g. new empty conversation)
   useEffect(() => {
@@ -134,9 +157,14 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
       .filter(f => f.uploaded)
       .map(f => f.uploaded!)
 
-    if (!input.trim() && attachments.length === 0) return
-
-    onSend(input, attachments)
+    if (multi) {
+      if (!input.trim()) return
+      if (!lastStep) return goToStep(step + 1)
+      onSend(input, attachments, { ...answers, [current.question]: input.trim() })
+    } else {
+      if (!input.trim() && attachments.length === 0) return
+      onSend(input, attachments)
+    }
     // Clean up previews
     files.forEach(f => { if (f.preview) URL.revokeObjectURL(f.preview) })
     setFiles([])
@@ -207,7 +235,7 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
   // input, and picking one sets the input's value — the input IS the answer,
   // and the composer's own Send confirms it. While nothing is picked or typed
   // the input dims, so the options read as the first way to answer.
-  const asksQuestion = !!question && questionsOf(question).length > 0
+  const asksQuestion = questions.length > 0
   const dimInput = asksQuestion && hasOptions(question!) && !input.trim() && !hasFiles && !audioActive
   const effectivePlaceholder =
     placeholder ?? (asksQuestion ? (hasOptions(question!) ? 'Or type your own answer…' : 'Your answer…') : 'How can I help you today?')
@@ -215,7 +243,8 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
   // Send stays available while Claude works: the message is steered into the
   // running turn (Stop shows to its left in that case).
   const showMic = !audioActive && (!input.trim() || hasFiles)
-  const showSend = !audioActive && hasContent && (!hasFiles || allUploaded)
+  // Before the last of several questions, Next (in the card, or Enter) moves on.
+  const showSend = !audioActive && hasContent && (!hasFiles || allUploaded) && lastStep
   const showCancel = isProcessing && !audioActive
 
   return (
@@ -231,9 +260,14 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
             <div className='border-b border-warning/30 bg-warning/5 px-4 py-2.5 rounded-t-2xl animate-fade-in' data-testid='answer-card' data-request-id={question.request_id}>
               <div className='mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-warning/80'>
                 <MessageCircleQuestion size={11} /> Jarvis asks
+                {multi && (
+                  <span data-testid='question-step' className='ml-auto font-medium normal-case tracking-normal text-text-muted'>
+                    {current.header ? `${current.header} · ` : ''}{step + 1} of {questions.length}
+                  </span>
+                )}
               </div>
               <OptionList
-                questions={questionsOf(question)}
+                questions={[current]}
                 selectedOf={() => (input.trim() ? [input.trim()] : [])}
                 onPick={(_q, label) => {
                   // Setting it as the input value is the whole trick: pick and
@@ -244,6 +278,30 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
                 }}
                 disabled={audioActive}
               />
+              {multi && (
+                <div className='mt-2 flex items-center gap-2 text-[12px]'>
+                  {step > 0 && (
+                    <button
+                      type='button'
+                      onClick={() => goToStep(step - 1)}
+                      className='inline-flex items-center gap-0.5 text-text-muted transition-colors hover:text-text-primary'
+                    >
+                      <ChevronLeft size={13} /> Previous
+                    </button>
+                  )}
+                  {!lastStep && (
+                    <button
+                      type='button'
+                      disabled={!input.trim() || audioActive}
+                      onClick={() => goToStep(step + 1)}
+                      title={input.trim() ? 'Next question' : 'Pick or type an answer first'}
+                      className='ml-auto inline-flex items-center gap-0.5 rounded-lg bg-warning px-2.5 py-1 font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40'
+                    >
+                      Next <ChevronRight size={13} />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
           {question && !asksQuestion && conversationId && (
@@ -361,7 +419,7 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
               {/* AudioButton always mounted to preserve state; visible when idle mic or actively recording */}
               <div className={showMic || audioActive ? '' : 'hidden'}>
                 <AudioButton
-                  onAudioReady={handleTranscript}
+                  onAudioReady={multi ? handleTranscribeOnly : handleTranscript}
                   onTranscribeReady={handleTranscribeOnly}
                   onActiveChange={setAudioActive}
                 />
