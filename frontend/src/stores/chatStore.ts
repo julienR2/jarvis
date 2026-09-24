@@ -15,7 +15,7 @@ import { isFinishedReply } from '../lib/transcript'
 
 type PatchableFields = Pick<
   Conversation,
-  'title' | 'notify' | 'model' | 'effort' | 'section_id'
+  'title' | 'notify' | 'section_id'
 >
 
 // How many messages to pull per page. Deliberately generous: one round-trip
@@ -86,6 +86,8 @@ interface ChatState {
   loadOlderMessages: (id: string) => Promise<void>
   resyncConversation: (id: string) => Promise<void>
   patchConversation: (id: string, patch: Partial<PatchableFields>) => Promise<void>
+  /** Mirror what the backend records on send: the model the input starts on next. */
+  rememberModel: (id: string, model: string, effort: Conversation['effort']) => void
 
   // ── SSE-driven mutations (no API call) ───────────────────────────────────
   upsertMessage: (convId: string, msg: Message) => void
@@ -461,8 +463,6 @@ export const useChatStore = create<ChatState>()(
         const apiPatch: Parameters<typeof api.updateConversation>[1] = {}
         if (patch.title !== undefined) apiPatch.title = patch.title
         if (patch.notify !== undefined) apiPatch.notify = patch.notify
-        if (patch.model !== undefined) apiPatch.model = patch.model ?? undefined
-        if (patch.effort !== undefined) apiPatch.effort = patch.effort
         if (patch.section_id !== undefined) apiPatch.section_id = patch.section_id
         const updated = await api.updateConversation(id, apiPatch)
         set((s) => {
@@ -476,6 +476,16 @@ export const useChatStore = create<ChatState>()(
         })
         throw err
       }
+    },
+
+    rememberModel(id, model, effort) {
+      set((s) => {
+        const conv = s.conversations[id]
+        if (conv) {
+          conv.model = model
+          conv.effort = effort
+        }
+      })
     },
 
     upsertMessage(convId, msg) {

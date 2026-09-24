@@ -21,7 +21,7 @@ import { useChatStore } from '../stores/chatStore'
 import { useChatEvents } from '../hooks/useChatEvents'
 import MessageBubble, { Markdown, liveStatus, markdownComponents } from './MessageBubble'
 import ChatInput from './ChatInput'
-import { DEFAULT_EFFORT, useModelCatalogue } from './ModelSelector'
+import { DEFAULT_EFFORT, modelName, useModelCatalogue } from './ModelSelector'
 import AppPreview from './AppPreview'
 import ResizeHandle from './ResizeHandle'
 import { useIsDesktop } from '../hooks/useIsDesktop'
@@ -170,8 +170,27 @@ export default function ChatView({
   // showed Opus 5 on a gateway-default instance while the turn ran on the
   // gateway's model: the picker disagreed with what actually answered.
   const catalogueDefault = useModelCatalogue().default
-  const model = conv?.model ?? catalogueDefault
-  const effort = conv?.effort ?? DEFAULT_EFFORT
+  // The picker belongs to the input: a pick applies to the next message only,
+  // and is saved by sending it. Until then it is local, keyed to this chat so
+  // switching conversations never carries it along.
+  const [picked, setPicked] = useState<{ id: string; model: string; effort: Conversation['effort'] } | null>(null)
+  const pick = picked && picked.id === conversationId ? picked : null
+  const model = pick?.model ?? conv?.model ?? catalogueDefault
+  const effort = pick?.effort ?? conv?.effort ?? DEFAULT_EFFORT
+  // An answer names its model only when it differs from the answer before, so
+  // a chat on one model reads as it always did and a switch is visible where
+  // it happened. Rows from before models were recorded carry none and are
+  // skipped rather than read as a change.
+  const modelLabels = useMemo(() => {
+    const labels = new Map<string, string>()
+    let previous: string | null = null
+    for (const m of messages) {
+      if (m.role !== 'assistant' || m.type || !m.model) continue
+      if (previous !== null && m.model !== previous) labels.set(m.id, modelName(m.model))
+      previous = m.model
+    }
+    return labels
+  }, [messages])
   const hasCron = !!conv?.has_cron
   const hasWebhook = !!conv?.has_webhook
   const shareMode = conv?.share_mode ?? null
@@ -418,10 +437,11 @@ export default function ChatView({
     if (!text.trim() && attachments.length === 0) return
 
     api
-      .sendMessage(conversationId, text, attachments.length > 0 ? attachments : undefined, undefined, undefined, quote)
+      .sendMessage(conversationId, text, attachments.length > 0 ? attachments : undefined, model, effort, quote)
       .catch((err) => {
         console.error('Failed to send message:', err)
       })
+    useChatStore.getState().rememberModel(conversationId, model, effort)
     setQuote(null)
   }
 
@@ -433,7 +453,8 @@ export default function ChatView({
       if (transcript.trim()) await answerFromComposer(conversationId, pending, transcript.trim(), [])
       return
     }
-    await api.sendAudio(conversationId, audioBlob)
+    await api.sendAudio(conversationId, audioBlob, model, effort)
+    useChatStore.getState().rememberModel(conversationId, model, effort)
   }
 
   function handleNotifyChange(mode: Conversation['notify']) {
@@ -443,14 +464,12 @@ export default function ChatView({
 
   function handleModelChange(newModel: string) {
     if (!conversationId) return
-    useChatStore.getState().patchConversation(conversationId, { model: newModel })
+    setPicked({ id: conversationId, model: newModel, effort })
   }
 
   function handleEffortChange(newEffort: Conversation['effort']) {
     if (!conversationId) return
-    useChatStore
-      .getState()
-      .patchConversation(conversationId, { effort: newEffort })
+    setPicked({ id: conversationId, model, effort: newEffort })
   }
 
   function handleMove(newSectionId: string | null) {
@@ -580,7 +599,7 @@ export default function ChatView({
                 <RoutinesPill conversationId={conversationId} hasRoutines={hasCron || hasWebhook} />
                 <ShareIcon shareMode={shareMode} />
                 <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
+                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
               </span>
             ) : undefined}
           >
@@ -622,7 +641,7 @@ export default function ChatView({
                     <RoutinesPill conversationId={conversationId} hasRoutines={hasCron || hasWebhook} />
                     <ShareIcon shareMode={shareMode} />
                     <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-                        <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} model={model} effort={effort} onModelChange={handleModelChange} onEffortChange={handleEffortChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} />
+                        <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} />
                   </span>
                 ) : undefined}
               >
@@ -695,6 +714,7 @@ export default function ChatView({
                           // The newest message while a turn runs is the one
                           // being written, and it shows the step it is on.
                           live={isProcessing && item.msg.id === lastMessageId}
+                          modelLabel={modelLabels.get(item.msg.id)}
                         />
                       ),
                     )}
@@ -723,6 +743,12 @@ export default function ChatView({
             onInitialFilesConsumed={onInitialFilesConsumed}
             quote={quote}
             onClearQuote={() => setQuote(null)}
+            // A share link talks to the chat but doesn't choose what it runs
+            // on (the backend ignores its pick too).
+            model={shared ? undefined : model}
+            effort={effort}
+            onModelChange={handleModelChange}
+            onEffortChange={handleEffortChange}
           />
           )}
         </div>

@@ -12,6 +12,8 @@ interface Props {
   msg: Message
   /** This message is the turn currently being written — see ActivityBubble. */
   live?: boolean
+  /** Shown beside the time: the model that answered, when it just changed. */
+  modelLabel?: string
 }
 
 function formatTime(ts: number): string {
@@ -246,7 +248,7 @@ export function liveStatus(msg: Message): { note: string | null; tool: string | 
   return { note: cycle.notes[cycle.notes.length - 1] ?? null, tool: cycle.tools[cycle.tools.length - 1] ?? null }
 }
 
-function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
+function ActivityBubble({ msg, live, modelLabel }: { msg: Message; live?: boolean; modelLabel?: string }) {
   const groups = useMemo(
     () => buildGroups(parseActivityContent(msg.content).activityLines, msg.result),
     [msg.content, msg.result],
@@ -276,6 +278,7 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
         {msg.created_at && !live && (
           <div className='text-[10px] text-text-muted/50 mt-1 flex items-center gap-1.5'>
             {formatTime(msg.created_at)}
+            {modelLabel && <span>· {modelLabel}</span>}
             <CopyButton getText={() => getAssistantCopyText(msg)} />
           </div>
         )}
@@ -284,7 +287,7 @@ function ActivityBubble({ msg, live }: { msg: Message; live?: boolean }) {
   )
 }
 
-export default function MessageBubble({ msg, live }: Props) {
+export default function MessageBubble({ msg, live, modelLabel }: Props) {
   const isUser = msg.role === 'user'
   // Above the early return — a hook must not sit on one side of a conditional
   // return, or the first message whose content grows into activity lines takes
@@ -297,7 +300,7 @@ export default function MessageBubble({ msg, live }: Props) {
 
   // Assistant message with [tool]/[chunk]/[note] lines → activity bubble
   if (!isUser && hasActivityLines(msg.content)) {
-    return <ActivityBubble msg={msg} live={live} />
+    return <ActivityBubble msg={msg} live={live} modelLabel={modelLabel} />
   }
 
   return (
@@ -348,6 +351,7 @@ export default function MessageBubble({ msg, live }: Props) {
         {msg.created_at && (isUser || !live) && (
           <div className={`text-[10px] text-text-muted/50 mt-1 flex items-center gap-1.5 ${isUser ? 'justify-end' : 'justify-start'}`}>
             {formatTime(msg.created_at)}
+            {!isUser && modelLabel && <span>· {modelLabel}</span>}
             <CopyButton getText={() => msg.content} />
           </div>
         )}

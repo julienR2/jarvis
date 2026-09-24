@@ -140,6 +140,19 @@ export function initDb(): void {
     // Column already exists
   }
 
+  // Migration: the model a message was sent with (user rows) or answered by
+  // (assistant rows), and the effort it asked for. The model belongs to the
+  // message, not the conversation: each message picks its own, and a routine
+  // posting into a chat keeps its own model without touching the picker's.
+  // NULL on rows written before this — which model ran them is unknown.
+  for (const col of ['model', 'effort']) {
+    try {
+      db.exec(`ALTER TABLE messages ADD COLUMN ${col} TEXT`)
+    } catch {
+      // Column already exists
+    }
+  }
+
   // Migration: add last_read_at to conversations for unread tracking
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN last_read_at INTEGER`)

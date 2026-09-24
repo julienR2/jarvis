@@ -7,6 +7,11 @@ export interface ConvRow {
   claude_session_id: string | null
   app_path: string | null
   notify: 'subscribe' | 'unsubscribe' | 'auto'
+  /**
+   * The last model/effort a person sent a message with — where the input
+   * starts next time. Each message records its own; routines never move this.
+   * NULL = the instance default.
+   */
   model: string | null
   effort: EffortLevel
   /** Legacy column, unused: reasoning summaries were removed (2026-09-21). */
@@ -67,6 +72,9 @@ export interface MessageRow {
   content: string
   result: string | null
   metadata: string | null
+  /** Sent with (user) or answered by (assistant); null on older rows. */
+  model: string | null
+  effort: EffortLevel | null
   created_at: number
   /** SQLite rowid — strict insertion order, used as the pagination cursor. */
   seq: number

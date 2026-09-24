@@ -158,7 +158,7 @@ export const api = {
     ),
   updateConversation: (
     id: string,
-    data: { title?: string; notify?: string; model?: string; effort?: Effort; section_id?: string | null },
+    data: { title?: string; notify?: string; section_id?: string | null },
   ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
   // Files are archived and routines kept unless told otherwise — the delete
   // dialog's two checkboxes, both off by default.
@@ -253,11 +253,15 @@ export const api = {
   // Fire-and-forget: the server transcribes and posts the message in the
   // background (survives the client navigating away), so there's nothing to
   // return — the message arrives over the conversation event stream.
-  sendAudio: async (conversationId: string, audioBlob: Blob): Promise<void> => {
+  sendAudio: async (conversationId: string, audioBlob: Blob, model?: string, effort?: Effort): Promise<void> => {
     const form = new FormData()
     form.append('file', audioBlob, 'audio.webm')
     const token = getToken()
-    const res = await fetch(`${BASE}/conversations/${conversationId}/audio`, {
+    const query = new URLSearchParams()
+    if (model) query.set('model', model)
+    if (effort) query.set('effort', effort)
+    const qs = query.size ? `?${query}` : ''
+    const res = await fetch(`${BASE}/conversations/${conversationId}/audio${qs}`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: form,
@@ -552,6 +556,7 @@ export interface Conversation {
   claude_session_id: string | null
   app_path: string | null
   notify: 'subscribe' | 'unsubscribe' | 'auto'
+  /** The last model/effort sent with here — where the input starts. Null = instance default. */
   model: string | null
   effort: Effort
   /** Legacy column, unused since reasoning summaries were removed. */
@@ -649,6 +654,9 @@ export interface Message {
   content: string
   result?: string | null
   metadata?: string | null
+  /** Sent with (user) or answered by (assistant); null on older rows. */
+  model?: string | null
+  effort?: Effort | null
   created_at: number
   /** Server-side insertion order — the pagination cursor. */
   seq: number

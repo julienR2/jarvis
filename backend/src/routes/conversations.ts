@@ -235,6 +235,7 @@ export function processMessage(
     // read it charitably. The saved message stays the bare transcript.
     transcribed?: boolean
     onDone?: (text: string) => void
+    // What this message runs on. Unset = the instance default.
     model?: string
     effort?: EffortLevel
     // Run under a throwaway engine session instead of the conversation's own.
@@ -313,6 +314,11 @@ export function processMessage(
     claudePrompt = `${quote}\n${claudePrompt}`
   }
 
+  // Resolved once: the same id is recorded on the messages and sent to the
+  // engine, so what a bubble says ran is what did.
+  const model = resolveModel(options?.model)
+  const effort = options?.effort ?? null
+
   // Save user message (unless skipped, e.g. for crons)
   let userMsgId: string | null = null
   if (!options?.skipUserMessage) {
@@ -325,9 +331,9 @@ export function processMessage(
     console.log(`[msg] db INSERT user message ${userMsgId}`)
     getDb()
       .prepare(
-        'INSERT INTO messages (id, conversation_id, role, content, metadata) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO messages (id, conversation_id, role, content, metadata, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(userMsgId, conversationId, 'user', savedContent, metadata)
+      .run(userMsgId, conversationId, 'user', savedContent, metadata, model, effort)
 
     const userRow = getMessageRow(userMsgId)
     console.log(
@@ -336,9 +342,19 @@ export function processMessage(
     emitConversationEvent(conversationId, { type: 'message', message: userRow })
   }
 
-  getDb()
-    .prepare('UPDATE conversations SET updated_at = unixepoch() WHERE id = ?')
-    .run(conversationId)
+  // The conversation remembers the last model a person picked, as where the
+  // input starts next time — nothing more: every message carries its own. A
+  // routine's run never moves it, so a cron pinned to a cheap model doesn't
+  // change what your next message runs on.
+  if (options?.model !== undefined && !options?.runId) {
+    getDb()
+      .prepare('UPDATE conversations SET model = ?, effort = ?, updated_at = unixepoch() WHERE id = ?')
+      .run(options.model, options.effort ?? 'default', conversationId)
+  } else {
+    getDb()
+      .prepare('UPDATE conversations SET updated_at = unixepoch() WHERE id = ?')
+      .run(conversationId)
+  }
 
   // Emit thinking status
   console.log(`[msg] emit thinking: true`)
@@ -347,11 +363,10 @@ export function processMessage(
   // A media model isn't an agent: the message is a prompt for a picture or a
   // clip, so it goes straight to the gateway's media endpoint instead of the
   // CLI. Choosing an image model chooses the pipeline.
-  const chosenModel = resolveModel(options?.model)
-  modelKind(chosenModel)
+  modelKind(model)
     .then((kind) => {
       if (kind === 'text') return dispatchToAgent()
-      return runMediaGeneration(conversationId, chosenModel, kind, userContent, options?.onDone)
+      return runMediaGeneration(conversationId, model, kind, userContent, options?.onDone)
     })
     // An unhandled rejection here takes the whole backend down with it, and
     // this branch runs detached from the request that started it.
@@ -377,7 +392,7 @@ export function processMessage(
     prompt: claudePrompt,
     sessionId: isolated ? null : conv.claude_session_id,
     conversationId: runKey ?? conversationId,
-    model: resolveModel(options?.model),
+    model,
     effort: options?.effort,
     // The engine derives JARVIS_CONVERSATION_ID from the session key, which for
     // an isolated run is the throwaway runKey. Point it back at the real
@@ -397,6 +412,7 @@ export function processMessage(
         runKey,
         isolated,
         runId: options?.runId,
+        model,
       })
       if (queued) {
         console.log(`[msg] steered into the running turn of ${conversationId}`)
@@ -462,7 +478,7 @@ async function runMediaGeneration(
     const text = `Generated with \`${model}\`.`
     getDb()
       .prepare(
-        'INSERT INTO messages (id, conversation_id, role, content, result, metadata) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO messages (id, conversation_id, role, content, result, metadata, model) VALUES (?, ?, ?, ?, ?, ?, ?)',
       )
       .run(
         id,
@@ -471,6 +487,7 @@ async function runMediaGeneration(
         text,
         text,
         JSON.stringify({ attachments: [media] }),
+        model,
       )
     emitConversationEvent(conversationId, {
       type: 'message',
@@ -527,6 +544,9 @@ const attachedConversations = new Map<
     // The `runs` rows this stream is serving. Usually zero (a human turn) or
     // one; more when several inherited runs were steered into the same turn.
     runIds: Set<string>
+    // Who answers: stamped on the assistant rows. Null when unknown (a stream
+    // re-attached after a restart).
+    model: string | null
     // Prompts the engine raised that are not yet the conversation's pending
     // question — the model asked several things in one message. Shown one at
     // a time, in order, as each is answered.
@@ -566,6 +586,8 @@ export function attachConversationStream(
     runKey?: string
     isolated?: boolean
     runId?: string
+    // Stamped on the assistant rows this stream writes: who answered.
+    model?: string
   },
 ): void {
   // `conversationId` names two things that are usually the same and, for an
@@ -589,9 +611,13 @@ export function attachConversationStream(
     // set, not a single field: several inherited runs can be steered into the
     // same turn, and all of them end when it does.
     if (options?.runId) existing.runIds.add(options.runId)
+    // A message steered into a running turn may have switched model: the
+    // engine applies it in place, so what answers from here on is the new one.
+    if (options?.model) existing.model = options.model
     return
   }
   const attached = {
+    model: options?.model ?? null,
     onDoneQueue: options?.onDone ? [options.onDone] : [],
     steerPending: false,
     runIds: new Set<string>(options?.runId ? [options.runId] : []),
@@ -752,9 +778,9 @@ export function attachConversationStream(
       )
       getDb()
         .prepare(
-          'INSERT INTO messages (id, conversation_id, role, content, metadata) VALUES (?, ?, ?, ?, ?)',
+          'INSERT INTO messages (id, conversation_id, role, content, metadata, model) VALUES (?, ?, ?, ?, ?, ?)',
         )
-        .run(msgId, conversationId, 'assistant', content, runMetadata())
+        .run(msgId, conversationId, 'assistant', content, runMetadata(), attached.model)
       // A new turn began. For turns the CLI starts on its own (background
       // subagent wake-ups) no processMessage ran, so signal thinking here —
       // it's idempotent for turns that did go through processMessage.
@@ -878,9 +904,9 @@ export function attachConversationStream(
           console.log(`[msg] db INSERT assistant ${msgId} (result only)`)
           getDb()
             .prepare(
-              'INSERT INTO messages (id, conversation_id, role, content, result, metadata) VALUES (?, ?, ?, ?, ?, ?)',
+              'INSERT INTO messages (id, conversation_id, role, content, result, metadata, model) VALUES (?, ?, ?, ?, ?, ?, ?)',
             )
-            .run(msgId, conversationId, 'assistant', '', resultText, runMetadata())
+            .run(msgId, conversationId, 'assistant', '', resultText, runMetadata(), attached.model)
         } else {
           console.log(`[msg] db UPDATE assistant ${msgId}: set result`)
           getDb()
@@ -1200,6 +1226,24 @@ export function resumeProcessMessage(
   })
 }
 
+/**
+ * The model and effort a message asks for. Unset falls back to the model the
+ * conversation last ran on. A share link can talk to the chat but not choose
+ * what it runs on — that spends the owner's plan — so its picks are ignored.
+ */
+function messageModel(
+  req: object,
+  conv: ConvRow,
+  model?: string,
+  effort?: string,
+): { model?: string; effort: EffortLevel } {
+  // Set by ownerOrShare on a share-link request (see share-access.ts).
+  if ((req as { share?: unknown }).share) {
+    return { model: conv.model ?? undefined, effort: normalizeEffort(conv.effort) }
+  }
+  return { model: model || conv.model || undefined, effort: normalizeEffort(effort ?? conv.effort) }
+}
+
 export async function conversationRoutes(app: FastifyInstance) {
   const auth = { onRequest: [app.authenticate] }
 
@@ -1313,11 +1357,9 @@ export async function conversationRoutes(app: FastifyInstance) {
     const body = (req.body ?? {}) as {
       title?: string
       notify?: string
-      model?: string
-      effort?: string | boolean
       section_id?: string | null
     }
-    const { title, notify, model, effort } = body
+    const { title, notify } = body
 
     const sets: string[] = []
     const params: unknown[] = []
@@ -1332,29 +1374,6 @@ export async function conversationRoutes(app: FastifyInstance) {
       }
       sets.push('notify = ?')
       params.push(notify)
-    }
-    if (model !== undefined) {
-      sets.push('model = ?')
-      params.push(model)
-
-      // Moving between Anthropic and a gateway invalidates the CLI session:
-      // resuming it makes the CLI cite a message id the new provider never
-      // issued, and the turn fails. The engine handles this for a warm
-      // session; clearing the stored id covers the cold one, where nothing
-      // else knows which provider that transcript belonged to. Jarvis keeps
-      // its own history, so only the CLI's context carry-over is lost.
-      const previous = getDb()
-        .prepare('SELECT model, claude_session_id FROM conversations WHERE id = ?')
-        .get(req.params.id) as { model: string | null; claude_session_id: string | null } | undefined
-      const wasGateway = !!previous?.model?.includes('/')
-      const nowGateway = !!model?.includes('/')
-      if (previous?.claude_session_id && wasGateway !== nowGateway) {
-        sets.push('claude_session_id = NULL')
-      }
-    }
-    if (effort !== undefined) {
-      sets.push('effort = ?')
-      params.push(normalizeEffort(effort))
     }
     // null moves the conversation back to the default "Chats" group.
     if ('section_id' in body) {
@@ -1717,8 +1736,7 @@ export async function conversationRoutes(app: FastifyInstance) {
         content?.trim() || '',
         attachments || [],
         {
-          model: model ?? conv.model ?? undefined,
-          effort: normalizeEffort(effort ?? conv.effort),
+          ...messageModel(req, conv, model, effort),
           replyTo,
         },
       )
@@ -1809,7 +1827,7 @@ export async function conversationRoutes(app: FastifyInstance) {
     }
   })
 
-  app.post<{ Params: { id: string } }>(
+  app.post<{ Params: { id: string }; Querystring: { model?: string; effort?: string } }>(
     '/:id/audio',
     auth,
     async (req, reply) => {
@@ -1835,7 +1853,10 @@ export async function conversationRoutes(app: FastifyInstance) {
       void (async () => {
         try {
           const transcript = await transcribeAudioBuffer(buffer)
-          processMessage(id, conv, transcript, [], { transcribed: true })
+          processMessage(id, conv, transcript, [], {
+            transcribed: true,
+            ...messageModel(req, conv, req.query.model, req.query.effort),
+          })
         } catch (err) {
           console.error('[audio] background transcription failed:', err)
           emitConversationError(

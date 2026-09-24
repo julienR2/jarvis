@@ -56,19 +56,25 @@ test.describe('chat rendering', () => {
     await expect(page.getByText(/JavaScript Weekly/)).toHaveCount(0)
   })
 
-  test('think hard is off by default; the ⋯ menu switches it on per chat, and it sticks', async ({ page }) => {
+  test('the model picker lives in the input, not the ⋯ menu', async ({ page }) => {
     await openConversation(page, 'Morning brief')
     await page.getByRole('main').locator('button[title*="onversation options"]:visible').first().click()
-    // Reasoning summaries are gone: no such switch any more.
-    await expect(page.getByRole('switch', { name: 'Show reasoning' })).toHaveCount(0)
+    await expect(page.getByRole('switch', { name: 'Think hard' })).toHaveCount(0)
+    await expect(page.getByText('Notifications')).toBeVisible()
+    await page.keyboard.press('Escape')
+    // Opens above the input; think hard is off by default and switches on for
+    // the next message (saved only by sending it).
+    await page.getByRole('main').getByTitle('Model').click()
     const sw = page.getByRole('switch', { name: 'Think hard' })
     await expect(sw).toHaveAttribute('aria-checked', 'false')
     await sw.click()
     await expect(sw).toHaveAttribute('aria-checked', 'true')
-    // Persisted: reopening the menu after a reload finds it on.
-    await page.reload()
-    await page.getByRole('main').locator('button[title*="onversation options"]:visible').first().click()
-    await expect(page.getByRole('switch', { name: 'Think hard' })).toHaveAttribute('aria-checked', 'true')
+  })
+
+  test('an answer names its model only where it changed', async ({ page }) => {
+    await openConversation(page, 'Quoted reply')
+    await expect(page.getByText('· Haiku 4.5')).toHaveCount(1)
+    await expect(page.getByText(/· Opus/)).toHaveCount(0)
   })
 
   test('background run: the gear opens the routine in edit mode', async ({ page }) => {

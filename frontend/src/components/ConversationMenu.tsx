@@ -7,13 +7,10 @@ import {
   useCallback,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Repeat, Pencil, Brain, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2, ChevronRight } from 'lucide-react'
-import { useModelCatalogue, DEFAULT_MODEL, modelName, DEFAULT_EFFORT, modelSupportsEffort, EffortSwitch } from './ModelSelector'
-import GatewayModelPicker from './GatewayModelPicker'
-import { isGatewayModel, modalityLabel } from './ModelSelector'
+import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Repeat, Pencil, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2 } from 'lucide-react'
 import ShareDialog from './ShareDialog'
 import DeleteConversationDialog from './DeleteConversationDialog'
-import type { Effort, DeleteOptions } from '../api'
+import type { DeleteOptions } from '../api'
 
 type NotifyMode = 'subscribe' | 'unsubscribe' | 'auto'
 
@@ -28,10 +25,6 @@ interface Props {
   onRename?: () => void
   notify?: NotifyMode
   onNotifyChange?: (mode: NotifyMode) => void
-  model?: string
-  effort?: Effort
-  onModelChange?: (model: string) => void
-  onEffortChange?: (effort: Effort) => void
   conversationId?: string
   hasCron?: boolean
   hasWebhook?: boolean
@@ -54,7 +47,6 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
   function ConversationMenu({
     onDelete, onRename,
     notify = 'subscribe', onNotifyChange,
-    model, effort = DEFAULT_EFFORT, onModelChange, onEffortChange,
     conversationId, hasCron, hasWebhook,
     onMove,
     onRefreshApp, appUrl, onRotateAppToken,
@@ -67,15 +59,6 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     const [deleting, setDeleting] = useState(false)
     const btnRef = useRef<HTMLButtonElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
-
-    const { models: catalogue, anthropic, gateway, default: defaultModel } = useModelCatalogue()
-    // Server-decided: a gateway-only instance defaults to the gateway's
-    // route, since a bare id would be sent to Anthropic and fail.
-    const activeModel = model ?? defaultModel
-    const [pickingModel, setPickingModel] = useState(false)
-    const selectedModel = catalogue.find(m => m.id === activeModel)
-    const shortName = selectedModel?.name ?? modelName(activeModel)
-    const supportsEffort = modelSupportsEffort(activeModel)
 
     useImperativeHandle(ref, () => ({
       open() { setOpen(true) },
@@ -102,17 +85,8 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
           ref={btnRef}
           onClick={() => setOpen(o => !o)}
           className={`flex items-center gap-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors shrink-0 ${compact ? 'px-1.5 py-0.5' : 'px-2 py-1'} ${open ? 'bg-surface2 text-text-primary' : ''}`}
-          title={shortName ? `${shortName} · conversation options` : 'Conversation options'}
+          title='Conversation options'
         >
-          {/* Gateway model names can be far longer than "Opus 5"; cap the
-              header label so a long one can't push the title bar around. The
-              full name is on the button's tooltip. */}
-          {!compact && (
-            <span className='text-xs font-medium text-text-secondary max-w-[130px] truncate'>
-              {shortName}
-            </span>
-          )}
-          {!compact && supportsEffort && effort === 'high' && <Brain size={11} className='text-accent' />}
           <MoreHorizontal size={14} />
         </button>
 
@@ -121,64 +95,6 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
 
             {!compact && (
               <>
-                {/* Model selector */}
-                <div className='px-2 py-1.5'>
-                  <span className='text-[11px] text-text-muted font-medium'>Model</span>
-                  {/* Both providers can be configured at once. Anthropic's few
-                      models stay inline where they're one click; a gateway's
-                      hundreds get a row that opens a searchable picker. With
-                      both, you get both. */}
-                  <div className='flex flex-col gap-0.5 mt-1'>
-                    {anthropic.map(m => (
-                      <button
-                        key={m.id}
-                        onClick={() => onModelChange?.(m.id)}
-                        className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
-                          activeModel === m.id
-                            ? 'bg-accent/10 text-accent font-medium'
-                            : 'text-text-secondary hover:bg-surface2 hover:text-text-primary'
-                        }`}
-                        title={m.desc}
-                      >
-                        {m.name}
-                      </button>
-                    ))}
-                    {gateway.length > 0 && (
-                      <button
-                        onClick={() => { setOpen(false); setPickingModel(true) }}
-                        className={`w-full flex items-center gap-2 text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
-                          isGatewayModel(activeModel)
-                            ? 'bg-accent/10 text-accent font-medium'
-                            : 'text-text-secondary hover:bg-surface2 hover:text-text-primary'
-                        }`}
-                      >
-                        <span
-                          className='flex-1 min-w-0 max-w-[180px] truncate'
-                          // Gateway names run long ("Anthropic: Claude Opus 4.5
-                          // (self-moderated)") — truncate, and let a hover show
-                          // the whole thing rather than widening the menu.
-                          title={isGatewayModel(activeModel) ? (selectedModel?.name ?? model) : undefined}
-                        >
-                          {isGatewayModel(activeModel)
-                            ? (selectedModel?.name ?? model)
-                            : `OpenRouter · ${gateway.length} models`}
-                        </span>
-                        {isGatewayModel(activeModel) && selectedModel && modalityLabel(selectedModel) && (
-                          <span className='shrink-0 rounded border border-border px-1 py-px text-[10px] text-text-muted'>
-                            {modalityLabel(selectedModel)}
-                          </span>
-                        )}
-                        <ChevronRight size={13} className='shrink-0 opacity-60' />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Think hard: off = the model's default, on = --effort high. */}
-                <EffortSwitch effort={effort} onChange={(e) => onEffortChange?.(e)} disabled={!supportsEffort} />
-
-                <div className='h-px bg-border my-1' />
-
                 {/* Notify toggle */}
                 <div className='px-2 py-1.5'>
                   <span className='text-[11px] text-text-muted font-medium'>Notifications</span>
@@ -316,18 +232,6 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
               Delete
             </button>
           </div>
-        )}
-
-        {pickingModel && (
-          <GatewayModelPicker
-            // The gateway's catalogue only. Passing the combined list put
-            // Anthropic's models inside the gateway picker, where choosing
-            // "Opus 5" silently selected the subscription route instead.
-            models={gateway}
-            selected={activeModel}
-            onSelect={(id) => onModelChange?.(id)}
-            onClose={() => setPickingModel(false)}
-          />
         )}
 
         {sharing && conversationId && (

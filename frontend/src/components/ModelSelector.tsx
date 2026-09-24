@@ -270,6 +270,7 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
       <button
         onClick={() => setShowMenu(v => !v)}
         disabled={disabled}
+        title="Model"
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-text-secondary bg-bg hover:bg-border/60 transition-colors disabled:opacity-30"
       >
         <span className="text-text-primary font-semibold">{selectedModel.name}</span>

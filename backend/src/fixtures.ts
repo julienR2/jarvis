@@ -205,7 +205,13 @@ export function seedFixtures(): void {
     const boardAnswer = "A 6'2 shortboard if the swell holds through Thursday; otherwise the fish, which paddles better in the mush. Either way check the wind before noon."
     insMsg.run(quotedMsg, qc, 'assistant', `[chunk:1] ${boardAnswer}`, null, null, boardAnswer, t(499))
     insMsg.run(uuid(), qc, 'user', "Which fish do you mean, the 5'8?", JSON.stringify({ reply_to: { message_id: quotedMsg, text: 'otherwise the fish, which paddles better in the mush' } }), null, null, t(472))
-    insMsg.run(uuid(), qc, 'assistant', "[chunk:1] The 5'8 twin, yes.", null, null, "The 5'8 twin, yes.", t(471))
+    const twinMsg = uuid()
+    insMsg.run(twinMsg, qc, 'assistant', "[chunk:1] The 5'8 twin, yes.", null, null, "The 5'8 twin, yes.", t(471))
+    // Each answer records its model; the follow-up was sent on another one, so
+    // its bubble names it (a chat on one model shows no label at all).
+    const setModel = db.prepare('UPDATE messages SET model = ? WHERE id = ?')
+    setModel.run('claude-opus-5-5', quotedMsg)
+    setModel.run('claude-haiku-4-5', twinMsg)
 
     // 2d. Today's inbox, one chat per reason. Read states are set at the end.
     const answer = (conv: string, user: string, text: string, at: number) => {

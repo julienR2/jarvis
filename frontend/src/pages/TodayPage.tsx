@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ChatInput from '../components/ChatInput'
+import { useModelCatalogue } from '../components/ModelSelector'
 import InboxCard, { type InboxReason } from '../components/InboxCard'
 import { SidebarToggle } from '../components/ContentLayout'
-import { api, pendingQuestionOf, type Attachment, type Conversation, type RunListItem } from '../api'
+import { api, pendingQuestionOf, type Attachment, type Conversation, type Effort, type RunListItem } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { BASE_PATH } from '../base'
 import { reloadRecentRuns, useRecentRuns } from '../lib/runs'
@@ -29,6 +30,11 @@ export default function TodayPage() {
   // is still running.
   const { runs, error: loadError } = useRecentRuns()
   const [starting, setStarting] = useState(false)
+  // The new chat's first message runs on what's picked here.
+  const catalogueDefault = useModelCatalogue().default
+  const [picked, setPicked] = useState<string | null>(null)
+  const [effort, setEffort] = useState<Effort>('default')
+  const model = picked ?? catalogueDefault
 
   const entries = useMemo(() => buildInbox(Object.values(conversations), runs ?? []), [conversations, runs])
   const sectionName = (id: string | null) => (id ? sections.find((s) => s.id === id)?.name : undefined)
@@ -40,7 +46,7 @@ export default function TodayPage() {
     setStarting(true)
     try {
       const conv = await useChatStore.getState().createConversation()
-      await api.sendMessage(conv.id, text, attachments)
+      await api.sendMessage(conv.id, text, attachments, model, effort)
       navigate(`/c/${conv.id}`)
     } catch (err) {
       console.error('Could not start the chat:', err)
@@ -53,7 +59,7 @@ export default function TodayPage() {
     setStarting(true)
     try {
       const conv = await useChatStore.getState().createConversation()
-      await api.sendAudio(conv.id, blob)
+      await api.sendAudio(conv.id, blob, model, effort)
       navigate(`/c/${conv.id}`)
     } catch (err) {
       console.error('Could not start the chat:', err)
@@ -109,6 +115,10 @@ export default function TodayPage() {
             onSendAudio={startWithAudio}
             onCancel={() => {}}
             isProcessing={false}
+            model={model}
+            effort={effort}
+            onModelChange={setPicked}
+            onEffortChange={setEffort}
           />
         </div>
 

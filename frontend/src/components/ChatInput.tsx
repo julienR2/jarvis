@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion, Reply } from 'lucide-react'
 import AudioButton from './AudioButton'
 import AnswerCard, { OptionList, hasOptions } from './AnswerCard'
-import { api, questionsOf, type Attachment, type PendingQuestion, type ReplyTo } from '../api'
+import ModelSelector from './ModelSelector'
+import { api, questionsOf, type Attachment, type Effort, type PendingQuestion, type ReplyTo } from '../api'
 
 export interface PendingFile {
   file: File
@@ -38,9 +39,15 @@ interface Props {
    *  owns it and sends it with the text (see ChatView.sendMessage). */
   quote?: ReplyTo | null
   onClearQuote?: () => void
+  /** What the next message runs on. The picker shows only when a model is given;
+   *  the parent owns the choice and sends it with the message. */
+  model?: string
+  effort?: Effort
+  onModelChange?: (model: string) => void
+  onEffortChange?: (effort: Effort) => void
 }
 
-export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing, conversationId, autoFocus, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote }: Props) {
+export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing, conversationId, autoFocus, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange }: Props) {
   const [input, setInput] = useState(initialText || '')
   // A fresh quote is an invitation to type under it.
   useEffect(() => {
@@ -340,6 +347,11 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
             </button>
 
             <div className="flex items-center gap-1">
+              {/* Not while answering: an answer continues the turn that asked,
+                  on whatever it runs on — it is not a new message. */}
+              {model && !asksQuestion && onModelChange && onEffortChange && (
+                <ModelSelector model={model} effort={effort} onModelChange={onModelChange} onEffortChange={onEffortChange} />
+              )}
               {/* AudioButton always mounted to preserve state; visible when idle mic or actively recording */}
               <div className={showMic || audioActive ? '' : 'hidden'}>
                 <AudioButton
