@@ -138,9 +138,9 @@ export default function TodayPage() {
           {/* The composer already asks how to help; the line under the greeting
               says what day it is instead of saying that twice. */}
           <p className='mt-1.5 text-sm text-text-muted'>{dateLine}</p>
-          {/* Same box as the inbox below and a chat's column (max-w-3xl, md:px-6), so the composer
-              and the cards line up edge to edge. */}
-          <div className='mt-8 w-full max-w-3xl min-w-0 md:px-6'>
+          {/* A touch narrower than the inbox below, which takes a chat's
+              column (max-w-3xl): the composer is the welcome, not a feed. */}
+          <div className='mt-8 w-full max-w-2xl md:px-6'>
             <ChatInput
               onSend={start}
               onSendAudio={startWithAudio}
