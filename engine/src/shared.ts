@@ -1,9 +1,4 @@
-// Helpers shared by the two process stacks:
-//   - legacy one-shot invocations (index.ts) — one `claude -p` per message
-//   - persistent sessions (sessions.ts)      — one long-lived process per conversation
-// The legacy stack is kept byte-compatible during the migration so an old
-// backend keeps working against this engine; it goes away once the backend
-// has switched to the session API.
+// Event types, credentials and provider config shared by the engine's modules.
 
 import { readFileSync } from 'fs'
 import { timingSafeEqual } from 'crypto'
@@ -17,8 +12,8 @@ import { timingSafeEqual } from 'crypto'
  * distinction the flat event stream cannot otherwise express, and which decides
  * whether a note is really the label of the steps under it.
  *
- * Absent on events from the legacy one-shot stack, which never learned it;
- * consumers must treat a missing group as "unknown", not as group 0.
+ * Optional in the type: consumers must treat a missing group as "unknown",
+ * not as group 0.
  */
 export type ActivityGroup = number
 

@@ -105,8 +105,7 @@ export interface StreamHandle {
 /**
  * Subscribe to a conversation's event stream (current-turn replay + live).
  * `onEnd` fires when the stream terminates server-side — session closed
- * (idle reap, process exit) or, for a legacy invocation, turn finished —
- * NOT on every done event. The caller should drop its attach guard there.
+ * (idle reap, process exit) — NOT on every done event. The caller should drop its attach guard there.
  */
 export function streamConversation(
   conversationId: string,
@@ -230,9 +229,8 @@ export function invokeAndWait(opts: SendMessageOptions): Promise<string> {
 // ── interrupt ────────────────────────────────────────────────────────────────
 
 /**
- * Stop the conversation's current work. On a session this is a soft interrupt
- * (context survives, next message continues warm); on a legacy invocation the
- * engine SIGTERMs the process. Both are behind the same endpoint.
+ * Stop the conversation's current work: a soft interrupt — context survives,
+ * the next message continues warm.
  */
 export async function interruptConversation(conversationId: string): Promise<void> {
   await fetch(`${ENGINE_URL}/cancel/${conversationId}`, {
@@ -290,10 +288,6 @@ export async function isRunning(conversationId: string): Promise<boolean> {
   }
 }
 
-/**
- * Conversation-level busy view for the restart-reconnect path. Covers both
- * stacks: persistent sessions and any legacy invocation still in flight.
- */
 // ── Plugins ──────────────────────────────────────────────────────────────────
 
 /**

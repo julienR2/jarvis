@@ -1,23 +1,29 @@
-// Persistent Claude sessions — one long-lived `claude` process per
-// conversation, fed user messages over stdin as stream-json events.
+// Persistent Claude sessions — one long-lived Agent SDK `query()` per
+// conversation, fed user messages through an input queue.
 //
-// Compared to the legacy one-shot stack (one process per message, stdin closed
-// after the prompt), a live stdin means:
-//   - messages sent while a turn is running reach the CLI immediately
-//     (steering / queueing is handled by the CLI itself)
-//   - background subagents survive between turns instead of dying with the
-//     per-message process
-//   - no --resume cold-start cost on every message
+// The SDK runs the pinned `claude` CLI (see CLAUDE_BIN) and owns the protocol:
+// framing, permission prompts, interrupts. Messages sent mid-turn reach the CLI
+// immediately (it steers or queues them), background subagents survive between
+// turns, and model/effort changes apply in place.
 //
 // A session dies when: it has been idle past ENGINE_IDLE_TTL_MS, the oldest
-// idle one is evicted to respect ENGINE_MAX_SESSIONS, its model/effort changes
-// (respawned with --resume), or the process exits. The claude session id is
-// persisted by the backend after every turn, so any death is recoverable — the
-// next message simply resumes.
+// idle one is evicted to respect ENGINE_MAX_SESSIONS, the conversation crosses
+// between Anthropic and a gateway (credentials are per process), or the CLI
+// exits. The claude session id is persisted by the backend after every turn,
+// so any death is recoverable — the next message simply resumes.
 
-import { spawn, type ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { existsSync, readFileSync } from 'fs'
+import { createRequire } from 'module'
+import { dirname, join } from 'path'
+import {
+  query,
+  type EffortLevel,
+  type PermissionResult,
+  type Query,
+  type SDKMessage,
+  type SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk'
 import {
   type ClaudeEvent,
   WORKSPACE_DIR,
@@ -28,6 +34,16 @@ import {
 } from './shared.js'
 
 export type SessionEvent = ClaudeEvent | { type: 'end' }
+
+// The CLI pinned in engine/package.json, not the one the SDK bundles — left
+// alone the SDK runs whichever of the two is newer, and the pin stops meaning
+// anything.
+const CLAUDE_BIN = (() => {
+  const require = createRequire(import.meta.url)
+  const pkgPath = require.resolve('@anthropic-ai/claude-code/package.json')
+  const bin = JSON.parse(readFileSync(pkgPath, 'utf8')).bin
+  return join(dirname(pkgPath), typeof bin === 'string' ? bin : bin.claude)
+})()
 
 /**
  * A prompt the CLI parked its turn on, waiting for the person: a question it
@@ -43,9 +59,44 @@ export interface PendingAsk {
   askedAt: number
 }
 
+/**
+ * The SDK pulls user messages from an async iterable; we push them as they
+ * arrive over HTTP. Ending it closes the CLI's stdin — a graceful exit.
+ */
+class InputQueue implements AsyncIterable<SDKUserMessage> {
+  private items: SDKUserMessage[] = []
+  private wake: (() => void) | null = null
+  private ended = false
+
+  push(text: string): void {
+    if (this.ended) return
+    this.items.push({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'text', text }] },
+      parent_tool_use_id: null,
+    })
+    this.wake?.()
+  }
+
+  end(): void {
+    this.ended = true
+    this.wake?.()
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
+    for (;;) {
+      const item = this.items.shift()
+      if (item) yield item
+      else if (this.ended) return
+      else await new Promise<void>((r) => (this.wake = r))
+    }
+  }
+}
+
 export interface Session {
   conversationId: string
-  proc: ChildProcess
+  query: Query
+  input: InputQueue
   // busy = a turn is in flight (user message written, result not yet seen)
   status: 'busy' | 'idle'
   // Claude session id, stable for the lifetime of the process. Captured from
@@ -64,21 +115,20 @@ export interface Session {
   // if --resume points at a session the CLI no longer knows about.
   unanswered: string[]
   allowResumeRetry: boolean
-  // Pass the live-streaming CLI flags on spawn. Cleared and retried once if the
-  // CLI rejects them — see the unknown-option branch in the close handler.
-  streamingFlags: boolean
-  // Route permission prompts to us (`--permission-prompt-tool stdio`) instead
-  // of auto-denying them. Same retry treatment as the streaming flags.
-  hostPrompts: boolean
   // Prompts the CLI is waiting on, oldest first. Usually empty or one; several
   // when the model called more than one gated tool in the same message.
   pending: PendingAsk[]
+  // How each pending prompt gets its answer back to the SDK's canUseTool.
+  resolvers: Map<string, (r: PermissionResult) => void>
+  // In-place model/effort switches in flight; user messages wait on it so
+  // they run under the new settings.
+  ready: Promise<void>
   // One-shot sessions (title generation, isolated cron/webhook runs) close
-  // stdin after the first result — or after the wake-up turn, when background
-  // subagents were still running.
+  // their input after the first result — or after the wake-up turn, when
+  // background subagents were still running.
   oneShot: boolean
-  // A graceful close was initiated (reap, eviction, model change) — the close
-  // handler must not report it as an error.
+  // A graceful close was initiated (reap, eviction, provider change) — the
+  // exit handler must not report it as an error.
   closing: boolean
   // Escalation timer armed by interrupt() and graceful closes.
   killTimer: NodeJS.Timeout | null
@@ -119,7 +169,7 @@ function windowForModel(model?: string): number | null {
 
 const IDLE_TTL_MS = parseInt(process.env.ENGINE_IDLE_TTL_MS || '') || 15 * 60 * 1000
 const MAX_SESSIONS = parseInt(process.env.ENGINE_MAX_SESSIONS || '') || 8
-// How long an interrupt or graceful close waits before SIGTERM.
+// How long an interrupt or graceful close waits before closing the query.
 const KILL_GRACE_MS = 8000
 
 const sessions = new Map<string, Session>()
@@ -185,54 +235,76 @@ export interface EnsureOptions {
   inheritSubscribers?: Set<(ev: SessionEvent) => void>
 }
 
+/**
+ * The effort actually sent for a model. The backend sends 'high' when the
+ * chat's "Think hard" switch is on, nothing otherwise — the model's own
+ * default. Haiku uses classic extended thinking rather than adaptive effort and
+ * errors if an effort is set, so it never gets one.
+ */
+function effortFor(model?: string, effort?: string): EffortLevel | undefined {
+  if (!effort || /haiku/i.test(model ?? '')) return undefined
+  return effort as EffortLevel
+}
+
 export function ensureSession(opts: EnsureOptions): Session {
   const existing = sessions.get(opts.conversationId)
-  if (existing) {
-    // Model or effort changed mid-conversation: the flags are argv-only, so
-    // the process has to be replaced. Resume from its own live session id.
-    // (`effort` is compared as sent: undefined = no flag, 'high' = the flag.)
-    if (
-      (opts.model ?? existing.model) !== existing.model ||
-      opts.effort !== existing.effort
-    ) {
-      // Crossing between Anthropic and a gateway means the transcript can't be
-      // resumed: the CLI references the previous response's message id, and the
-      // new provider never issued it — the turn fails with
-      // "previous_message_id must be the id from a prior /v1/messages
-      // response". Switching provider therefore starts a fresh CLI session.
-      // Jarvis keeps its own message history either way, so the conversation is
-      // intact on screen; what is lost is the CLI's own context carry-over.
-      const crossedProvider =
-        isGatewayModel(opts.model ?? existing.model) !== isGatewayModel(existing.model)
-      const resumeId = crossedProvider
-        ? null
-        : existing.claudeSessionId ?? opts.resumeSessionId ?? null
-      if (crossedProvider) {
-        console.log(
-          `[session] ${opts.conversationId}: provider changed, starting a fresh session`,
-        )
-      }
-      console.log(
-        `[session] ${opts.conversationId}: model/effort change, respawning`,
-      )
-      closeSession(existing, { graceful: false })
-      // Hand the subscriber SET ITSELF (not a copy) to the replacement. The
-      // backend attaches once per conversation and only re-attaches when the
-      // stream emits `end` — which a respawn deliberately doesn't, since the
-      // conversation lives on. Giving the new session a fresh empty set would
-      // strand that subscriber on the dead object and silently drop every
-      // event of the turn that triggered the respawn, and of every turn after
-      // it. Sharing the reference also keeps the SSE handler's own
-      // `subscribers.delete(handler)` cleanup pointing at the live set.
-      return createSession({
-        ...opts,
-        resumeSessionId: resumeId,
-        inheritSubscribers: existing.subscribers,
-      })
-    }
-    return existing
+  if (!existing) return createSession(opts)
+  // On its way out (one-shot done, reaped, evicted): its input is closed, so a
+  // message written to it would vanish. Replace it; open streams follow.
+  if (existing.closing) return createSession({ ...opts, inheritSubscribers: existing.subscribers })
+
+  const model = opts.model ?? existing.model
+  const modelChanged = model !== existing.model
+  const effortChanged =
+    effortFor(model, opts.effort) !== effortFor(existing.model, existing.effort)
+  if (!modelChanged && !effortChanged) return existing
+
+  // Crossing between Anthropic and a gateway can't happen in place: the
+  // credentials are the CLI's environment, fixed at spawn. Nor can the
+  // transcript follow — the CLI references the previous response's message id,
+  // and the new provider never issued it ("previous_message_id must be the id
+  // from a prior /v1/messages response"). So a provider switch starts a fresh
+  // CLI session. Jarvis keeps its own message history either way, so the
+  // conversation is intact on screen; what is lost is the CLI's own context
+  // carry-over.
+  if (isGatewayModel(model) !== isGatewayModel(existing.model)) {
+    console.log(`[session] ${opts.conversationId}: provider changed, starting a fresh session`)
+    closeSession(existing, { graceful: false })
+    // Hand the subscriber SET ITSELF (not a copy) to the replacement. The
+    // backend attaches once per conversation and only re-attaches when the
+    // stream emits `end` — which a respawn deliberately doesn't, since the
+    // conversation lives on. Giving the new session a fresh empty set would
+    // strand that subscriber on the dead object and silently drop every event
+    // of the turn that triggered the respawn, and of every turn after it.
+    // Sharing the reference also keeps the SSE handler's own
+    // `subscribers.delete(handler)` cleanup pointing at the live set.
+    return createSession({
+      ...opts,
+      resumeSessionId: null,
+      inheritSubscribers: existing.subscribers,
+    })
   }
-  return createSession(opts)
+
+  // Same provider: switch in place — the process, its context and any
+  // background subagents all survive.
+  console.log(`[session] ${opts.conversationId}: switching to ${model ?? 'default'} / effort ${effortFor(model, opts.effort) ?? 'default'}`)
+  existing.model = model
+  existing.effort = opts.effort
+  if (modelChanged) {
+    existing.contextWindow = windowForModel(model)
+    existing.lastUsage = null
+  }
+  const q = existing.query
+  existing.ready = existing.ready
+    .then(async () => {
+      if (modelChanged) await q.setModel(model)
+      if (effortChanged) await q.applyFlagSettings({ effortLevel: effortFor(model, opts.effort) ?? null })
+    })
+    .catch((err) => {
+      console.error(`[session] ${opts.conversationId}: model/effort switch failed:`, err)
+      pushEvent(existing, { type: 'error', message: `Couldn't switch model: ${err?.message ?? err}` })
+    })
+  return existing
 }
 
 function createSession(opts: EnsureOptions): Session {
@@ -250,7 +322,8 @@ function createSession(opts: EnsureOptions): Session {
 
   const sess: Session = {
     conversationId: opts.conversationId,
-    proc: null as unknown as ChildProcess,
+    query: null as unknown as Query,
+    input: null as unknown as InputQueue,
     status: 'idle',
     claudeSessionId: opts.resumeSessionId ?? null,
     events: [],
@@ -262,9 +335,9 @@ function createSession(opts: EnsureOptions): Session {
     lastActivityAt: Date.now(),
     unanswered: [],
     allowResumeRetry: true,
-    streamingFlags: true,
-    hostPrompts: true,
     pending: [],
+    resolvers: new Map(),
+    ready: Promise.resolve(),
     oneShot: opts.oneShot ?? false,
     closing: false,
     killTimer: null,
@@ -273,7 +346,7 @@ function createSession(opts: EnsureOptions): Session {
     lastUsage: null,
   }
   sessions.set(sess.conversationId, sess)
-  spawnProcess(sess, opts.resumeSessionId ?? null)
+  startQuery(sess, opts.resumeSessionId ?? null)
   return sess
 }
 
@@ -340,43 +413,13 @@ function resumableUnder(sessionId: string, model?: string): boolean {
   return id.startsWith('msg_') !== isGatewayModel(model)
 }
 
-function spawnProcess(sess: Session, resumeSessionId: string | null): void {
+function startQuery(sess: Session, resumeSessionId: string | null): void {
   const BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill']
   const MCP_TOOLS = ['mcp__playwright']
 
-  const args = [
-    '-p',
-    // Keeps the process alive reading user messages from stdin until we close it.
-    '--input-format',
-    'stream-json',
-    '--output-format',
-    'stream-json',
-    '--verbose',
-    '--allowedTools',
-    [...BASE_TOOLS, ...MCP_TOOLS].join(','),
-  ]
-
-  // Token-level `stream_event`s on top of the complete-message events. Without
-  // it the first text of a turn only lands once the model has finished the whole
-  // assistant message — i.e. the entire answer for a one-message reply.
-  if (sess.streamingFlags) args.push('--include-partial-messages')
-
-  // Permission prompts come to us as `can_use_tool` control requests instead
-  // of being denied on the spot, which is how a headless CLI treats an "ask"
-  // with nobody to ask. This is what makes AskUserQuestion work at all: the
-  // tool is the prompt, and its answers travel back in the control response.
-  // It is NOT in --allowedTools on purpose — pre-approving it would skip the
-  // prompt and run the tool with no answers. Anything else the permission
-  // rules escalate (auto mode's classifier balking at a tool call) now waits
-  // for an Approve/Deny too, rather than failing the turn silently.
-  if (sess.hostPrompts) args.push('--permission-prompt-tool', 'stdio')
-
-  const mcpConfig = `${process.env.CLAUDE_CONFIG_DIR || '/jarvis/agent'}/mcp.json`
-  if (existsSync(mcpConfig)) args.push('--mcp-config', mcpConfig)
-
   // Drop a resume the current provider would reject (see resumableUnder). The
-  // reassignment matters: the retry branches in the `close` handler below close
-  // over this parameter, and they must not re-resume it either.
+  // reassignment matters: the retry in onExit closes over this parameter, and
+  // it must not re-resume it either.
   if (resumeSessionId && !resumableUnder(resumeSessionId, sess.model)) {
     console.warn(
       `[session] ${sess.conversationId}: transcript ${resumeSessionId} was last written by another provider — starting fresh`,
@@ -385,20 +428,7 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
     resumeSessionId = null
   }
 
-  if (resumeSessionId) args.push('--resume', resumeSessionId)
-  if (sess.model) args.push('--model', sess.model)
-  // Effort: the backend sends 'high' when the chat's "Think hard" switch is
-  // on, nothing otherwise — no flag, the model's own default. Haiku uses
-  // classic extended thinking rather than adaptive effort and errors if
-  // --effort is passed, so skip the flag for it.
-  if (sess.effort && !/haiku/i.test(sess.model ?? '')) {
-    args.push('--effort', sess.effort)
-  }
-  // No --thinking-display: reasoning summaries were removed (2026-09-21). The
-  // API default is `omitted`, so thinking blocks arrive with empty text and
-  // the complete-message handler has nothing to surface.
-
-  console.log(`[session] ${sess.conversationId}: spawning claude ${args.join(' ')}`)
+  const mcpConfig = `${process.env.CLAUDE_CONFIG_DIR || '/jarvis/agent'}/mcp.json`
 
   // Curate the child env. The agent runs arbitrary Bash and fetches untrusted web
   // pages, so it must not inherit secrets it never needs — a prompt-injected page
@@ -411,9 +441,35 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
   const { JWT_SECRET, ADMIN_PASSWORD, ADMIN_EMAIL, ...inheritedEnv } = process.env
   void JWT_SECRET; void ADMIN_PASSWORD; void ADMIN_EMAIL
 
-  let proc: ChildProcess
-  try {
-    proc = spawn('claude', args, {
+  const input = new InputQueue()
+  sess.input = input
+  sess.stderrTail = ''
+
+  console.log(
+    `[session] ${sess.conversationId}: starting query (model ${sess.model ?? 'default'}, resume ${resumeSessionId ?? 'none'})`,
+  )
+
+  const q = query({
+    prompt: input,
+    options: {
+      pathToClaudeCodeExecutable: CLAUDE_BIN,
+      cwd: WORKSPACE_DIR,
+      // Left unset, the SDK sends an EMPTY system prompt, not Claude Code's.
+      systemPrompt: { type: 'preset', preset: 'claude_code' },
+      // settingSources unset = load every source, as `claude -p` does.
+      allowedTools: [...BASE_TOOLS, ...MCP_TOOLS],
+      // Token-level stream events, or text only lands once a message is done.
+      includePartialMessages: true,
+      // Permission prompts come to us instead of being denied on the spot.
+      // This is what makes AskUserQuestion work: the tool is the prompt, and
+      // its answers travel back as updatedInput. It is NOT in allowedTools on
+      // purpose — pre-approving it would run the tool with no answers.
+      canUseTool: (toolName, toolInput, { signal, toolUseID }) =>
+        parkAsk(sess, toolName, toolInput, toolUseID ?? null, signal),
+      ...(sess.model ? { model: sess.model } : {}),
+      ...(effortFor(sess.model, sess.effort) ? { effort: effortFor(sess.model, sess.effort) } : {}),
+      ...(resumeSessionId ? { resume: resumeSessionId } : {}),
+      ...(existsSync(mcpConfig) ? { extraArgs: { 'mcp-config': mcpConfig } } : {}),
       env: {
         ...inheritedEnv,
         INTERNAL_SECRET: internalSecret() ?? inheritedEnv.INTERNAL_SECRET,
@@ -430,117 +486,71 @@ function spawnProcess(sess: Session, resumeSessionId: string | null): void {
         JARVIS_CONVERSATION_ID: sess.conversationId,
         ...sess.envVars,
       },
-      cwd: WORKSPACE_DIR,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-  } catch (err: any) {
-    console.error('[session] spawn threw:', err)
-    failSession(sess, `Claude failed to start: ${err?.message ?? err}`)
+      stderr: (data) => {
+        const text = data.trimEnd()
+        sess.stderrTail = (sess.stderrTail + text + '\n').slice(-4000)
+        console.error(`[session stderr ${sess.conversationId.slice(0, 8)}]`, text)
+      },
+    },
+  })
+  sess.query = q
+
+  const handle = messageHandler(sess)
+  ;(async () => {
+    let error: unknown = null
+    try {
+      for await (const msg of q) handle(msg)
+    } catch (err) {
+      error = err
+    }
+    onExit(sess, q, resumeSessionId, error)
+  })()
+}
+
+/** The CLI exited: retry, graceful end, or a failure to report. */
+function onExit(sess: Session, q: Query, resumeSessionId: string | null, error: unknown): void {
+  const message = error instanceof Error ? error.message : error ? String(error) : null
+  console.log(`[session] ${sess.conversationId}: query ended${message ? ` (${message})` : ''}`)
+  if (sess.killTimer) {
+    clearTimeout(sess.killTimer)
+    sess.killTimer = null
+  }
+  // Withdraw anything still waiting on an answer from the dead process.
+  for (const ask of [...sess.pending]) resolveAsk(sess, ask.requestId, 'withdrawn')
+  // Replaced by a newer session (provider switch) or query (retry below).
+  if (sessions.get(sess.conversationId) !== sess || sess.query !== q) return
+
+  // --resume pointed at a session the CLI no longer has: retry once from
+  // scratch and replay the messages that never got an answer.
+  const notFound = 'No conversation found with session ID'
+  if (
+    sess.allowResumeRetry &&
+    resumeSessionId &&
+    (sess.stderrTail.includes(notFound) || message?.includes(notFound))
+  ) {
+    console.warn(
+      `[session] ${sess.conversationId}: session ${resumeSessionId} not found — retrying fresh`,
+    )
+    sess.allowResumeRetry = false
+    sess.claudeSessionId = null
+    startQuery(sess, null)
+    for (const text of sess.unanswered) sess.input.push(text)
     return
   }
 
-  sess.proc = proc
-  sess.stderrTail = ''
-
-  proc.on('error', (err: any) => {
-    console.error('[session] process error:', err)
-    if (sessions.get(sess.conversationId) === sess && !sess.closing) {
-      failSession(sess, `Claude process error: ${err?.message ?? err}`)
-    }
-  })
-
-  proc.stdin!.on('error', (err) =>
-    console.error('[session] stdin error:', err),
-  )
-
-  attachStdoutParser(sess, proc)
-
-  proc.stderr!.on('data', (d: Buffer) => {
-    const text = d.toString().trimEnd()
-    sess.stderrTail = (sess.stderrTail + text + '\n').slice(-4000)
-    console.error(`[session stderr ${sess.conversationId.slice(0, 8)}]`, text)
-  })
-
-  proc.on('close', (code) => {
-    console.log(`[session] ${sess.conversationId}: process closed (code ${code})`)
-    if (sess.killTimer) {
-      clearTimeout(sess.killTimer)
-      sess.killTimer = null
-    }
-    // A newer process already replaced this one (model change respawn).
-    if (sessions.get(sess.conversationId) !== sess) return
-
-    // The CLI rejected one of the streaming flags: retry once without them.
-    //
-    // `--thinking-display` in particular is accepted by the pinned 2.1.220 but
-    // absent from `--help`, i.e. unsupported surface — and the update cron bumps
-    // that pin unattended. Without this branch, a rename upstream wouldn't
-    // degrade streaming, it would make every session fail to spawn.
-    if (
-      code !== 0 &&
-      sess.streamingFlags &&
-      /unknown option .--(include-partial-messages|thinking-display)/.test(
-        sess.stderrTail,
-      )
-    ) {
-      console.warn(
-        `[session] ${sess.conversationId}: CLI rejected a streaming flag — retrying without live streaming`,
-      )
-      sess.streamingFlags = false
-      spawnProcess(sess, resumeSessionId)
-      for (const text of sess.unanswered) writeUserLine(sess, text)
-      return
-    }
-
-    // Same for the prompt routing flag: hidden from --help, so the least
-    // guaranteed of the lot. Without it questions are auto-denied again — a
-    // degraded turn, not a dead session.
-    if (
-      code !== 0 &&
-      sess.hostPrompts &&
-      /unknown option .--permission-prompt-tool/.test(sess.stderrTail)
-    ) {
-      console.warn(
-        `[session] ${sess.conversationId}: CLI rejected --permission-prompt-tool — retrying without host prompts`,
-      )
-      sess.hostPrompts = false
-      spawnProcess(sess, resumeSessionId)
-      for (const text of sess.unanswered) writeUserLine(sess, text)
-      return
-    }
-
-    // --resume pointed at a session the CLI no longer has: retry once from
-    // scratch and replay the messages that never got an answer.
-    if (
-      code !== 0 &&
-      sess.allowResumeRetry &&
-      resumeSessionId &&
-      sess.stderrTail.includes('No conversation found with session ID')
-    ) {
-      console.warn(
-        `[session] ${sess.conversationId}: session ${resumeSessionId} not found — retrying fresh`,
-      )
-      sess.allowResumeRetry = false
-      sess.claudeSessionId = null
-      spawnProcess(sess, null)
-      for (const text of sess.unanswered) writeUserLine(sess, text)
-      return
-    }
-
-    if (sess.closing) {
-      // Graceful end (reap, eviction, one-shot completion).
-      endSession(sess)
-      return
-    }
-
-    if (sess.status === 'busy') {
-      pushEvent(sess, {
-        type: 'error',
-        message: `Claude exited with code ${code}: ${sess.stderrTail.trim() || 'no stderr output'}`,
-      })
-    }
+  if (sess.closing) {
+    // Graceful end (reap, eviction, one-shot completion).
     endSession(sess)
-  })
+    return
+  }
+
+  if (sess.status === 'busy') {
+    pushEvent(sess, {
+      type: 'error',
+      message: `Claude exited: ${sess.stderrTail.trim() || message || 'no stderr output'}`,
+    })
+  }
+  endSession(sess)
 }
 
 /**
@@ -620,8 +630,8 @@ function hostOf(url: string): string {
   }
 }
 
-function attachStdoutParser(sess: Session, proc: ChildProcess): void {
-  let buf = ''
+/** Translate one query's message stream into Jarvis events. */
+function messageHandler(sess: Session): (msg: SDKMessage) => void {
   let accumulated = ''
   // Every live background task — subagents AND backgrounded Bash. Keeps the
   // session alive: a wake-up turn is coming, the idle reaper must not kill it,
@@ -644,11 +654,11 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
   // it introduces — precisely the pairing this exists to record.
   let activityGroup = 0
   let activityMessageId: string | null = null
+
   /**
-   * Partial-message events (`--include-partial-messages`): one per token.
+   * Partial-message events (`includePartialMessages`): one per token.
    *
-   * Answer text only. Thinking deltas are ignored — see the --thinking-display
-   * note in spawnProcess for why reasoning isn't surfaced.
+   * Answer text only. Thinking deltas are ignored — reasoning isn't surfaced.
    *
    * Everything here goes out via emit(), never pushEvent() — these must stay out
    * of the replay ring buffer, which holds MAX_EVENTS and would otherwise be
@@ -657,8 +667,8 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
   function handleStreamEvent(ev: any): void {
     // Subagent internals are dropped. The main loop already narrates what its
     // agents are doing (the narratingTasks path below), and that reads far
-    // better than raw subagent text. Belt and braces: --forward-subagent-text
-    // is off by default, so these normally never arrive at all.
+    // better than raw subagent text. Belt and braces: forwardSubagentText is
+    // off by default, so these normally never arrive at all.
     if (ev.parent_tool_use_id) return
     const inner = ev.event
     if (!inner || inner.type !== 'content_block_delta') return
@@ -674,252 +684,236 @@ function attachStdoutParser(sess: Session, proc: ChildProcess): void {
     }
   }
 
-  proc.stdout!.on('data', (chunk: Buffer) => {
-    buf += chunk.toString()
-    const lines = buf.split('\n')
-    buf = lines.pop() ?? ''
+  return (msg: SDKMessage) => {
+    // Read defensively: the SDK's union of shapes moves with the CLI.
+    const ev: any = msg
 
-    for (const line of lines) {
-      if (!line.trim()) continue
-      try {
-        const ev = JSON.parse(line)
+    // Handled before the raw-event log on purpose: at one event per token,
+    // logging these would churn the container's 10MB/3-file log rotation in
+    // minutes and bury the events worth debugging.
+    if (ev.type === 'stream_event') {
+      sess.lastActivityAt = Date.now()
+      handleStreamEvent(ev)
+      return
+    }
 
-        // Handled before the raw-event log on purpose: at one event per token,
-        // logging these would churn the container's 10MB/3-file log rotation in
-        // minutes and bury the events worth debugging.
-        if (ev.type === 'stream_event') {
-          sess.lastActivityAt = Date.now()
-          handleStreamEvent(ev)
-          continue
-        }
-
-        // Log raw event for debugging (omit large content)
-        const logEv = { ...ev }
-        if (logEv.message?.content) {
-          logEv.message = {
-            ...logEv.message,
-            content: `[${logEv.message.content.length} blocks]`,
-          }
-        }
-        if (logEv.result && logEv.result.length > 100) {
-          logEv.result = logEv.result.slice(0, 100) + '...'
-        }
-        console.log('[session event]', JSON.stringify(logEv))
-
-        if (ev.session_id) sess.claudeSessionId = ev.session_id
-        sess.lastActivityAt = Date.now()
-
-        // The CLI asking US something: a parked permission prompt or question.
-        if (ev.type === 'control_request') {
-          handleControlRequest(sess, ev)
-          continue
-        }
-        // …and withdrawing one it no longer needs answered (the turn was
-        // interrupted, typically).
-        if (ev.type === 'control_cancel_request' && ev.request_id) {
-          resolveAsk(sess, String(ev.request_id), 'withdrawn')
-          continue
-        }
-
-        // Track sub-agent lifecycle for progress detection
-        if (ev.type === 'system') {
-          if (ev.subtype === 'task_started' && ev.task_id) {
-            runningTasks.add(ev.task_id)
-            if (ev.task_type !== 'local_bash') narratingTasks.add(ev.task_id)
-            const alreadyAnnounced =
-              ev.tool_use_id && announcedToolIds.has(ev.tool_use_id)
-            if (ev.description && !alreadyAnnounced) {
-              console.log('[session] -> agent started:', ev.description)
-              // Attributed to the message still being processed: this is the
-              // Task tool_use that message just made, arriving by another route.
-              pushEvent(sess, {
-                type: 'tool',
-                name: ev.description,
-                group: activityGroup,
-              })
-            }
-          }
-          // Any notification means the task reached a terminal state
-          // (completed, failed, killed) — a task left in this set keeps the
-          // session busy forever, so err on the side of removing.
-          if (ev.subtype === 'task_notification' && ev.task_id) {
-            runningTasks.delete(ev.task_id)
-            narratingTasks.delete(ev.task_id)
-          }
-        }
-
-        if (ev.type === 'assistant' && ev.message?.content) {
-          // No id to group by (shouldn't happen, but the shape isn't ours to
-          // guarantee) — treat the event as its own message rather than
-          // silently merging it into the previous one.
-          const messageId: string | null = ev.message.id ?? null
-          if (messageId === null || messageId !== activityMessageId) {
-            activityGroup++
-            activityMessageId = messageId
-          }
-          // Any assistant activity means a turn is in flight — covers turns the
-          // CLI starts on its own (queued messages, subagent wake-ups).
-          markBusy(sess)
-          // Subagents carry their own (much smaller) context and stream through
-          // here with parent_tool_use_id set — only the main loop's usage says
-          // anything about how full THIS conversation is.
-          if (!ev.parent_tool_use_id) recordUsage(sess, ev.message.usage)
-          for (const block of ev.message.content) {
-            // Thinking blocks are not surfaced: reasoning summaries were
-            // removed — a chat reads as a conversation, not as a trail of
-            // "let me check the skill first".
-            if (block.type === 'tool_use') {
-              if (QUIET_TOOLS.has(block.name) && !block.input?.description) {
-                console.log('[session] -> tool (quiet):', block.name)
-              } else {
-                const label = toolLabel(block.name, block.input)
-                console.log('[session] -> tool:', label)
-                if (block.id) announcedToolIds.add(block.id)
-                pushEvent(sess, {
-                  type: 'tool',
-                  name: label,
-                  group: activityGroup,
-                })
-              }
-            }
-            if (block.type === 'text' && block.text) {
-              if (narratingTasks.size > 0) {
-                // Progress text while sub-agents run. Not answer text — but not
-                // a mechanical step either, so it goes out as `note` and stays
-                // visible in the trail rather than collapsing with the tools.
-                console.log('[session] -> progress:', block.text.trim().slice(0, 80))
-                pushEvent(sess, {
-                  type: 'note',
-                  text: block.text.trim(),
-                  group: activityGroup,
-                })
-              } else {
-                accumulated += block.text
-                console.log(
-                  '[session] -> chunk:',
-                  block.text.slice(0, 80) + (block.text.length > 80 ? '...' : ''),
-                )
-                pushEvent(sess, {
-                  type: 'chunk',
-                  text: block.text + '\n',
-                  group: activityGroup,
-                })
-              }
-            }
-          }
-        }
-
-        // Tool result comes as a "user" event with tool_use_result.
-        //
-        // Deliberately NOT surfaced in the activity trail any more. It used to
-        // push `→ <first line of stdout, cut at 120 chars>`, which for anything
-        // structured was the opening brace of a JSON blob — pure noise in a list
-        // meant to say what Jarvis is doing. The full result is still in the
-        // engine's raw `[session event]` log for debugging.
-        if (ev.type === 'user' && ev.tool_use_result) {
-          pushEvent(sess, { type: 'thinking' })
-        }
-
-        if (ev.type === 'result') {
-          // modelUsage is keyed by model id and can hold more than one entry
-          // (the main loop plus whatever ran side queries). Only the entry for
-          // our own model describes THIS conversation's window — when it's
-          // missing we keep the spawn-time seed rather than falling back to the
-          // other entries, since that would happily overwrite a correct 200k
-          // seed with a subagent's 1M window.
-          const own = sess.model
-            ? (ev.modelUsage ?? {})[sess.model]?.contextWindow
-            : undefined
-          if (typeof own === 'number' && own > 0) sess.contextWindow = own
-
-          const result =
-            (typeof ev.result === 'string' && ev.result.trim()) ||
-            accumulated.trim()
-          console.log(
-            '[session] -> result, length:', result.length,
-            runningTasks.size > 0 ? `(${runningTasks.size} background task(s) pending)` : '',
-          )
-          accumulated = ''
-          // One result answers every message steered into the turn, so clear
-          // rather than shift — a leftover entry would read as a pending turn.
-          sess.unanswered.length = 0
-          // A turn cannot end with a prompt still open; anything left here was
-          // abandoned by the CLI without a cancel (an interrupt racing the
-          // answer, say). Say so, or the backend keeps a card up for nothing.
-          for (const ask of [...sess.pending]) resolveAsk(sess, ask.requestId, 'withdrawn')
-          // Background subagents keep the session busy: a wake-up turn is
-          // coming, the idle reaper must not kill it, and a backend restart
-          // must re-attach to it.
-          sess.status = runningTasks.size > 0 ? 'busy' : 'idle'
-          sess.lastActivityAt = Date.now()
-          if (sess.killTimer) {
-            clearTimeout(sess.killTimer)
-            sess.killTimer = null
-          }
-          pushEvent(sess, {
-            type: 'done',
-            result: result || '(no response)',
-            sessionId: sess.claudeSessionId,
-            pending: runningTasks.size > 0,
-          })
-          // Reset the replay buffer at the turn boundary here, not only at the
-          // next user message: turns the CLI starts on its own (background
-          // subagent wake-ups) never pass through sendUserMessage, and their
-          // replay must not drag the previous turn along.
-          sess.events.length = 0
-          // Background subagents mean a wake-up turn is still coming: closing
-          // stdin now would strand it. Stay open and close at the result that
-          // finally lands with nothing running.
-          if (sess.oneShot && runningTasks.size === 0) {
-            sess.closing = true
-            sess.proc.stdin?.end()
-            armKillTimer(sess)
-          }
-        }
-      } catch {
-        // non-JSON output from claude CLI, ignore
+    // Log raw event for debugging (omit large content)
+    const logEv = { ...ev }
+    if (logEv.message?.content) {
+      logEv.message = {
+        ...logEv.message,
+        content: `[${logEv.message.content.length} blocks]`,
       }
     }
-  })
+    if (logEv.result && logEv.result.length > 100) {
+      logEv.result = logEv.result.slice(0, 100) + '...'
+    }
+    console.log('[session event]', JSON.stringify(logEv))
+
+    if (ev.session_id) sess.claudeSessionId = ev.session_id
+    sess.lastActivityAt = Date.now()
+
+    // Track sub-agent lifecycle for progress detection
+    if (ev.type === 'system') {
+      if (ev.subtype === 'task_started' && ev.task_id) {
+        runningTasks.add(ev.task_id)
+        if (ev.task_type !== 'local_bash') narratingTasks.add(ev.task_id)
+        const alreadyAnnounced =
+          ev.tool_use_id && announcedToolIds.has(ev.tool_use_id)
+        if (ev.description && !alreadyAnnounced) {
+          console.log('[session] -> agent started:', ev.description)
+          // Attributed to the message still being processed: this is the
+          // Task tool_use that message just made, arriving by another route.
+          pushEvent(sess, {
+            type: 'tool',
+            name: ev.description,
+            group: activityGroup,
+          })
+        }
+      }
+      // Any notification means the task reached a terminal state
+      // (completed, failed, killed) — a task left in this set keeps the
+      // session busy forever, so err on the side of removing.
+      if (ev.subtype === 'task_notification' && ev.task_id) {
+        runningTasks.delete(ev.task_id)
+        narratingTasks.delete(ev.task_id)
+      }
+    }
+
+    if (ev.type === 'assistant' && ev.message?.content) {
+      // No id to group by (shouldn't happen, but the shape isn't ours to
+      // guarantee) — treat the event as its own message rather than
+      // silently merging it into the previous one.
+      const messageId: string | null = ev.message.id ?? null
+      if (messageId === null || messageId !== activityMessageId) {
+        activityGroup++
+        activityMessageId = messageId
+      }
+      // Any assistant activity means a turn is in flight — covers turns the
+      // CLI starts on its own (queued messages, subagent wake-ups).
+      markBusy(sess)
+      // Subagents carry their own (much smaller) context and stream through
+      // here with parent_tool_use_id set — only the main loop's usage says
+      // anything about how full THIS conversation is.
+      if (!ev.parent_tool_use_id) recordUsage(sess, ev.message.usage)
+      for (const block of ev.message.content) {
+        // Thinking blocks are not surfaced: reasoning summaries were
+        // removed — a chat reads as a conversation, not as a trail of
+        // "let me check the skill first".
+        if (block.type === 'tool_use') {
+          if (QUIET_TOOLS.has(block.name) && !block.input?.description) {
+            console.log('[session] -> tool (quiet):', block.name)
+          } else {
+            const label = toolLabel(block.name, block.input)
+            console.log('[session] -> tool:', label)
+            if (block.id) announcedToolIds.add(block.id)
+            pushEvent(sess, {
+              type: 'tool',
+              name: label,
+              group: activityGroup,
+            })
+          }
+        }
+        if (block.type === 'text' && block.text) {
+          if (narratingTasks.size > 0) {
+            // Progress text while sub-agents run. Not answer text — but not
+            // a mechanical step either, so it goes out as `note` and stays
+            // visible in the trail rather than collapsing with the tools.
+            console.log('[session] -> progress:', block.text.trim().slice(0, 80))
+            pushEvent(sess, {
+              type: 'note',
+              text: block.text.trim(),
+              group: activityGroup,
+            })
+          } else {
+            accumulated += block.text
+            console.log(
+              '[session] -> chunk:',
+              block.text.slice(0, 80) + (block.text.length > 80 ? '...' : ''),
+            )
+            pushEvent(sess, {
+              type: 'chunk',
+              text: block.text + '\n',
+              group: activityGroup,
+            })
+          }
+        }
+      }
+    }
+
+    // Tool result comes as a "user" event with tool_use_result.
+    //
+    // Deliberately NOT surfaced in the activity trail any more. It used to
+    // push `→ <first line of stdout, cut at 120 chars>`, which for anything
+    // structured was the opening brace of a JSON blob — pure noise in a list
+    // meant to say what Jarvis is doing. The full result is still in the
+    // engine's raw `[session event]` log for debugging.
+    if (ev.type === 'user' && ev.tool_use_result) {
+      pushEvent(sess, { type: 'thinking' })
+    }
+
+    if (ev.type === 'result') {
+      // modelUsage is keyed by model id and can hold more than one entry
+      // (the main loop plus whatever ran side queries). Only the entry for
+      // our own model describes THIS conversation's window — when it's
+      // missing we keep the spawn-time seed rather than falling back to the
+      // other entries, since that would happily overwrite a correct 200k
+      // seed with a subagent's 1M window.
+      const own = sess.model
+        ? (ev.modelUsage ?? {})[sess.model]?.contextWindow
+        : undefined
+      if (typeof own === 'number' && own > 0) sess.contextWindow = own
+
+      const result =
+        (typeof ev.result === 'string' && ev.result.trim()) ||
+        accumulated.trim()
+      console.log(
+        '[session] -> result, length:', result.length,
+        runningTasks.size > 0 ? `(${runningTasks.size} background task(s) pending)` : '',
+      )
+      accumulated = ''
+      // One result answers every message steered into the turn, so clear
+      // rather than shift — a leftover entry would read as a pending turn.
+      sess.unanswered.length = 0
+      // A turn cannot end with a prompt still open; anything left here was
+      // abandoned by the CLI without a cancel (an interrupt racing the
+      // answer, say). Say so, or the backend keeps a card up for nothing.
+      for (const ask of [...sess.pending]) resolveAsk(sess, ask.requestId, 'withdrawn')
+      // Background subagents keep the session busy: a wake-up turn is
+      // coming, the idle reaper must not kill it, and a backend restart
+      // must re-attach to it.
+      sess.status = runningTasks.size > 0 ? 'busy' : 'idle'
+      sess.lastActivityAt = Date.now()
+      if (sess.killTimer) {
+        clearTimeout(sess.killTimer)
+        sess.killTimer = null
+      }
+      pushEvent(sess, {
+        type: 'done',
+        result: result || '(no response)',
+        sessionId: sess.claudeSessionId,
+        pending: runningTasks.size > 0,
+      })
+      // Reset the replay buffer at the turn boundary here, not only at the
+      // next user message: turns the CLI starts on its own (background
+      // subagent wake-ups) never pass through sendUserMessage, and their
+      // replay must not drag the previous turn along.
+      sess.events.length = 0
+      // Background subagents mean a wake-up turn is still coming: ending the
+      // input now would strand it. Stay open and close at the result that
+      // finally lands with nothing running.
+      if (sess.oneShot && runningTasks.size === 0) {
+        sess.closing = true
+        sess.input.end()
+        armKillTimer(sess)
+      }
+    }
+  }
 }
 
-// ── Prompts (control protocol) ───────────────────────────────────────────────
+// ── Prompts ──────────────────────────────────────────────────────────────────
 
 /**
- * A `control_request` from the CLI. The one we serve is `can_use_tool`: the
- * turn is parked until someone answers, so record it and tell subscribers.
- * Anything else is refused outright — an unanswered request would hang the
- * turn, and none of the other subtypes (hook callbacks, MCP bridging) apply to
- * a session we started without registering for them.
+ * canUseTool: park the turn until answerSession() resolves it. An aborted
+ * signal means the CLI withdrew the prompt (interrupt, turn ended).
  */
-function handleControlRequest(sess: Session, ev: any): void {
-  const requestId = typeof ev.request_id === 'string' ? ev.request_id : null
-  const req = ev.request
-  if (!requestId || !req) return
-  if (req.subtype !== 'can_use_tool') {
-    console.warn(`[session] ${sess.conversationId}: refusing control request ${req.subtype}`)
-    writeControl(sess, {
-      type: 'control_response',
-      response: { subtype: 'error', request_id: requestId, error: `unsupported control request: ${req.subtype}` },
-    })
-    return
-  }
+function parkAsk(
+  sess: Session,
+  toolName: string,
+  input: Record<string, unknown>,
+  toolUseId: string | null,
+  signal: AbortSignal,
+): Promise<PermissionResult> {
+  const requestId = `ask_${randomUUID()}`
   const ask: PendingAsk = {
     requestId,
-    toolName: String(req.tool_name ?? 'unknown'),
-    toolUseId: typeof req.tool_use_id === 'string' ? req.tool_use_id : null,
-    input: req.input && typeof req.input === 'object' ? req.input : {},
+    toolName,
+    toolUseId,
+    input: input && typeof input === 'object' ? input : {},
     askedAt: Date.now(),
   }
-  sess.pending.push(ask)
-  markBusy(sess)
-  console.log(`[session] ${sess.conversationId}: waiting on ${ask.toolName} (${requestId})`)
-  pushEvent(sess, {
-    type: 'ask',
-    requestId,
-    toolName: ask.toolName,
-    toolUseId: ask.toolUseId,
-    input: ask.input,
+  return new Promise<PermissionResult>((resolve) => {
+    sess.resolvers.set(requestId, resolve)
+    signal.addEventListener(
+      'abort',
+      () => {
+        if (resolveAsk(sess, requestId, 'withdrawn')) {
+          resolve({ behavior: 'deny', message: 'The prompt was withdrawn.' })
+        }
+      },
+      { once: true },
+    )
+    sess.pending.push(ask)
+    markBusy(sess)
+    sess.lastActivityAt = Date.now()
+    console.log(`[session] ${sess.conversationId}: waiting on ${toolName} (${requestId})`)
+    pushEvent(sess, {
+      type: 'ask',
+      requestId,
+      toolName,
+      toolUseId,
+      input: ask.input,
+    })
   })
 }
 
@@ -928,12 +922,12 @@ function resolveAsk(sess: Session, requestId: string, outcome: 'answered' | 'wit
   const idx = sess.pending.findIndex((a) => a.requestId === requestId)
   if (idx === -1) return false
   sess.pending.splice(idx, 1)
+  const resolver = sess.resolvers.get(requestId)
+  sess.resolvers.delete(requestId)
+  // Release the SDK's pending canUseTool too, or it hangs.
+  if (outcome === 'withdrawn') resolver?.({ behavior: 'deny', message: 'The prompt was withdrawn.' })
   pushEvent(sess, { type: 'ask_done', requestId, outcome })
   return true
-}
-
-function writeControl(sess: Session, frame: object): void {
-  sess.proc.stdin!.write(JSON.stringify(frame) + '\n')
 }
 
 export type AskAnswer =
@@ -950,31 +944,20 @@ export function answerSession(conversationId: string, requestId: string, answer:
   const sess = sessions.get(conversationId)
   if (!sess) return false
   const ask = sess.pending.find((a) => a.requestId === requestId)
-  if (!ask) return false
-  const response =
+  const resolve = sess.resolvers.get(requestId)
+  if (!ask || !resolve) return false
+  console.log(`[session] ${conversationId}: ${answer.behavior} ${ask.toolName} (${requestId})`)
+  resolve(
     answer.behavior === 'allow'
       ? { behavior: 'allow', updatedInput: answer.updatedInput ?? ask.input }
-      : { behavior: 'deny', message: answer.message || 'Denied by the user.' }
-  console.log(`[session] ${conversationId}: ${answer.behavior} ${ask.toolName} (${requestId})`)
-  writeControl(sess, {
-    type: 'control_response',
-    response: { subtype: 'success', request_id: requestId, response },
-  })
+      : { behavior: 'deny', message: answer.message || 'Denied by the user.' },
+  )
   sess.lastActivityAt = Date.now()
   resolveAsk(sess, requestId, 'answered')
   return true
 }
 
 // ── Messages in ──────────────────────────────────────────────────────────────
-
-function writeUserLine(sess: Session, text: string): void {
-  sess.proc.stdin!.write(
-    JSON.stringify({
-      type: 'user',
-      message: { role: 'user', content: [{ type: 'text', text }] },
-    }) + '\n',
-  )
-}
 
 function markBusy(sess: Session): void {
   sess.status = 'busy'
@@ -996,7 +979,8 @@ export function sendUserMessage(sess: Session, text: string): boolean {
   }
   sess.unanswered.push(text)
   sess.lastActivityAt = Date.now()
-  writeUserLine(sess, text)
+  // After any in-place model/effort switch, so the message runs under it.
+  void sess.ready.then(() => sess.input.push(text))
   return wasBusy
 }
 
@@ -1005,32 +989,27 @@ export function sendUserMessage(sess: Session, text: string): boolean {
 function armKillTimer(sess: Session): void {
   if (sess.killTimer) clearTimeout(sess.killTimer)
   sess.killTimer = setTimeout(() => {
-    console.warn(`[session] ${sess.conversationId}: grace expired, SIGTERM`)
-    sess.proc.kill('SIGTERM')
+    console.warn(`[session] ${sess.conversationId}: grace expired, closing the query`)
+    sess.query.close()
   }, KILL_GRACE_MS)
 }
 
 /**
- * Soft-cancel the current turn via the CLI control protocol. The session and
- * its context survive; only the in-flight turn stops (the CLI answers with a
- * result event). Escalates to SIGTERM if nothing comes back in time.
+ * Soft-cancel the current turn. The session and its context survive; only the
+ * in-flight turn stops (the CLI answers with a result event). Escalates to
+ * closing the query if nothing comes back in time.
  */
 export function interruptSession(conversationId: string): boolean {
   const sess = sessions.get(conversationId)
   if (!sess || sess.status !== 'busy') return false
   console.log(`[session] ${conversationId}: interrupt`)
-  sess.proc.stdin!.write(
-    JSON.stringify({
-      type: 'control_request',
-      request_id: `req_${randomUUID()}`,
-      // cancel_queued: the CLI keeps messages that arrived mid-turn in a queue;
-      // without this flag they survive the interrupt and run right after it
-      // ("still_queued"), so Stop would be followed by more work. Our Stop
-      // button means stop everything. Advertised as
-      // `interrupt_cancel_queued_v1` on system/init; older CLIs ignore it.
-      request: { subtype: 'interrupt', cancel_queued: true },
-    }) + '\n',
-  )
+  // cancelQueued: without it, messages queued mid-turn survive the interrupt
+  // and run right after it — Stop means stop everything. The runtime takes
+  // the option; the published type doesn't declare it yet, hence the cast.
+  const interrupt = sess.query.interrupt as (opts?: { cancelQueued?: boolean }) => Promise<unknown>
+  interrupt.call(sess.query, { cancelQueued: true }).catch((err) => {
+    console.error(`[session] ${conversationId}: interrupt failed:`, err)
+  })
   armKillTimer(sess)
   return true
 }
@@ -1074,11 +1053,12 @@ export function recycleIdleSessions(): { recycled: string[]; busy: string[] } {
 function closeSession(sess: Session, opts: { graceful: boolean }): void {
   sess.closing = true
   if (opts.graceful) {
-    // Closing stdin lets the CLI finish cleanly; SIGTERM is the backstop.
-    sess.proc.stdin?.end()
+    // Ending the input lets the CLI finish cleanly; closing the query is the
+    // backstop.
+    sess.input.end()
     armKillTimer(sess)
   } else {
-    sess.proc.kill('SIGTERM')
+    sess.query.close()
   }
 }
 
@@ -1089,11 +1069,6 @@ function endSession(sess: Session): void {
   }
   emit(sess, { type: 'end' })
   sess.subscribers.clear()
-}
-
-function failSession(sess: Session, message: string): void {
-  pushEvent(sess, { type: 'error', message })
-  endSession(sess)
 }
 
 // ── Idle reaper ──────────────────────────────────────────────────────────────
