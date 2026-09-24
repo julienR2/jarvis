@@ -123,11 +123,10 @@ export default function TodayPage() {
       </div>
 
       <div className='flex-1 overflow-y-auto'>
-        {/* The landing: Jarvis and the composer, centred in most of the first
-            screen, on a faint warm glow. What is new follows below the fold of
-            that welcome rather than competing with it. */}
+        {/* The landing: Jarvis and the composer on a faint warm glow. What is
+            new follows after a separator, the same gap above it and below. */}
         <section
-          className='flex min-h-[64vh] flex-col items-center justify-center px-4 py-10'
+          className='flex flex-col items-center px-4 pt-[12vh] pb-12'
           style={{ background: 'radial-gradient(ellipse 60% 55% at 50% 42%, var(--color-accent-subtle), transparent 70%)' }}
         >
           <img
@@ -139,7 +138,9 @@ export default function TodayPage() {
           {/* The composer already asks how to help; the line under the greeting
               says what day it is instead of saying that twice. */}
           <p className='mt-1.5 text-sm text-text-muted'>{dateLine}</p>
-          <div className='mt-8 w-full max-w-xl'>
+          {/* Same box as the inbox below (max-w-2xl, md:px-6), so the composer
+              and the cards line up edge to edge. */}
+          <div className='mt-8 w-full max-w-2xl md:px-6'>
             <ChatInput
               onSend={start}
               onSendAudio={startWithAudio}
@@ -157,6 +158,13 @@ export default function TodayPage() {
         </section>
 
         <div className='max-w-2xl mx-auto px-4 md:px-6 pb-10'>
+          {/* A quiet break between the welcome and what is new — there
+              whether the inbox is full or caught up. */}
+          <div className='mb-12 flex justify-center gap-1.5' aria-hidden='true' data-testid='today-separator'>
+            <span className='h-1 w-1 rounded-full bg-text-muted/40' />
+            <span className='h-1 w-1 rounded-full bg-text-muted/40' />
+            <span className='h-1 w-1 rounded-full bg-text-muted/40' />
+          </div>
           {loadError && runs === null && (
             <div className='py-6 text-center text-sm text-text-muted'>
               Couldn't load today's inbox. <button onClick={() => reloadRecentRuns()} className='underline hover:text-text-primary'>Try again</button>
@@ -197,7 +205,7 @@ export default function TodayPage() {
               </div>
             </>
           ) : runs !== null && (
-            <div className='mt-10 flex flex-col items-center gap-1.5 text-center text-sm text-text-muted' data-testid='today-empty'>
+            <div className='flex flex-col items-center gap-1.5 text-center text-sm text-text-muted' data-testid='today-empty'>
               <CheckCheck size={18} className='opacity-60' />
               All caught up.
             </div>

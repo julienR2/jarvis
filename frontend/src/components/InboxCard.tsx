@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, ChevronDown, ChevronRight, Clock, Link2, Loader2, MessageSquare, RotateCcw, Square } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Loader2, RotateCcw, Square } from 'lucide-react'
 import {
   api,
-  describePending,
   pendingQuestionOf,
   questionsOf,
   type Conversation,
@@ -13,9 +12,7 @@ import AnswerCard, { answerFromComposer } from './AnswerCard'
 import ChatInput from './ChatInput'
 import MessageBubble from './MessageBubble'
 import RunBlock from './RunBlock'
-import StatusPill from './StatusPill'
 import { useChatStore } from '../stores/chatStore'
-import { firstLine, relative } from '../lib/runs'
 import { dropQuietRuns, groupMessagesByDay } from '../lib/transcript'
 
 export type InboxReason = 'action' | 'notified' | 'unread'
@@ -64,7 +61,6 @@ export default function InboxCard({
   const isQuestion = !!pending && questionsOf(pending).length > 0
   const waitingRun = runs.find((r) => r.status === 'needs_you')
   const runningRun = runs.find((r) => r.status === 'running')
-  const lead = failed?.run ?? waitingRun ?? runningRun
   const readAt = conversation.last_read_at ?? 0
 
   // The newest page, fetched without marking anything read (the chat's own GET
@@ -99,19 +95,8 @@ export default function InboxCard({
   const runsById = useMemo(() => new Map(runs.map((r) => [r.id, r])), [runs])
   const items = useMemo(() => dropQuietRuns(groupMessagesByDay(shown, null), runsById), [shown, runsById])
 
-  // Collapsed, one line says what is new: the question, the error, or the
-  // latest answer's first line.
-  const latestNew = [...newMessages].reverse().find((m) => m.role === 'assistant' && m.result)
-  const hint = pending
-    ? describePending(pending)
-    : failed
-      ? failed.run.error ? firstLine(failed.run.error) : 'failed'
-      : latestNew?.result
-        ? firstLine(latestNew.result)
-        : ''
-  const newestAt = newMessages[newMessages.length - 1]?.created_at ?? failed?.run.started_at ?? conversation.updated_at
+  const newCount = conversation.unread_count ?? newMessages.length
 
-  const Icon = lead?.kind === 'webhook' ? Link2 : lead?.kind === 'cron' ? Clock : MessageSquare
   const status = failed ? 'error' : waitingRun || pending ? 'needs_you' : runningRun ? 'running' : reason
 
   async function answer(text: string, attachments: Parameters<typeof answerFromComposer>[3]) {
@@ -145,27 +130,21 @@ export default function InboxCard({
       data-status={status}
       data-reason={reason}
     >
-      <div className='flex items-center gap-2.5 px-3 py-2.5'>
+      <div className='flex items-center gap-2.5 px-3 py-2'>
         <button onClick={() => setOpen((v) => !v)} className='flex min-w-0 flex-1 items-center gap-2.5 text-left' aria-expanded={open}>
           <span className='shrink-0 text-text-muted'>{open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
-          <span className='shrink-0 text-text-muted'>
-            {runningRun && !failed && !waitingRun ? <Loader2 size={13} className='animate-spin text-accent' /> : <Icon size={13} />}
-          </span>
-          <span className='min-w-0 flex-1'>
-            <span className='flex flex-wrap items-center gap-x-2 gap-y-0.5'>
-              <span className='truncate text-sm font-medium text-text-primary'>{conversation.title}</span>
-              {lead && <StatusPill run={lead} />}
-              {failed && failed.attempts > 1 && <span className='text-[11px] text-text-muted'>{failed.attempts} attempts</span>}
-            </span>
-            <span className='mt-0.5 flex items-center gap-1.5 truncate text-[12px] text-text-muted'>
-              {sectionName && <span className='truncate'>{sectionName}</span>}
-              {lead && <span>{sectionName ? '·' : ''} {lead.source_name}</span>}
-              <span>· {relative(newestAt)}</span>
-              {!open && hint && <><span>·</span><span className='truncate'>{hint}</span></>}
-            </span>
+          {/* Just the chat and where it lives — what is new is in the card. */}
+          <span className='flex min-w-0 flex-1 items-baseline gap-1.5'>
+            <span className='shrink-0 max-w-[70%] truncate text-sm font-medium text-text-primary'>{conversation.title}</span>
+            {sectionName && <span className='min-w-0 truncate text-[12px] text-text-muted'>– {sectionName}</span>}
           </span>
         </button>
         <span className='flex shrink-0 items-center gap-1.5'>
+          {newCount > 0 && (
+            <span className='mr-1 whitespace-nowrap text-[12px] text-text-muted' data-testid='today-row-count'>
+              {newCount} message{newCount === 1 ? '' : 's'}
+            </span>
+          )}
           {failed && onRetry && (
             <button onClick={() => act(onRetry, failed.run)} disabled={busy} className='inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50'>
               {busy ? <Loader2 size={12} className='animate-spin' /> : <RotateCcw size={12} />} Retry

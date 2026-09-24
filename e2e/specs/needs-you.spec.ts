@@ -59,14 +59,14 @@ test.describe('needs you', () => {
     const unread = inbox.locator('[data-testid="today-row"][data-reason="unread"]').first()
     const [w, u] = await Promise.all([waiting.first().boundingBox(), unread.boundingBox()])
     expect(w && u && w.y < u.y).toBeTruthy()
-    const marta = waiting.filter({ hasText: 'reply-marta' })
+    const marta = waiting.filter({ hasText: 'Reply to Marta' })
     // Open by default: the embedded chat and its options are right there.
     await expect(marta.getByRole('button', { name: 'Send it' })).toBeVisible()
     await expect(marta.getByRole('button', { name: 'Open', exact: true })).toBeVisible()
-    // Collapsed, the header carries a one-line hint of the question instead.
+    // Collapsed, only the header stays: the question waits inside.
     await marta.getByRole('button', { expanded: true }).click()
     await expect(marta.getByRole('button', { name: 'Send it' })).toHaveCount(0)
-    await expect(marta.getByText('Send this reply to Marta?', { exact: true })).toBeVisible()
+    await expect(marta.getByText('Send this reply to Marta?', { exact: true })).toHaveCount(0)
     await expect(page.getByTestId('activity-waiting')).toBeVisible()
     await expect(page.getByTestId('activity-failed')).toBeHidden()
   })

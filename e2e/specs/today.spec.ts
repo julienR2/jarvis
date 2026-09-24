@@ -23,6 +23,13 @@ test.describe('today', () => {
     const inbox = page.getByTestId('today-inbox')
     const [c, s] = await Promise.all([composer.boundingBox(), inbox.boundingBox()])
     expect(c && s && c.y < s.y).toBeTruthy()
+    // A small separator between the two, the composer as wide as the cards.
+    const sep = await page.getByTestId('today-separator').boundingBox()
+    expect(sep && c && s && c.y < sep.y && sep.y < s.y).toBeTruthy()
+    // The header of a card is one line: the chat's name and its topic.
+    const row = inbox.getByTestId('today-row').first()
+    const head = await row.locator('button[aria-expanded]').boundingBox()
+    expect(head!.height).toBeLessThan(32)
     // Gone from home: Coming up, the quiet-runs line, the setup wizard link.
     await expect(page.getByText('Coming up')).toBeHidden()
     await expect(page.getByText(/had nothing to report/)).toBeHidden()
@@ -33,7 +40,7 @@ test.describe('today', () => {
     const cards = page.getByTestId('today-inbox').getByTestId('today-row')
     // Reply to Marta: the one waiting chat no spec ever answers.
     const action = cards.filter({ hasText: 'Reply to Marta' })
-    const failed = cards.filter({ hasText: 'new-year-wish' })
+    const failed = cards.filter({ hasText: 'greetings API answered 503' })
     const notified = cards.filter({ hasText: 'Gallery sync' })
     const unread = cards.filter({ hasText: 'Pasta water' })
     await expect(action).toHaveAttribute('data-reason', 'action')
@@ -62,10 +69,11 @@ test.describe('today', () => {
     await expect(card.getByRole('button', { name: 'Open', exact: true })).toBeVisible()
   })
 
-  test('collapsing a card is "later": the header stays, with a one-line hint, and the chat stays unread', async ({ page }) => {
+  test('collapsing a card is "later": the header stays — name, topic, how many new — and the chat stays unread', async ({ page }) => {
     const card = page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'Gallery sync' })
     await card.getByRole('button', { expanded: true }).click()
-    await expect(card.getByText('Gallery synced: 212 photos')).toHaveCount(1) // the hint on the header
+    await expect(card.getByTestId('today-row-count')).toHaveText('1 message')
+    await expect(card.getByText('Gallery synced: 212 photos')).toHaveCount(0) // no hint: the header stays short
     await expect(card.getByPlaceholder('Reply…')).toHaveCount(0)
     await expect(card).toHaveCount(1)
     await page.reload()
@@ -86,14 +94,15 @@ test.describe('today', () => {
   })
 
   test('a failed run: its error, a Retry, and Open app when the chat has one', async ({ page }) => {
-    const card = page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'new-year-wish' })
-    await expect(card).toHaveAttribute('data-status', 'error')
+    // The only failure in the fixtures; its body text leaves when collapsed.
+    const card = page.getByTestId('today-inbox').locator('[data-testid="today-row"][data-status="error"]')
+    await expect(card).toHaveCount(1)
     await expect(card.getByRole('button', { name: /Retry/ })).toBeVisible()
     // The run wrote nothing into the chat, so its error is the card's body…
     await expect(card.getByTestId('inbox-error')).toContainText('greetings API answered 503')
-    // …and, collapsed, the hint.
+    // …and, collapsed, Retry and Open stay on the header.
     await card.getByRole('button', { expanded: true }).click()
-    await expect(card.getByText(/greetings API answered 503/)).toBeVisible()
+    await expect(card.getByRole('button', { name: /Retry/ })).toBeVisible()
     await card.getByRole('button', { name: 'Open app' }).click()
     await expect(page).toHaveURL(/\/c\/00000000-0000-4000-8000-000000000004$/)
   })
@@ -106,7 +115,7 @@ test.describe('today', () => {
 
   test('on a phone the cards keep their actions and nothing overflows', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    const card = page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'new-year-wish' })
+    const card = page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'greetings API answered 503' })
     await expect(card.getByRole('button', { name: 'Open app' })).toBeVisible()
     await expect(card.getByRole('button', { name: /Retry/ })).toBeVisible()
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
