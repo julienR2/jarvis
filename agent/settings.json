@@ -14,17 +14,7 @@
     "deny": [],
     "defaultMode": "auto"
   },
-  "enabledPlugins": {
-    "codex@openai-codex": true,
-    "i-have-adhd@i-have-adhd": true
-  },
-  "extraKnownMarketplaces": {
-    "openai-codex": {
-      "source": {
-        "source": "github",
-        "repo": "openai/codex-plugin-cc"
-      }
-    }
-  },
+  "enabledPlugins": {},
+  "extraKnownMarketplaces": {},
   "skipDangerousModePermissionPrompt": true
 }
