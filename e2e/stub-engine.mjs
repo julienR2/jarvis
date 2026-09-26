@@ -1,7 +1,7 @@
 /**
  * A stand-in for the engine, for the duration of an e2e run.
  *
- * The suite is UI-only: it never sends a message and so never needs a `claude`
+ * The suite is UI-only: it never runs a turn and so never needs a `claude`
  * process. But several pages still ask the backend something the backend can
  * only answer by asking the engine — "is this conversation running", deciding
  * a parked approval. With no engine there, the backend answers 502 and the
@@ -25,8 +25,22 @@ const ROUTES = [
   [/^\/answer\//, { error: 'no session holds this prompt' }, 404],
 ]
 
+// Whisper, too (the backend's WHISPER_URL points here): every recording says
+// the same line, after a beat long enough for the composer's "Transcribing…" to
+// be seen — and for a spec to tell whether the bubble waited for it.
+const TRANSCRIPT = 'Voice note from the e2e microphone'
+const ASR_DELAY_MS = 1500
+
 createServer((req, res) => {
   const path = new URL(req.url, 'http://localhost').pathname
+  if (path === '/asr') {
+    req.resume()
+    setTimeout(() => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' })
+      res.end(TRANSCRIPT)
+    }, ASR_DELAY_MS)
+    return
+  }
   const match = ROUTES.find(([re]) => re.test(path))
   if (!match) console.error(`[stub-engine] unhandled ${req.method} ${path} → {ok:true}`)
   const [, body, status] = match ?? [null, { ok: true }, 200]

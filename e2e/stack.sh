@@ -8,9 +8,9 @@
 #
 # It starts, in the engine container and with no Docker at all:
 #
-#   engine    a stub (stub-engine.mjs) — nothing here sends a message, but a few
-#             pages ask the backend things only an engine can answer. The real
-#             engine is never touched.
+#   engine    a stub (stub-engine.mjs) — no turn ever runs, but a few pages ask
+#             the backend things only an engine can answer. It stands in for
+#             Whisper too. The real engine is never touched.
 #   backend   the real server on a database created by mktemp and deleted on the
 #             way out, seeded with fixtures at boot (SEED_FIXTURES=1). Its own
 #             secrets, its own workspace. Prod's data is never opened.
@@ -98,6 +98,7 @@ stack_up() {
     ADMIN_PASSWORD="$(head -c 18 /dev/urandom | base64)" \
     RATE_LIMIT_MAX=3000 \
     ENGINE_URL="http://127.0.0.1:$ENGINE_PORT" \
+    WHISPER_URL="http://127.0.0.1:$ENGINE_PORT" \
     "$REPO/backend/node_modules/.bin/tsx" "$REPO/backend/src/index.ts" \
     > "$RUN/backend.log" 2>&1 &
   local backend_pid=$!

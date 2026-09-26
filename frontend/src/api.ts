@@ -253,10 +253,10 @@ export const api = {
   answerQuestion: (conversationId: string, body: AnswerBody) =>
     request<{ answered: boolean; error?: string }>('POST', `/conversations/${conversationId}/answer`, body),
 
-  // Fire-and-forget: the server transcribes and posts the message in the
-  // background (survives the client navigating away), so there's nothing to
-  // return — the message arrives over the conversation event stream.
-  sendAudio: async (conversationId: string, audioBlob: Blob, model?: string, effort?: Effort): Promise<void> => {
+  // Resolves once the server has transcribed and posted the message, with the
+  // saved row — the composer shows "Transcribing…" until then. The server
+  // finishes the job even if the client navigates away meanwhile.
+  sendAudio: async (conversationId: string, audioBlob: Blob, model?: string, effort?: Effort): Promise<{ message: Message }> => {
     const form = new FormData()
     form.append('file', audioBlob, 'audio.webm')
     const token = getToken()
@@ -274,6 +274,7 @@ export const api = {
       const err = await res.json().catch(() => ({ error: res.statusText }))
       throw new Error(err.error || res.statusText)
     }
+    return res.json()
   },
 
   transcribeAudio: async (audioBlob: Blob): Promise<{ transcript: string }> => {

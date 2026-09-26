@@ -1899,28 +1899,24 @@ export async function conversationRoutes(app: FastifyInstance) {
       // client can navigate away or close the app without losing the message.
       const buffer = await file.toBuffer()
 
-      // Light up the "working" indicator now — the user message itself only
-      // lands once transcription finishes a few seconds later.
-      emitConversationEvent(id, { type: 'thinking', thinking: true })
-
-      void (async () => {
-        try {
-          const transcript = await transcribeAudioBuffer(buffer)
-          processMessage(id, conv, transcript, [], {
-            transcribed: true,
-            ...messageModel(req, conv, req.query.model, req.query.effort),
-          })
-        } catch (err) {
-          console.error('[audio] background transcription failed:', err)
-          emitConversationError(
-            id,
-            `Audio transcription failed: ${(err as Error)?.message ?? err}`,
-          )
-          emitConversationEvent(id, { type: 'thinking', thinking: false })
-        }
-      })()
-
-      return reply.code(202).send({ accepted: true })
+      // The reply waits for the transcription: the composer's "Transcribing…"
+      // then lasts exactly as long as it does, and the person's bubble lands
+      // the moment it ends, like a typed message. A client that leaves meanwhile
+      // doesn't stop the handler — the message is still posted.
+      try {
+        const transcript = await transcribeAudioBuffer(buffer)
+        const userMsgId = processMessage(id, conv, transcript, [], {
+          transcribed: true,
+          ...messageModel(req, conv, req.query.model, req.query.effort),
+        })
+        return { message: getMessageRow(userMsgId!) }
+      } catch (err) {
+        console.error('[audio] transcription failed:', err)
+        const message = `Audio transcription failed: ${(err as Error)?.message ?? err}`
+        emitConversationError(id, message)
+        emitConversationEvent(id, { type: 'thinking', thinking: false })
+        return reply.code(err instanceof TranscriptionError ? err.status : 502).send({ error: message })
+      }
     },
   )
 }

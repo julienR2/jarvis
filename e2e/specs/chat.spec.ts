@@ -236,4 +236,29 @@ test.describe('chat rendering', () => {
     await openConversation(page, 'Fixture app')
     await expect(frame.getByTestId('fixture-app')).toBeVisible()
   })
+
+  test('voice message: "Transcribing…" lasts as long as the transcription, and my bubble lands as it ends', async ({ page }) => {
+    // A chat of its own: the message sent here must not show up in the fixtures.
+    const res = await page.request.post('api/conversations', {
+      headers: { Authorization: `Bearer ${process.env.E2E_TOKEN}` },
+      data: {},
+    })
+    const { id } = await res.json()
+    await page.goto(`c/${id}`)
+    await page.getByTitle('Tap to record').click()
+    await page.waitForTimeout(500)
+    await page.getByTitle('Send voice message').click()
+
+    // The stub's Whisper takes 1.5 s: all that time the composer says so and
+    // the chat has no bubble yet…
+    const transcribing = page.getByText('Transcribing…')
+    const bubble = page.getByText('Voice note from the e2e microphone')
+    await expect(transcribing).toBeVisible()
+    await page.waitForTimeout(800)
+    await expect(transcribing).toBeVisible()
+    await expect(bubble).toHaveCount(0)
+    // …then the bubble is there the moment "Transcribing…" goes, not seconds after.
+    await expect(transcribing).toBeHidden({ timeout: 5_000 })
+    await expect(bubble).toBeVisible({ timeout: 300 })
+  })
 })

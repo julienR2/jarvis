@@ -33,8 +33,10 @@ export default defineConfig({
       // The engine image ships Debian's Chromium (for puppeteer skills); the
       // runner's own download is not on disk and would not fit an arm64 host.
       executablePath: process.env.E2E_CHROMIUM || '/usr/bin/chromium',
-      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+      // A fake microphone, granted without a prompt, for the voice-message spec.
+      args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
     },
+    permissions: ['microphone'],
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },

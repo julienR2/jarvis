@@ -453,7 +453,9 @@ export default function ChatView({
       if (transcript.trim()) await answerFromComposer(conversationId, pending, transcript.trim(), [])
       return
     }
-    await api.sendAudio(conversationId, audioBlob, model, effort)
+    // The bubble lands as the transcription ends, without waiting on the stream.
+    const { message } = await api.sendAudio(conversationId, audioBlob, model, effort)
+    useChatStore.getState().upsertMessage(conversationId, message)
     useChatStore.getState().rememberModel(conversationId, model, effort)
   }
 
