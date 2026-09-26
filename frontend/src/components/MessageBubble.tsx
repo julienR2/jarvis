@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useState, useRef } from 'react'
+import { memo, useLayoutEffect, useMemo, useState, useRef } from 'react'
 import { API_BASE } from '../base'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
@@ -287,7 +287,15 @@ function ActivityBubble({ msg, live, modelLabel }: { msg: Message; live?: boolea
   )
 }
 
-export default function MessageBubble({ msg, live, modelLabel }: Props) {
+/**
+ * Memoized: the chat re-renders its whole list on every scroll-pill toggle and
+ * on each step of a running turn, and re-parsing every bubble's markdown made
+ * a long chat (a few hundred messages) visibly stall. The store keeps an
+ * unchanged message's object as is, so only the bubble that changed redraws.
+ */
+export default memo(MessageBubble)
+
+function MessageBubble({ msg, live, modelLabel }: Props) {
   const isUser = msg.role === 'user'
   // Above the early return — a hook must not sit on one side of a conditional
   // return, or the first message whose content grows into activity lines takes
