@@ -69,6 +69,26 @@ test.describe('today', () => {
     await expect(card.getByRole('button', { name: 'Open', exact: true })).toBeVisible()
   })
 
+  test('scrolling through a long card, its header sticks to the top with Open and ✓ in reach', async ({ page }) => {
+    // Short enough that the card, earlier messages shown, is taller than the view.
+    await page.setViewportSize({ width: 1000, height: 420 })
+    const card = page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'Pasta water' })
+    await card.getByRole('button', { name: 'Show earlier' }).click()
+    await expect(card.getByText('a tablespoon of salt per litre')).toBeVisible()
+    // Scroll the page until the card's top is 120px above the top of the view.
+    const scrollerTop = await card.evaluate((el) => {
+      const sc = el.closest('.overflow-y-auto')!
+      sc.scrollTop += el.getBoundingClientRect().top - sc.getBoundingClientRect().top + 120
+      return sc.getBoundingClientRect().top
+    })
+    const [box, head] = await Promise.all([card.boundingBox(), card.getByTestId('today-row-head').boundingBox()])
+    expect(box!.y).toBeLessThan(scrollerTop - 100)
+    expect(box!.y + box!.height).toBeGreaterThan(head!.y + head!.height)
+    expect(Math.abs(head!.y - scrollerTop)).toBeLessThan(2)
+    await expect(card.getByRole('button', { name: 'Open', exact: true })).toBeInViewport()
+    await expect(card.getByRole('button', { name: 'Mark 💬 Pasta water as read' })).toBeInViewport()
+  })
+
   test('collapsing a card is "later": the header stays — name, topic, how many new — and the chat stays unread', async ({ page }) => {
     const card = page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'Gallery sync' })
     await card.getByRole('button', { expanded: true }).click()

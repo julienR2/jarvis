@@ -124,13 +124,18 @@ export default function InboxCard({
   }
 
   return (
+    // overflow-clip, not -hidden: it rounds the corners without becoming a
+    // scroll container, which would keep the header from sticking to Today's.
+    // Open, the header carries the line under it (the first block below drops
+    // its own), so it stays drawn once the header is stuck over the messages.
     <div
-      className='overflow-hidden rounded-xl border border-border bg-surface'
+      className={`overflow-clip rounded-xl border border-border bg-surface ${open ? '[&>:nth-child(2)]:border-t-0' : ''}`}
       data-testid='today-row'
       data-status={status}
       data-reason={reason}
     >
-      <div className='flex items-center gap-2.5 px-3 py-2'>
+      {/* Sticky while the card scrolls by: a long answer keeps Open and ✓ in reach. */}
+      <div className={`sticky top-0 z-10 flex items-center gap-2.5 bg-surface px-3 py-2 ${open ? 'border-b border-border/60' : ''}`} data-testid='today-row-head'>
         <button onClick={() => setOpen((v) => !v)} className='flex min-w-0 flex-1 items-center gap-2.5 text-left' aria-expanded={open}>
           <span className='shrink-0 text-text-muted'>{open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
           {/* Just the chat and where it lives — what is new is in the card. */}
