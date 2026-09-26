@@ -194,7 +194,7 @@ export const api = {
 
   // Messages
   sendMessage: (conversationId: string, content: string, attachments?: Attachment[], model?: string, effort?: Effort, replyTo?: ReplyTo | null) =>
-    request<{ id: string }>('POST', `/conversations/${conversationId}/messages`, {
+    request<{ id: string; message: Message }>('POST', `/conversations/${conversationId}/messages`, {
       content,
       attachments: attachments?.length ? attachments : undefined,
       model,

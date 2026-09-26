@@ -5,10 +5,11 @@ import ChatInput from '../components/ChatInput'
 import { useModelCatalogue } from '../components/ModelSelector'
 import InboxCard, { type InboxReason } from '../components/InboxCard'
 import { SidebarToggle } from '../components/ContentLayout'
-import { api, pendingQuestionOf, type Attachment, type Conversation, type Effort, type RunListItem } from '../api'
+import { api, pendingQuestionOf, type Conversation, type Effort, type RunListItem } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { BASE_PATH } from '../base'
 import { reloadRecentRuns, useRecentRuns } from '../lib/runs'
+import { startChat } from '../lib/outbox'
 
 /**
  * Home — the unreads view.
@@ -48,28 +49,14 @@ export default function TodayPage() {
   const entries = useMemo(() => buildInbox(Object.values(conversations), runs ?? []), [conversations, runs])
   const sectionName = (id: string | null) => (id ? sections.find((s) => s.id === id)?.name : undefined)
 
-  // The composer opens a fresh chat with what was typed: the conversation is
-  // created, the message sent, and the chat opened to watch the answer come.
-  async function start(text: string, attachments: Attachment[]) {
+  // The composer opens a fresh chat with what was sent: the conversation is
+  // created and opened right away, and the chat shows the rest arriving — the
+  // uploads finishing, the transcription, then the answer (lib/outbox).
+  async function start(what: Parameters<typeof startChat>[0]) {
     if (starting) return
     setStarting(true)
     try {
-      const conv = await useChatStore.getState().createConversation()
-      await api.sendMessage(conv.id, text, attachments, model, effort)
-      navigate(`/c/${conv.id}`)
-    } catch (err) {
-      console.error('Could not start the chat:', err)
-      window.__jarvisToast?.error("Couldn't start the chat — try again.")
-      setStarting(false)
-    }
-  }
-  async function startWithAudio(blob: Blob) {
-    if (starting) return
-    setStarting(true)
-    try {
-      const conv = await useChatStore.getState().createConversation()
-      await api.sendAudio(conv.id, blob, model, effort)
-      navigate(`/c/${conv.id}`)
+      navigate(`/c/${await startChat(what, model, effort)}`)
     } catch (err) {
       console.error('Could not start the chat:', err)
       window.__jarvisToast?.error("Couldn't start the chat — try again.")
@@ -142,8 +129,9 @@ export default function TodayPage() {
               column (max-w-3xl): the composer is the welcome, not a feed. */}
           <div className='mt-8 w-full max-w-2xl md:px-6'>
             <ChatInput
-              onSend={start}
-              onSendAudio={startWithAudio}
+              onSend={() => {}}
+              onSendNow={(text, files) => start({ kind: 'message', text, files })}
+              onSendAudio={(audio) => start({ kind: 'voice', audio })}
               onCancel={() => {}}
               isProcessing={false}
               focusKey={composeKey}

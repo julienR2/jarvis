@@ -1793,7 +1793,9 @@ export async function conversationRoutes(app: FastifyInstance) {
           replyTo,
         },
       )
-      return { id: userMsgId }
+      // The saved row too: a sender that isn't watching the chat's stream yet
+      // (Today, opening the chat it just created) inserts it without waiting.
+      return { id: userMsgId, message: getMessageRow(userMsgId!) }
     },
   )
 

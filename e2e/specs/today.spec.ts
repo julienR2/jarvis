@@ -141,4 +141,52 @@ test.describe('today', () => {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
     expect(overflow).toBeFalsy()
   })
+
+  test('a voice message opens the new chat at once, "Transcribing…" there, then my bubble', async ({ page }) => {
+    // The landing's composer, not a card's.
+    const landing = page.locator('section').first()
+    await landing.getByTitle('Tap to record').click()
+    await page.waitForTimeout(500)
+    await landing.getByTitle('Send voice message').click()
+
+    // The stub's Whisper takes 1.5 s; the chat is open well before it ends,
+    // its own composer saying what is going on, no bubble yet.
+    await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/, { timeout: 1_000 })
+    const transcribing = page.getByTestId('composer-transcribing')
+    const bubble = page.getByText('Voice note from the e2e microphone')
+    await expect(transcribing).toBeVisible()
+    await expect(bubble).toHaveCount(0)
+    await expect(transcribing).toBeHidden({ timeout: 5_000 })
+    await expect(bubble).toBeVisible({ timeout: 300 })
+  })
+
+  test('a message with a file still uploading opens the new chat at once, the upload finishing there', async ({ page }) => {
+    // Hold the upload until the chat has been seen with it in flight.
+    let release!: () => void
+    const held = new Promise<void>((r) => { release = r })
+    await page.route('**/api/uploads*', async (route) => {
+      await held
+      await route.continue()
+    })
+    const landing = page.locator('section').first()
+    await landing.locator('input[type="file"]').setInputFiles({
+      name: 'wave.png',
+      mimeType: 'image/png',
+      // A 1×1 transparent PNG.
+      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64'),
+    })
+    await landing.getByPlaceholder('How can I help you today?').fill('What is this wave?')
+    await landing.getByTitle('Send', { exact: true }).click()
+
+    await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/, { timeout: 1_000 })
+    const outgoing = page.getByTestId('outgoing-message')
+    await expect(outgoing).toContainText('What is this wave?')
+    await expect(outgoing.getByTestId('outgoing-uploading')).toBeVisible()
+
+    release()
+    await expect(outgoing).toHaveCount(0, { timeout: 5_000 })
+    const sent = page.locator('[data-message-id]').filter({ hasText: 'What is this wave?' })
+    await expect(sent).toBeVisible()
+    await expect(sent.getByRole('img', { name: 'wave.png' })).toBeVisible()
+  })
 })

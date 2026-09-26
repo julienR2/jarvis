@@ -5,7 +5,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { Earth, Loader2, ArrowDown, EyeOff } from 'lucide-react'
+import { Earth, Loader2, ArrowDown, EyeOff, FileText } from 'lucide-react'
 import {
   api,
   pendingQuestionOf,
@@ -31,6 +31,7 @@ import RunBlock from './RunBlock'
 import SelectionReply from './SelectionReply'
 import { dropQuietRuns, groupMessagesByDay, isFinishedReply } from '../lib/transcript'
 import { answerFromComposer } from './AnswerCard'
+import { useOutbox, type Outgoing } from '../lib/outbox'
 
 /** Shared so the jump button can find the divider without threading a ref
  *  through the day-grouping list. */
@@ -197,7 +198,9 @@ export default function ChatView({
   const sectionId = conv?.section_id ?? null
   const contextTokens = conv?.context_tokens ?? null
   const contextWindow = conv?.context_window ?? null
-  const showSkeleton = !loaded && messages.length === 0
+  // The first message of a chat just started from Today, still on its way.
+  const outgoing = useOutbox((s) => (conversationId ? s[conversationId] : undefined))
+  const showSkeleton = !loaded && messages.length === 0 && !outgoing
   const lastMessageId = messages[messages.length - 1]?.id
 
   const { appRefreshKey, bumpApp } = useChatEvents(conversationId)
@@ -720,6 +723,7 @@ export default function ChatView({
                         />
                       ),
                     )}
+                    {outgoing?.kind === 'message' && <OutgoingBubble outgoing={outgoing} />}
                     <LiveTurn conversationId={conversationId} />
                     {/* Parked is not thinking: the loader rests while he waits on you.
                         The question itself sits on the composer, below. */}
@@ -735,6 +739,7 @@ export default function ChatView({
           <ChatInput
             onSend={sendMessage}
             onSendAudio={sendAudio}
+            transcribing={outgoing?.kind === 'voice'}
             onCancel={cancelMessage}
             isProcessing={isProcessing}
             conversationId={conversationId}
@@ -870,6 +875,42 @@ function LiveTurn({ conversationId }: { conversationId?: string }) {
             {shown}
           </ReactMarkdown>
         </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The first message of a chat started from Today, drawn like the bubble it
+ * becomes while its files finish uploading — each one spinning until it is up.
+ * The saved message replaces it (lib/outbox).
+ */
+function OutgoingBubble({ outgoing }: { outgoing: Extract<Outgoing, { kind: 'message' }> }) {
+  return (
+    <div data-testid='outgoing-message' className='flex justify-end mb-5 animate-fade-in'>
+      <div className='max-w-[75%] break-words bg-accent-subtle text-text-primary rounded-2xl rounded-br-md px-4 py-3 text-base leading-relaxed'>
+        {outgoing.files.length > 0 && (
+          <div className={`flex flex-wrap gap-2 ${outgoing.text.trim() ? 'mb-2' : ''}`}>
+            {outgoing.files.map((f, i) => (
+              <div key={i} className='relative'>
+                {f.preview ? (
+                  <img src={f.preview} alt={f.name} className='max-w-[240px] max-h-[200px] rounded-lg object-cover border border-border' />
+                ) : (
+                  <div className='flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-bg'>
+                    <FileText size={16} className='text-text-muted shrink-0' />
+                    <span className='text-xs text-text-primary truncate max-w-[180px]'>{f.name}</span>
+                  </div>
+                )}
+                {f.uploading && (
+                  <div data-testid='outgoing-uploading' className='absolute inset-0 flex items-center justify-center rounded-lg bg-black/40'>
+                    <Loader2 size={18} className='animate-spin text-white' />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {outgoing.text.trim() && <p className='whitespace-pre-wrap'>{outgoing.text.trim()}</p>}
       </div>
     </div>
   )

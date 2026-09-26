@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion, Reply, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion, Reply, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import AudioButton from './AudioButton'
 import AnswerCard, { OptionList, hasOptions } from './AnswerCard'
 import ModelSelector from './ModelSelector'
 import { api, questionsOf, type Attachment, type Effort, type PendingQuestion, type ReplyTo } from '../api'
+import type { OutgoingUpload } from '../lib/outbox'
 
 export interface PendingFile {
   file: File
@@ -11,12 +12,20 @@ export interface PendingFile {
   uploading: boolean
   uploaded?: Attachment
   error?: string
+  upload: Promise<Attachment>
 }
 
 interface Props {
   /** `answers` comes only when a question with several parts was stepped
    *  through: one answer per question, keyed by its text. */
   onSend: (text: string, attachments: Attachment[], answers?: Record<string, string>) => void
+  /** Takes the send instead of `onSend`, uploads still running and all — the
+   *  caller waits for them (Today, which opens the new chat at once). The
+   *  image previews become the caller's to revoke. */
+  onSendNow?: (text: string, files: OutgoingUpload[]) => void
+  /** A voice message sent from elsewhere is being transcribed for this chat:
+   *  the composer shows it as if dictated here. */
+  transcribing?: boolean
   onSendAudio: (blob: Blob) => Promise<void>
   onCancel: () => void
   isProcessing: boolean
@@ -51,7 +60,7 @@ interface Props {
   onEffortChange?: (effort: Effort) => void
 }
 
-export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing, conversationId, autoFocus, focusKey, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange }: Props) {
+export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio, onCancel, isProcessing, conversationId, autoFocus, focusKey, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange }: Props) {
   const [input, setInput] = useState(initialText || '')
   // A fresh quote is an invitation to type under it.
   useEffect(() => {
@@ -117,31 +126,22 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
     }
   }, [initialFiles])
 
-  async function uploadFile(pending: PendingFile, index: number) {
-    try {
-      const attachment = await api.uploadFile(pending.file, conversationId)
-      setFiles(prev => prev.map((f, i) => i === index ? { ...f, uploading: false, uploaded: attachment } : f))
-    } catch (err: any) {
-      setFiles(prev => prev.map((f, i) => i === index ? { ...f, uploading: false, error: err.message } : f))
-    }
-  }
-
   function addFiles(newFiles: File[]) {
+    // Each file is found again by its upload, not its index: one removed
+    // meanwhile shifts the others.
     const pending: PendingFile[] = newFiles.map(file => {
-      const p: PendingFile = { file, uploading: true }
+      const upload = api.uploadFile(file, conversationId)
+      upload.then(
+        (attachment) => setFiles(prev => prev.map(f => f.upload === upload ? { ...f, uploading: false, uploaded: attachment } : f)),
+        (err: Error) => setFiles(prev => prev.map(f => f.upload === upload ? { ...f, uploading: false, error: err.message } : f)),
+      )
+      const p: PendingFile = { file, uploading: true, upload }
       if (file.type.startsWith('image/')) {
         p.preview = URL.createObjectURL(file)
       }
       return p
     })
-
-    setFiles(prev => {
-      const updated = [...prev, ...pending]
-      // Start uploads for new files
-      const startIdx = prev.length
-      pending.forEach((p, i) => uploadFile(p, startIdx + i))
-      return updated
-    })
+    setFiles(prev => [...prev, ...pending])
   }
 
   function removeFile(index: number) {
@@ -161,6 +161,14 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
       if (!input.trim()) return
       if (!lastStep) return goToStep(step + 1)
       onSend(input, attachments, { ...answers, [current.question]: input.trim() })
+    } else if (onSendNow) {
+      const sending = files.filter(f => !f.error)
+      if (!input.trim() && sending.length === 0) return
+      onSendNow(input, sending)
+      setFiles([])
+      setInput('')
+      if (textareaRef.current) textareaRef.current.style.height = 'auto'
+      return
     } else {
       if (!input.trim() && attachments.length === 0) return
       onSend(input, attachments)
@@ -229,7 +237,7 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
 
   const hasFiles = files.length > 0
   const allUploaded = files.every(f => f.uploaded || f.error)
-  const hasContent = !!input.trim() || files.some(f => f.uploaded)
+  const hasContent = !!input.trim() || files.some(f => f.uploaded || (onSendNow && f.uploading))
 
   // A question Jarvis asked (not a tool approval): its options are drawn on the
   // input, and picking one sets the input's value — the input IS the answer,
@@ -242,9 +250,9 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
   // Mic shows when no text typed, OR when files are attached (even with text).
   // Send stays available while Claude works: the message is steered into the
   // running turn (Stop shows to its left in that case).
-  const showMic = !audioActive && (!input.trim() || hasFiles)
+  const showMic = !audioActive && !transcribing && (!input.trim() || hasFiles)
   // Before the last of several questions, Next (in the card, or Enter) moves on.
-  const showSend = !audioActive && hasContent && (!hasFiles || allUploaded) && lastStep
+  const showSend = !audioActive && !transcribing && hasContent && (!hasFiles || allUploaded || !!onSendNow) && lastStep
   const showCancel = isProcessing && !audioActive
 
   return (
@@ -373,7 +381,7 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
               onPaste={handlePaste}
               onFocus={() => setTimeout(() => textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
               placeholder={effectivePlaceholder}
-              disabled={audioActive}
+              disabled={audioActive || transcribing}
               rows={1}
               className="w-full resize-none max-h-[200px] overflow-y-auto bg-transparent text-text-primary placeholder:text-text-muted text-sm leading-relaxed focus:outline-none disabled:opacity-50"
             />
@@ -416,6 +424,12 @@ export default function ChatInput({ onSend, onSendAudio, onCancel, isProcessing,
             </div>
 
             <div className="flex items-center gap-1">
+              {transcribing && (
+                <div data-testid='composer-transcribing' className="flex items-center gap-2 text-text-muted h-8">
+                  <Loader2 size={16} className="animate-spin" />
+                  <span className="text-xs">Transcribing…</span>
+                </div>
+              )}
               {/* AudioButton always mounted to preserve state; visible when idle mic or actively recording */}
               <div className={showMic || audioActive ? '' : 'hidden'}>
                 <AudioButton
