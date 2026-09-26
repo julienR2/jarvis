@@ -114,9 +114,46 @@ const MAX_MESSAGE_PAGE_SIZE = 1000
 
 /** Read a message back with its cursor, for SSE payloads. */
 function getMessageRow(id: string): MessageRow {
-  return getDb()
-    .prepare('SELECT m.*, m.rowid AS seq FROM messages m WHERE m.id = ?')
-    .get(id) as MessageRow
+  return answerOnly(
+    getDb()
+      .prepare('SELECT m.*, m.rowid AS seq FROM messages m WHERE m.id = ?')
+      .get(id) as MessageRow,
+  )
+}
+
+const STEP_MARKER = /^\[(tool|chunk|note)(?::\d+)?\] /
+
+/**
+ * A finished answer as the chat draws it, without the steps that led to it.
+ *
+ * `content` keeps every [tool]/[note] line of the turn — the database is the
+ * record — but the chat stopped showing them, and in a long chat they were
+ * most of what a page weighed. Once `result` is set only the prose is drawn:
+ * the [chunk] lines, minus the last one, which the client drops because it
+ * repeats `result` verbatim. So that last chunk leaves too, and an empty
+ * `[chunk] ` stands in its place for the client to drop instead.
+ *
+ * A turn without a result is left whole: it is either still running, and its
+ * latest step is the line by the loader, or it was cut off and has no answer
+ * to stand in for its steps.
+ */
+function answerOnly(row: MessageRow): MessageRow {
+  if (!row || row.role !== 'assistant' || !row.result || !STEP_MARKER.test(row.content)) return row
+  const chunks: string[] = []
+  let inChunk = false
+  // Same split as the client's parser: an entry opens on a marker and runs on
+  // through the paragraphs that follow it.
+  for (const para of row.content.split('\n\n')) {
+    const marker = para.match(STEP_MARKER)
+    if (marker) {
+      inChunk = marker[1] === 'chunk'
+      if (inChunk) chunks.push(para)
+    } else if (inChunk) {
+      chunks[chunks.length - 1] += '\n\n' + para
+    }
+  }
+  chunks.pop()
+  return { ...row, content: [...chunks, '[chunk] '].join('\n\n') }
 }
 
 /**
@@ -149,7 +186,7 @@ export function fetchMessagePage(
 
   const has_more = rows.length > limit
   if (has_more) rows.pop()
-  return { messages: rows.reverse(), has_more }
+  return { messages: rows.reverse().map(answerOnly), has_more }
 }
 
 export function parsePageLimit(raw: string | undefined): number {

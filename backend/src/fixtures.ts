@@ -177,6 +177,7 @@ export function seedFixtures(): void {
       '[note:1] I need the gallery folder for this week, then a count per day.',
       '[tool:1] ls /workspace/gallery/2026-09',
       '[tool:1] python3 count.py --since monday',
+      '[chunk:1] Found the folder, counting per day now.',
       '[note:2] Twelve files, but two are duplicates by hash — dropping those.',
       '[tool:2] python3 dedupe.py',
       '[chunk:2] Counting is done, writing the answer.',

@@ -15,8 +15,16 @@ test.describe('chat rendering', () => {
   })
 
   test('activity: only the answer — no step line, no trail to unfold', async ({ page }) => {
+    const opened = page.waitForResponse((r) => /\/api\/conversations\/[^/?]+(\?|$)/.test(r.url()) && r.request().method() === 'GET')
     await openConversation(page, 'Activity steps')
     await expect(page.getByText('10 photos')).toBeVisible()
+    // Prose Jarvis wrote on the way is part of the answer and stays.
+    await expect(page.getByText('Found the folder, counting per day now.')).toBeVisible()
+    // The steps don't even travel: the page carries the prose, not the log.
+    const sent = JSON.stringify((await (await opened).json()).messages)
+    expect(sent).toContain('Found the folder')
+    expect(sent).not.toMatch(/\[(tool|note)(:\d+)?\] /)
+    expect(sent).not.toContain('Counting is done')
     // The machinery leaves no trace once the turn is over: no count, no notes,
     // no tool calls, nothing to click open.
     await expect(page.getByText(/\d+ steps?\b/)).toHaveCount(0)
