@@ -14,6 +14,15 @@ test.describe('sidebar', () => {
     }
   })
 
+  test('a topic entry is as tall as a chat row', async ({ page }) => {
+    const side = page.getByRole('complementary')
+    const topic = side.getByRole('button', { name: /Projects/ }).and(side.locator('[title="Open the topic"]')).locator('xpath=..')
+    const chat = side.getByText('Markdown showcase', { exact: true }).locator('xpath=..')
+    const [t, c] = await Promise.all([topic.boundingBox(), chat.boundingBox()])
+    expect(t && c).toBeTruthy()
+    expect(Math.abs(t!.height - c!.height)).toBeLessThan(0.5)
+  })
+
   test('a chat row\'s ⋯ menu is the short one: move, rename, delete — no sharing', async ({ page }) => {
     const side = page.getByRole('complementary')
     await side.getByText('Markdown showcase').hover()

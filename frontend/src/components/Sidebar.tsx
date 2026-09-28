@@ -311,19 +311,21 @@ function SectionGroup({
         collapsed ? 'py-1.5' : 'pt-1.5 pb-4'
       }`}
     >
-      <div className={`flex items-center group/section pr-3 rounded-lg ${section && activePath === `/t/${section.id}` ? 'bg-selected' : ''}`}>
+      {/* Same height as a chat row (py-1.5 + a 20px line), so a topic reads as an
+          entry of the list rather than a thinner label squeezed between rows. */}
+      <div className={`h-8 flex items-center group/section pr-3 rounded-lg ${section && activePath === `/t/${section.id}` ? 'bg-selected' : ''}`}>
         <button
           onClick={onToggle}
           title={collapsed ? 'Show the chats' : 'Fold the chats'}
           aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${section ? section.name : 'Chats'}`}
-          className='shrink-0 pl-1.5 py-1 text-text-muted/50 hover:text-text-secondary transition-colors'
+          className='shrink-0 self-stretch pl-1.5 text-text-muted/50 hover:text-text-secondary transition-colors'
         >
           <ChevronRight size={11} className={`transition-transform ${collapsed ? '' : 'rotate-90'}`} />
         </button>
         <button
           onClick={section ? () => onNav(`/t/${section.id}`) : onToggle}
           title={section ? 'Open the topic' : undefined}
-          className={`flex-1 flex items-center pl-1.5 pr-3 py-1 min-w-0 text-[11px] font-semibold uppercase tracking-wider transition-colors ${section && activePath === `/t/${section.id}` ? 'text-text-primary' : 'text-text-muted hover:text-text-secondary'}`}
+          className={`flex-1 self-stretch flex items-center pl-1.5 pr-3 min-w-0 text-[11px] font-semibold uppercase tracking-wider transition-colors ${section && activePath === `/t/${section.id}` ? 'text-text-primary' : 'text-text-muted hover:text-text-secondary'}`}
         >
           <span className='truncate'>{section ? section.name : 'Chats'}</span>
         </button>
