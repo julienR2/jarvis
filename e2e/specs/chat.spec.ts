@@ -85,12 +85,11 @@ test.describe('chat rendering', () => {
     await expect(page.getByText(/· Opus/)).toHaveCount(0)
   })
 
-  test('background run: the gear opens the routine in edit mode', async ({ page }) => {
+  test('background run: the gear opens the routine, in its thread', async ({ page }) => {
     await openConversation(page, 'Morning brief')
     await page.getByTestId('run-card').getByTitle('Open this routine').click()
-    await expect(page).toHaveURL(/\/routines/)
-    await expect(page.getByRole('heading', { name: 'Edit routine' })).toBeVisible()
-    await expect(page.getByLabel('Name', { exact: true })).toHaveValue('morning-brief')
+    await expect(page).toHaveURL(/\/c\/.+\?routine=open/)
+    await expect(page.getByTestId('routine-panel').getByLabel('Name', { exact: true })).toHaveValue('morning-brief')
   })
 
   test('the title bar names the routines of the chat: pause, run, edit, stop — no page needed', async ({ page }) => {
@@ -106,8 +105,8 @@ test.describe('chat rendering', () => {
     await expect(row.getByTitle('Run now')).toBeVisible()
     await expect(pop.getByRole('button', { name: 'New routine here' })).toBeVisible()
     await row.getByTitle('Edit this routine').click()
-    await expect(page).toHaveURL(/\/routines/)
-    await expect(page.getByRole('heading', { name: 'Edit routine' })).toBeVisible()
+    await expect(page).toHaveURL(/\?routine=open/)
+    await expect(page.getByTestId('routine-panel').getByLabel('Name', { exact: true })).toHaveValue('morning-brief')
   })
 
   test('unread: the chat opens at the divider; the arrow leads back down and counts what is below', async ({ page }) => {

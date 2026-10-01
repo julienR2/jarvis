@@ -17,6 +17,7 @@ import { pushForConversation } from '../push.js'
 import { config } from '../config.js'
 import { secureEquals } from '../security.js'
 import type { CronRow, WebhookRow, ConvRow } from '../types.js'
+import { ensureThread, syncThreadParent } from '../threads.js'
 
 function checkSecret(req: any, reply: any): boolean {
   const auth = req.headers['x-internal-secret']
@@ -92,8 +93,6 @@ export async function internalRoutes(app: FastifyInstance) {
       /** 'high' = think hard; anything else = the model's default. */
       effort?: string | boolean
       once?: boolean
-      /** Only fire when no run is active anywhere. */
-      solo?: boolean
       model?: string
       conversation_id?: string
     }
@@ -104,8 +103,6 @@ export async function internalRoutes(app: FastifyInstance) {
     if (!cron.validate(body.schedule)) {
       return reply.code(400).send({ error: `Invalid cron expression: ${body.schedule}` })
     }
-    const solo = body.solo ? 1 : 0
-
     // Upsert by name
     const existing = getDb()
       .prepare('SELECT * FROM crons WHERE name = ?')
@@ -113,19 +110,19 @@ export async function internalRoutes(app: FastifyInstance) {
 
     if (existing) {
       getDb()
-        .prepare('UPDATE crons SET schedule=?, prompt=?, enabled=?, once=?, solo=?, model=COALESCE(?, model), effort=?, conversation_id=COALESCE(?, conversation_id) WHERE id=?')
+        .prepare('UPDATE crons SET schedule=?, prompt=?, enabled=?, once=?, model=COALESCE(?, model), effort=?, conversation_id=COALESCE(?, conversation_id) WHERE id=?')
         .run(
           body.schedule,
           body.prompt,
           body.enabled !== false ? 1 : 0,
           body.once ? 1 : 0,
-          solo,
           body.model ?? null,
           normalizeEffort(body.effort),
           body.conversation_id ?? null,
           existing.id,
         )
       const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(existing.id) as CronRow
+      syncThreadParent(row.thread_id, row.conversation_id)
       schedule(row)
       return { updated: true, cron: row }
     }
@@ -134,10 +131,11 @@ export async function internalRoutes(app: FastifyInstance) {
     getDb()
       // model = null → "use the global default" (resolved at fire time); never
       // rely on the column default, which may be a stale value on older DBs.
-      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, solo, conversation_id, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, body.schedule, body.prompt, body.enabled !== false ? 1 : 0, body.once ? 1 : 0, solo, body.conversation_id || null, body.model ?? null, normalizeEffort(body.effort))
+      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, conversation_id, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, body.schedule, body.prompt, body.enabled !== false ? 1 : 0, body.once ? 1 : 0, body.conversation_id || null, body.model ?? null, normalizeEffort(body.effort))
 
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(id) as CronRow
+    ensureThread('crons', row)
     schedule(row)
     return { created: true, cron: row }
   })
@@ -344,9 +342,10 @@ export async function internalRoutes(app: FastifyInstance) {
 
     if (existing) {
       getDb()
-        .prepare('UPDATE webhooks SET prompt=?, enabled=? WHERE id=?')
-        .run(body.prompt, body.enabled !== false ? 1 : 0, existing.id)
-      const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(existing.id)
+        .prepare('UPDATE webhooks SET prompt=?, enabled=?, conversation_id=COALESCE(?, conversation_id) WHERE id=?')
+        .run(body.prompt, body.enabled !== false ? 1 : 0, body.conversation_id ?? null, existing.id)
+      const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(existing.id) as WebhookRow
+      syncThreadParent(row.thread_id, row.conversation_id)
       return { updated: true, webhook: row }
     }
 
@@ -357,7 +356,8 @@ export async function internalRoutes(app: FastifyInstance) {
       .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, conversation_id, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, body.name, token, body.prompt, body.enabled !== false ? 1 : 0, body.conversation_id || null, null, normalizeEffort(body.effort))
 
-    const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(id)
+    const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(id) as WebhookRow
+    ensureThread('webhooks', row)
     return { created: true, webhook: row }
   })
 

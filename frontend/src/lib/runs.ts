@@ -182,6 +182,9 @@ export function describeSchedule(expr: string): string {
   if (everyHour && /^\d+$/.test(min) && dom === '*' && mon === '*' && dow === '*') {
     return everyHour[1] === '1' ? 'every hour' : `every ${everyHour[1]} hours`
   }
+  if (/^\d+$/.test(min) && hour === '*' && dom === '*' && mon === '*' && dow === '*') {
+    return min === '0' ? 'every hour' : `every hour at :${min.padStart(2, '0')}`
+  }
   if (!time) return expr
   if (dom === '*' && mon === '*') {
     if (dow === '*') return `daily at ${time}`

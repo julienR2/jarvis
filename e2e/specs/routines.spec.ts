@@ -4,7 +4,7 @@ import { test, expect, signIn } from '../helpers'
  * The Routines page: crons and webhooks as one list of things Jarvis runs
  * without you. Fixtures: morning-brief (daily, paused), new-year-wish (yearly,
  * on), reply-marta (weekdays, paused), fixture-hook and publish-post (links).
- * What the routines DID is not here — that lives in the chats and on Today.
+ * What each routine did opens under it, a way into its thread (threads.spec).
  */
 test.describe('routines', () => {
   test.beforeEach(async ({ page }) => {
@@ -42,51 +42,66 @@ test.describe('routines', () => {
     await expect(page.getByRole('switch', { name: 'Resume morning-brief' })).toBeVisible()
   })
 
-  test('a routine is created from one form, then edited from its gear', async ({ page }) => {
+  test('a routine is created like a chat: settings on top, its prompt sent from the composer', async ({ page }) => {
     await page.goto('routines')
     await page.getByRole('button', { name: 'New routine' }).click()
-    const form = page.getByTestId('routine-form')
-    await expect(form.getByRole('heading', { name: 'New routine' })).toBeVisible()
+    await expect(page).toHaveURL(/\/routines\/new/)
+    const fields = page.getByTestId('routine-fields')
     // The trigger is the one question up front; a schedule is the default.
-    await expect(form.getByRole('radio', { name: 'On a schedule' })).toHaveAttribute('aria-checked', 'true')
-    await form.getByLabel('Name', { exact: true }).fill('e2e-nightly')
-    await form.getByLabel('Schedule', { exact: true }).fill('0 3 * * *')
+    await expect(fields.getByRole('radio', { name: 'On a schedule' })).toHaveAttribute('aria-checked', 'true')
+    await fields.getByLabel('Name', { exact: true }).fill('e2e-nightly')
+    await fields.getByLabel('Schedule', { exact: true }).fill('0 3 * * *')
     // The expression is read back in words before saving.
-    await expect(form.getByText('daily at 03:00')).toBeVisible()
-    await form.getByLabel('Prompt', { exact: true }).fill('Tidy up.')
-    // Posts into a fixture chat, picked from the list.
-    await form.getByLabel('Posts into').selectOption({ label: '📝 Blog publish · 🏗️ Projects' })
-    await form.getByLabel('Enabled').uncheck()
-    // A worker cron: yields while anything else runs.
-    await form.getByLabel('Only when idle').check()
-    await form.getByRole('button', { name: 'Create' }).click()
-    await expect(form).toBeHidden()
-    const row = page.getByTestId('routine-row').filter({ hasText: 'e2e-nightly' })
-    await expect(row).toBeVisible()
-    await expect(row.getByText('daily at 03:00')).toBeVisible()
-    await expect(row.getByRole('button', { name: /Blog publish/ })).toBeVisible()
+    await expect(fields.getByText('daily at 03:00')).toBeVisible()
+    // Standing alone, the thread's own notify mode applies; attached, the chat's.
+    await expect(fields.getByLabel('Notifications')).toBeEnabled()
+    await fields.getByLabel('Reports into').selectOption({ label: '📝 Blog publish · 🏗️ Projects' })
+    await expect(fields.getByLabel('Notifications')).toBeDisabled()
+    // No session knobs: every run starts fresh in the routine's thread.
+    await expect(page.getByLabel('Only when idle')).toHaveCount(0)
+    await expect(page.getByLabel('Use chat memory')).toHaveCount(0)
+    // The prompt is written in the real composer, and sending creates it.
+    const composer = page.getByPlaceholder('What should Jarvis do on each run?')
+    await composer.fill('Tidy up.')
+    await composer.press('Enter')
+    // …and lands in its thread, the routine on top.
+    await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
+    const panel = page.getByTestId('routine-panel')
+    await expect(panel).toContainText('daily at 03:00')
+    await expect(panel).toContainText('reports into 📝 Blog publish')
+    await expect(page.getByTestId('threads-group').getByText('e2e-nightly', { exact: true })).toBeVisible()
 
-    await row.getByTitle('Edit this routine').click()
-    await expect(page.getByRole('heading', { name: 'Edit routine' })).toBeVisible()
-    await expect(page.getByLabel('Name', { exact: true })).toHaveValue('e2e-nightly')
-    await expect(page.getByLabel('Only when idle')).toBeChecked()
-    // The trigger is fixed once it exists.
-    await expect(page.getByTestId('routine-form').getByText('on a schedule')).toBeVisible()
-    await page.keyboard.press('Escape')
-    await expect(page.getByTestId('routine-form')).toBeHidden()
+    // The prompt is edited in the composer too.
+    await panel.getByRole('button', { name: /daily at 03:00/ }).click()
+    await panel.getByRole('button', { name: 'Edit in the composer' }).click()
+    const editor = page.getByTestId('prompt-editor')
+    const box = editor.getByPlaceholder('What should Jarvis do on each run?')
+    await expect(box).toHaveValue('Tidy up.')
+    await box.fill('Tidy up the downloads.')
+    await box.press('Enter')
+    await expect(editor).toBeHidden()
+    await expect(panel).toContainText('Tidy up the downloads.')
 
     // Leave the instance as found, so the specs do not depend on their order.
     page.once('dialog', (d) => d.accept())
-    await row.getByTitle('Delete this routine').click()
-    await expect(row).toBeHidden()
+    await panel.getByRole('button', { name: 'Delete routine' }).click()
+    await expect(panel).toBeHidden()
   })
 
-  test('a webhook routine shows its link in the form', async ({ page }) => {
+  test('a new routine without a name says so and keeps what was typed', async ({ page }) => {
+    await page.goto('routines/new')
+    const composer = page.getByPlaceholder('What should Jarvis do on each run?')
+    await composer.fill('Do the thing.')
+    await composer.press('Enter')
+    await expect(page.getByRole('alert')).toHaveText('Give it a name')
+    await expect(composer).toHaveValue('Do the thing.')
+  })
+
+  test('a webhook routine shows its link at the top of its thread', async ({ page }) => {
     await page.goto('routines?edit=00000000-0000-4000-8000-0000000000a1')
-    const form = page.getByTestId('routine-form')
-    await expect(form.getByRole('heading', { name: 'Edit routine' })).toBeVisible()
-    await expect(form.getByText('when its link is called')).toBeVisible()
-    await expect(form.getByText(/\/api\/hooks\/.+\/trigger/)).toBeVisible()
+    const panel = page.getByTestId('routine-panel')
+    await expect(panel).toContainText('when called')
+    await expect(panel.getByText(/\/api\/hooks\/.+\/trigger/)).toBeVisible()
   })
 
   test('filtered to one chat from its ⋯ menu, and back to all', async ({ page }) => {
@@ -102,8 +117,7 @@ test.describe('routines', () => {
     await page.goto('activity?tab=routines')
     await expect(page).toHaveURL(/\/routines$/)
     await page.goto('crons?edit=00000000-0000-4000-8000-0000000000c1')
-    await expect(page).toHaveURL(/\/routines/)
-    await expect(page.getByRole('heading', { name: 'Edit routine' })).toBeVisible()
-    await expect(page.getByLabel('Name', { exact: true })).toHaveValue('morning-brief')
+    // Editing a routine happens in its thread.
+    await expect(page.getByTestId('routine-panel').getByLabel('Name', { exact: true })).toHaveValue('morning-brief')
   })
 })

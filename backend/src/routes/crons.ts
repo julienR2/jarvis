@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import cron from 'node-cron'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { schedule, rescheduleAll, fireCron, nextRun } from '../crons.js'
+import { ensureThread, setThreadNotify, syncThreadParent, renameThread, validNotify } from '../threads.js'
 import type { CronRow } from '../types.js'
 
 function conversationExists(id: string): boolean {
@@ -38,11 +39,10 @@ export async function cronRoutes(app: FastifyInstance) {
       once?: boolean
       model?: string
       effort?: string
-      inherit_context?: boolean
-      /** Only fire when no run is active anywhere. */
-      solo?: boolean
-      /** Where the runs post. Omitted: a chat is opened on the first fire. */
+      /** The chat the runs report into. Omitted: the thread stands alone. */
       conversation_id?: string | null
+      /** The thread's notify mode — only matters while it stands alone. */
+      notify?: 'subscribe' | 'unsubscribe' | 'auto'
     }
 
     if (!body.name || !body.schedule || !body.prompt) {
@@ -60,17 +60,15 @@ export async function cronRoutes(app: FastifyInstance) {
     const once = body.once ? 1 : 0
     const model = body.model ?? null // null → global default (resolved at fire time)
     const effort = normalizeEffort(body.effort)
-    // Off by default: a scheduled prompt is normally self-contained, and
-    // inheriting the conversation means re-reading (and paying for) its whole
-    // history on every fire.
-    const inheritContext = body.inherit_context ? 1 : 0
-    const solo = body.solo ? 1 : 0
 
     getDb()
-      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, model, effort, inherit_context, solo, conversation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, body.schedule, body.prompt, enabled, once, model, effort, inheritContext, solo, body.conversation_id || null)
+      .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, model, effort, conversation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, body.schedule, body.prompt, enabled, once, model, effort, body.conversation_id || null)
 
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(id) as CronRow
+    // The thread is opened now rather than on the first fire, so the routine
+    // has somewhere to be looked at — and its notify mode somewhere to live.
+    ensureThread('crons', row, validNotify(body.notify))
     schedule(row)
     return row
   })
@@ -84,9 +82,8 @@ export async function cronRoutes(app: FastifyInstance) {
       once: boolean
       model: string
       effort: string
-      inherit_context: boolean
-      solo: boolean
       conversation_id: string | null
+      notify: 'subscribe' | 'unsubscribe' | 'auto'
     }>
 
     if (body.schedule && !cron.validate(body.schedule)) {
@@ -110,20 +107,18 @@ export async function cronRoutes(app: FastifyInstance) {
       once: body.once !== undefined ? (body.once ? 1 : 0) : existing.once,
       model: body.model ?? existing.model ?? null,
       effort: body.effort !== undefined ? normalizeEffort(body.effort) : existing.effort,
-      inherit_context:
-        body.inherit_context !== undefined
-          ? (body.inherit_context ? 1 : 0)
-          : existing.inherit_context,
-      solo: body.solo !== undefined ? (body.solo ? 1 : 0) : existing.solo,
-      // null unlinks it: the next fire opens a fresh chat.
+      // null detaches it: the thread stands alone from the next run on.
       conversation_id: 'conversation_id' in body ? (body.conversation_id || null) : existing.conversation_id,
     }
 
     getDb()
-      .prepare('UPDATE crons SET name=?, schedule=?, prompt=?, enabled=?, once=?, model=?, effort=?, inherit_context=?, solo=?, conversation_id=? WHERE id=?')
-      .run(updated.name, updated.schedule, updated.prompt, updated.enabled, updated.once, updated.model, updated.effort, updated.inherit_context, updated.solo, updated.conversation_id, req.params.id)
+      .prepare('UPDATE crons SET name=?, schedule=?, prompt=?, enabled=?, once=?, model=?, effort=?, conversation_id=? WHERE id=?')
+      .run(updated.name, updated.schedule, updated.prompt, updated.enabled, updated.once, updated.model, updated.effort, updated.conversation_id, req.params.id)
 
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(req.params.id) as CronRow
+    syncThreadParent(row.thread_id, row.conversation_id)
+    renameThread(row.thread_id, existing.name, row.name)
+    if (body.notify) setThreadNotify(row.thread_id, validNotify(body.notify))
     schedule(row)
     return row
   })

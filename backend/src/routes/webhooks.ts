@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { fireWebhook, fireWebhookSync } from '../webhooks.js'
-import { cancelConversation } from './conversations.js'
+import { stopRunsFor } from '../runs.js'
+import { ensureThread, setThreadNotify, syncThreadParent, renameThread, threadNotifyOf } from '../threads.js'
 import type { WebhookRow } from '../types.js'
 
 function conversationExists(id: string): boolean {
@@ -24,8 +25,7 @@ export async function webhookRoutes(app: FastifyInstance) {
       effort?: string
       notify?: 'auto' | 'never' | 'always'
       user_message_key?: string
-      inherit_context?: boolean
-      /** Where the runs post. Omitted: a chat is opened on the first trigger. */
+      /** The chat the runs report into. Omitted: the thread stands alone. */
       conversation_id?: string | null
     }
 
@@ -43,15 +43,14 @@ export async function webhookRoutes(app: FastifyInstance) {
     const effort = normalizeEffort(body.effort)
     const notify = body.notify ?? 'auto'
     const user_message_key = body.user_message_key ?? null
-    // Off by default — see crons: an inherited conversation is re-read on every
-    // trigger, which for a hot webhook is the most expensive thing it does.
-    const inheritContext = body.inherit_context ? 1 : 0
 
     getDb()
-      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, model, effort, notify, user_message_key, inherit_context, conversation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, token, body.prompt, enabled, model, effort, notify, user_message_key, inheritContext, body.conversation_id || null)
+      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, model, effort, notify, user_message_key, conversation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, token, body.prompt, enabled, model, effort, notify, user_message_key, body.conversation_id || null)
 
-    return getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(id)
+    const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(id) as WebhookRow
+    ensureThread('webhooks', row, threadNotifyOf(notify))
+    return row
   })
 
   app.patch<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
@@ -63,7 +62,6 @@ export async function webhookRoutes(app: FastifyInstance) {
       effort: string
       notify: 'auto' | 'never' | 'always'
       user_message_key: string | null
-      inherit_context: boolean
       conversation_id: string | null
     }>
 
@@ -84,18 +82,18 @@ export async function webhookRoutes(app: FastifyInstance) {
       effort: body.effort !== undefined ? normalizeEffort(body.effort) : existing.effort,
       notify: body.notify ?? existing.notify ?? 'auto',
       user_message_key: body.user_message_key !== undefined ? (body.user_message_key || null) : existing.user_message_key,
-      inherit_context:
-        body.inherit_context !== undefined
-          ? (body.inherit_context ? 1 : 0)
-          : existing.inherit_context,
       conversation_id: 'conversation_id' in body ? (body.conversation_id || null) : existing.conversation_id,
     }
 
     getDb()
-      .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=?, model=?, effort=?, notify=?, user_message_key=?, inherit_context=?, conversation_id=? WHERE id=?')
-      .run(updated.name, updated.prompt, updated.enabled, updated.model, updated.effort, updated.notify, updated.user_message_key, updated.inherit_context, updated.conversation_id, req.params.id)
+      .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=?, model=?, effort=?, notify=?, user_message_key=?, conversation_id=? WHERE id=?')
+      .run(updated.name, updated.prompt, updated.enabled, updated.model, updated.effort, updated.notify, updated.user_message_key, updated.conversation_id, req.params.id)
 
-    return getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(req.params.id)
+    const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(req.params.id) as WebhookRow
+    syncThreadParent(row.thread_id, row.conversation_id)
+    renameThread(row.thread_id, existing.name, row.name)
+    if (body.notify) setThreadNotify(row.thread_id, threadNotifyOf(body.notify))
+    return row
   })
 
   app.post<{ Params: { id: string } }>('/:id/trigger', auth, async (req, reply) => {
@@ -154,9 +152,10 @@ export async function webhookTriggerRoute(app: FastifyInstance) {
       .get(req.params.token) as WebhookRow | undefined
 
     if (!row) return reply.code(404).send({ error: 'Not found' })
-    if (!row.conversation_id) return reply.code(400).send({ error: 'No active conversation' })
+    if (!row.thread_id) return reply.code(400).send({ error: 'No active conversation' })
 
-    await cancelConversation(row.conversation_id)
+    // Its runs happen in its thread, each under its own session.
+    await stopRunsFor(row.thread_id)
     return { ok: true }
   })
 }

@@ -1,11 +1,11 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { API_BASE, BASE_PATH } from '../base'
 import { createPortal } from 'react-dom'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { Earth, Loader2, ArrowDown, EyeOff, FileText } from 'lucide-react'
+import { Earth, Loader2, ArrowDown, EyeOff, FileText, Pencil } from 'lucide-react'
 import {
   api,
   pendingQuestionOf,
@@ -28,6 +28,10 @@ import { useIsDesktop } from '../hooks/useIsDesktop'
 import { ContentTitle } from './ContentLayout'
 import RoutinesPill from './RoutinesPill'
 import RunBlock from './RunBlock'
+import { RunReportCard, RunReportStack } from './RunReport'
+import { confirmThreadMove, THREAD_GROUP } from '../lib/threads'
+import { RoutinePanel } from './RoutineSettings'
+import { routineOf, updateRoutine, type Routine } from '../lib/routines'
 import SelectionReply from './SelectionReply'
 import { dropQuietRuns, groupMessagesByDay, isFinishedReply } from '../lib/transcript'
 import { answerFromComposer } from './AnswerCard'
@@ -136,7 +140,8 @@ export default function ChatView({
     [recentRuns],
   )
 
-  const title = conv?.title ?? ''
+  // A thread reads like a channel: #name.
+  const title = conv ? `${conv.kind === 'thread' ? '# ' : ''}${conv.title}` : ''
   const hasApp = !!conv?.app_path
   // The turn is parked on this until it is answered — the card at the bottom.
   const pending = useMemo(() => pendingQuestionOf(conv), [conv?.pending_question])
@@ -192,8 +197,9 @@ export default function ChatView({
     }
     return labels
   }, [messages])
-  const hasCron = !!conv?.has_cron
-  const hasWebhook = !!conv?.has_webhook
+  const isThread = conv?.kind === 'thread'
+  const hasCron = !!conv?.has_cron || !!conv?.thread_of?.startsWith('cron:')
+  const hasWebhook = !!conv?.has_webhook || !!conv?.thread_of?.startsWith('webhook:')
   const shareMode = conv?.share_mode ?? null
   const sectionId = conv?.section_id ?? null
   const contextTokens = conv?.context_tokens ?? null
@@ -307,6 +313,77 @@ export default function ChatView({
     setAwayFromBottom(false)
   }, [conversationId])
 
+  // `?run=` — opened from a report or the routines page: bring that run into
+  // view, paging back through older messages until it is loaded.
+  const [searchParams] = useSearchParams()
+  const focusRun = searchParams.get('run')
+  const focusedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!focusRun || !conversationId || !loaded || focusedRef.current === `${conversationId}:${focusRun}`) return
+    const el = contentRef.current?.querySelector(`[data-run-id="${CSS.escape(focusRun)}"]`)
+    if (el) {
+      focusedRef.current = `${conversationId}:${focusRun}`
+      pinnedRef.current = false
+      requestAnimationFrame(() => {
+        el.scrollIntoView({ block: 'start' })
+        recordAnchor()
+        setAwayFromBottom(true)
+      })
+    } else if (hasMore) {
+      useChatStore.getState().loadOlderMessages(conversationId)
+    }
+  }, [focusRun, conversationId, loaded, messages, hasMore])
+
+  // A routine's thread: the routine itself, shown and edited at the top, its
+  // prompt written in this composer (see editingPrompt below).
+  const threadOf = conv?.thread_of ?? null
+  const [routine, setRoutine] = useState<Routine | null>(null)
+  const [editingPrompt, setEditingPrompt] = useState(false)
+  const [promptText, setPromptText] = useState('')
+  const [promptModel, setPromptModel] = useState<{ model: string; effort: Conversation['effort'] } | null>(null)
+  const reloadRoutine = useCallback(() => {
+    if (!threadOf) return setRoutine(null)
+    routineOf(threadOf).then(setRoutine).catch(() => setRoutine(null))
+  }, [threadOf])
+  useEffect(() => {
+    setRoutine(null)
+    setEditingPrompt(false)
+    reloadRoutine()
+  }, [reloadRoutine, conversationId])
+  const routineOpen = searchParams.get('routine') === 'open'
+
+  function startEditingPrompt() {
+    if (!routine) return
+    setPromptText(routine.row.prompt)
+    setPromptModel({ model: routine.row.model ?? catalogueDefault, effort: routine.row.effort ?? DEFAULT_EFFORT })
+    setEditingPrompt(true)
+  }
+
+  async function savePrompt(text: string, attachments: Attachment[]) {
+    if (!routine || !promptModel) return
+    if (attachments.length) window.__jarvisToast?.info('A routine’s prompt keeps text only — the files were left out.')
+    if (!text.trim()) return
+    try {
+      await updateRoutine(routine, { prompt: text, model: promptModel.model, effort: promptModel.effort })
+      window.__jarvisToast?.info('Saved — the next run uses it.')
+      setEditingPrompt(false)
+      reloadRoutine()
+    } catch (err: any) {
+      window.__jarvisToast?.error(err.message ?? 'Could not save the prompt')
+      // The composer emptied on send: put the text back.
+      setPromptText('')
+      setTimeout(() => setPromptText(text), 0)
+    }
+  }
+
+  // Opening a thread lists it in the sidebar's Threads group, where it stays
+  // until dismissed — navigating away does not put it back.
+  useEffect(() => {
+    if (conv?.kind === 'thread' && !conv.surfaced_at && !shared) {
+      useChatStore.getState().setThreadSurfaced(conv.id, true)
+    }
+  }, [conv?.id, conv?.kind, conv?.surfaced_at, shared])
+
   // The unread divider lasts exactly one visit: it stays put while the
   // conversation is open — scrolling past it doesn't erase where you had got
   // to — and is dropped on the way out. Coming back re-computes it from
@@ -383,7 +460,8 @@ export default function ChatView({
   // leaving the conversation. The answers under it are what the arrow's badge
   // starts at.
   useEffect(() => {
-    if (!conversationId || !unreadAnchor || positionedRef.current === conversationId) return
+    // A run asked for by the address takes precedence over the divider.
+    if (!conversationId || !unreadAnchor || focusRun || positionedRef.current === conversationId) return
     const el = document.getElementById(UNREAD_ANCHOR_ID)
     if (!el) return
     positionedRef.current = conversationId
@@ -392,7 +470,7 @@ export default function ChatView({
     recordAnchor()
     seenRef.current = finishedCount - unreadCount
     setAwayFromBottom(true)
-  }, [conversationId, unreadAnchor, messages.length])
+  }, [conversationId, unreadAnchor, messages.length, focusRun])
 
   const newBelow = awayFromBottom ? Math.max(0, finishedCount - seenRef.current) : 0
 
@@ -478,20 +556,20 @@ export default function ChatView({
   }
 
   function handleMove(newSectionId: string | null) {
-    if (!conversationId) return
+    if (!conversationId || !confirmThreadMove(conv)) return
     useChatStore
       .getState()
       .patchConversation(conversationId, { section_id: newSectionId })
   }
 
   function startRename() {
-    setRenameValue(title)
+    setRenameValue(conv?.title ?? '')
     setRenaming(true)
   }
 
   async function submitRename() {
     const trimmed = renameValue.trim()
-    if (trimmed && trimmed !== title && conversationId) {
+    if (trimmed && trimmed !== conv?.title && conversationId) {
       await useChatStore
         .getState()
         .patchConversation(conversationId, { title: trimmed })
@@ -589,7 +667,7 @@ export default function ChatView({
     )}
     {moving && (
       <SectionPicker
-        currentId={sectionId}
+        currentId={isThread ? THREAD_GROUP : sectionId}
         onPick={handleMove}
         onClose={() => setMoving(false)}
       />
@@ -655,6 +733,17 @@ export default function ChatView({
             </div>
           )}
 
+          {routine && conv && !shared && (
+            <RoutinePanel
+              routine={routine}
+              thread={conv}
+              defaultOpen={routineOpen}
+              editingPrompt={editingPrompt}
+              onEditPrompt={startEditingPrompt}
+              onChanged={reloadRoutine}
+            />
+          )}
+
           {/* Messages */}
           <div ref={paneRef} className='relative flex-1 min-h-0'>
             {!shared?.readOnly && <SelectionReply paneRef={paneRef} onQuote={setQuote} />}
@@ -699,19 +788,26 @@ export default function ChatView({
                         <Loader2 size={16} className='animate-spin text-text-muted' />
                       </div>
                     )}
-                    {dropQuietRuns(groupMessagesByDay(messages, unreadAnchor), runsById).map((item) =>
+                    {/* A thread is where its runs are kept, the silent ones included:
+                        it is the record a report links back to. */}
+                    {(isThread ? groupMessagesByDay(messages, unreadAnchor) : dropQuietRuns(groupMessagesByDay(messages, unreadAnchor), runsById)).map((item) =>
                       item.type === 'separator' ? (
                         <DateSeparator key={item.key} label={item.label} />
                       ) : item.type === 'unread' ? (
                         <UnreadSeparator key={item.key} onDismiss={dismissUnread} />
+                      ) : item.type === 'report' ? (
+                        <RunReportCard key={item.key} msg={item.msg} report={item.report} />
+                      ) : item.type === 'reportStack' ? (
+                        <RunReportStack key={item.key} entries={item.entries} />
                       ) : item.type === 'runBlock' ? (
-                        <RunBlock
-                          key={item.key}
-                          run={runsById.get(item.runId)}
-                          msgs={item.msgs}
-                          live={isProcessing && item.msgs.some((m) => m.id === lastMessageId)}
-                          lastMessageId={lastMessageId}
-                        />
+                        <div key={item.key} data-run-id={item.runId} className={item.runId === focusRun ? 'rounded-xl ring-1 ring-accent/40 -mx-2 px-2 transition-shadow' : undefined}>
+                          <RunBlock
+                            run={runsById.get(item.runId)}
+                            msgs={item.msgs}
+                            live={isProcessing && item.msgs.some((m) => m.id === lastMessageId)}
+                            lastMessageId={lastMessageId}
+                          />
+                        </div>
                       ) : (
                         <MessageBubble
                           key={item.msg.id}
@@ -734,8 +830,34 @@ export default function ChatView({
             </div>
           </div>
 
+          {/* The routine's prompt, written in the composer it is "sent" from. */}
+          {editingPrompt && routine && promptModel && (
+            <div data-testid='prompt-editor'>
+              <div className='max-w-3xl mx-auto w-full px-4 md:px-6 pt-2 flex items-center gap-2 text-[12px] text-text-muted'>
+                <Pencil size={11} />
+                <span className='flex-1'>What <span className='text-text-secondary'>{routine.row.name}</span> runs with — Send saves it.</span>
+                <button type='button' onClick={() => setEditingPrompt(false)} className='hover:text-text-primary'>Cancel</button>
+              </div>
+              <ChatInput
+                key={`prompt-${routine.row.id}`}
+                onSend={savePrompt}
+                onSendAudio={async () => {}}
+                dictateOnly
+                onCancel={() => setEditingPrompt(false)}
+                isProcessing={false}
+                autoFocus
+                placeholder='What should Jarvis do on each run?'
+                initialText={promptText}
+                model={promptModel.model}
+                effort={promptModel.effort}
+                onModelChange={(m) => setPromptModel((p) => p && { ...p, model: m })}
+                onEffortChange={(e) => setPromptModel((p) => p && { ...p, effort: e })}
+              />
+            </div>
+          )}
+
           {/* Input — absent on a read-only link, present on an editable one */}
-          {!shared?.readOnly && (
+          {!shared?.readOnly && !editingPrompt && (
           <ChatInput
             onSend={sendMessage}
             onSendAudio={sendAudio}

@@ -50,6 +50,12 @@ export function seedFixtures(): void {
     inboxToRead: '00000000-0000-4000-8000-00000000000d',
     // Deleted by the delete-dialog spec: nothing else may rely on it.
     scratch: '00000000-0000-4000-8000-00000000000e',
+    // Threads: a chat a routine reports into, that routine's thread, a
+    // standalone thread with news, and one that only ever had nothing to say.
+    surf: '00000000-0000-4000-8000-00000000000f',
+    surfThread: '00000000-0000-4000-8000-000000000010',
+    priceThread: '00000000-0000-4000-8000-000000000011',
+    quietThread: '00000000-0000-4000-8000-000000000012',
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -61,6 +67,9 @@ export function seedFixtures(): void {
   const askCronId = '00000000-0000-4000-8000-0000000000c3'
   const hookId = '00000000-0000-4000-8000-0000000000a1'
   const okHookId = '00000000-0000-4000-8000-0000000000a2'
+  const surfCronId = '00000000-0000-4000-8000-0000000000c4'
+  const priceCronId = '00000000-0000-4000-8000-0000000000c5'
+  const backupCronId = '00000000-0000-4000-8000-0000000000c6'
 
   // Sections are looked up by name before being created, so a database that
   // already has one keeps it rather than ending up with two.
@@ -424,6 +433,51 @@ export function seedFixtures(): void {
       },
     }), chatConv)
 
+    // 10. Threads. surf-watch runs in its own thread and reports into the Surf
+    // chat: three runs with nothing to say (one silent stacked line there), then
+    // one with news (a report card). price-watch stands alone and had news, so
+    // its thread is in the sidebar's Threads group; backup-check stands alone
+    // and never had anything to say, so its thread is nowhere to be seen.
+    const insThread = db.prepare(
+      `INSERT INTO conversations (id, title, created_at, updated_at, kind, parent_id, surfaced_at, notify)
+       VALUES (?, ?, ?, ?, 'thread', ?, ?, 'auto')`,
+    )
+    const runIn = (thread: string, cron: string, name: string, ago: number, result: string, quiet: boolean) => {
+      const id = uuid()
+      insRun.run(id, 'cron', cron, name, thread, `cron-${cron}-${ago}`, 'done', t(ago), t(ago) + 20, result, null, quiet ? 1 : 0)
+      const stamp = JSON.stringify(quiet ? { run_id: id, isolated: true, quiet: true } : { run_id: id, isolated: true })
+      insMsg.run(uuid(), thread, 'assistant', '[tool:1] curl surfline', stamp, null, result, t(ago) + 1)
+      return id
+    }
+    const report = (parent: string, thread: string, runId: string, name: string, ago: number, text: string, quiet: boolean) => {
+      const meta: Record<string, unknown> = { report: { run_id: runId, thread_id: thread, source_name: name, kind: 'cron', status: 'done' } }
+      if (quiet) meta.quiet = true
+      insMsg.run(uuid(), parent, 'assistant', '', JSON.stringify(meta), null, text, t(ago) + 2)
+    }
+    insConv.run(ID.surf, '🏄 Surf', t(400), t(25), fixtures.id, null, null)
+    insMsg.run(uuid(), ID.surf, 'user', 'Watch Guincho for me and tell me when it is worth going.', null, null, null, t(400))
+    insMsg.run(uuid(), ID.surf, 'assistant', '[chunk:1] On it — surf-watch checks every hour.', null, null, 'On it — surf-watch checks every hour.', t(399))
+    insThread.run(ID.surfThread, 'surf-watch', t(399), t(25), ID.surf, null)
+    db.prepare('INSERT INTO crons (id, name, schedule, prompt, conversation_id, thread_id, enabled, last_run) VALUES (?, ?, ?, ?, ?, ?, 0, ?)')
+      .run(surfCronId, 'surf-watch', '0 * * * *', 'Check the Guincho forecast.', ID.surf, ID.surfThread, t(25))
+    for (const ago of [205, 145, 85]) {
+      const text = 'Onshore and messy, 0.8 m — not worth it.'
+      report(ID.surf, ID.surfThread, runIn(ID.surfThread, surfCronId, 'surf-watch', ago, text, true), 'surf-watch', ago, text, true)
+    }
+    const goodText = '**Go now.** 1.6 m at 12 s, light offshore until 11h — the best window this week.'
+    report(ID.surf, ID.surfThread, runIn(ID.surfThread, surfCronId, 'surf-watch', 25, goodText, false), 'surf-watch', 25, goodText, false)
+
+    insThread.run(ID.priceThread, 'price-watch', t(600), t(40), null, t(40))
+    db.prepare('INSERT INTO crons (id, name, schedule, prompt, thread_id, enabled, last_run) VALUES (?, ?, ?, ?, ?, 0, ?)')
+      .run(priceCronId, 'price-watch', '0 9 * * *', 'Check the price of the Fuji X100.', ID.priceThread, t(40))
+    runIn(ID.priceThread, priceCronId, 'price-watch', 1480, 'Still 1 699 € everywhere.', true)
+    runIn(ID.priceThread, priceCronId, 'price-watch', 40, 'Dropped to **1 449 €** at Fnac — the lowest in six months.', false)
+
+    insThread.run(ID.quietThread, 'backup-check', t(700), t(70), null, null)
+    db.prepare('INSERT INTO crons (id, name, schedule, prompt, thread_id, enabled) VALUES (?, ?, ?, ?, ?, 0)')
+      .run(backupCronId, 'backup-check', '0 3 * * *', 'Check last night\'s backup.', ID.quietThread)
+    runIn(ID.quietThread, backupCronId, 'backup-check', 70, 'Backup fine — 2.1 GB, 4 min.', true)
+
     // Keys are per account, and the e2e account is what the checks sign in as:
     // every user here gets one, or the page reads "No API keys yet" to them.
     const users = db.prepare('SELECT id FROM users').all() as { id: number }[]
@@ -451,14 +505,19 @@ export function seedFixtures(): void {
   db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = NULL WHERE id = ?').run(t(300), ID.inboxUnread)
   db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = NULL WHERE id = ?').run(t(800), ID.inboxToRead)
   db.prepare('UPDATE conversations SET last_read_at = created_at - 1, notified_at = NULL WHERE id IN (?, ?, ?)').run(ID.question, ID.approval, ID.chatAsk)
+  // The surf chat has the one report since it was read; the threads' own runs
+  // were read where they matter (the chat, or not at all).
+  db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = ? WHERE id = ?').run(t(30), t(25), ID.surf)
+  db.prepare('UPDATE conversations SET last_read_at = updated_at + 1 WHERE id IN (?, ?)').run(ID.surfThread, ID.quietThread)
+  db.prepare('UPDATE conversations SET last_read_at = ? WHERE id = ?').run(t(60), ID.priceThread)
 
   // Effort is a switch, off unless chosen; the columns' old default says 'high'.
   const ids = Object.values(ID)
   db.prepare(`UPDATE conversations SET effort = 'default' WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids)
-  db.prepare('UPDATE crons SET effort = ? WHERE id IN (?, ?, ?)').run('default', cronId, yearlyId, askCronId)
+  db.prepare('UPDATE crons SET effort = ? WHERE id IN (?, ?, ?, ?, ?, ?)').run('default', cronId, yearlyId, askCronId, surfCronId, priceCronId, backupCronId)
   db.prepare('UPDATE webhooks SET effort = ? WHERE id IN (?, ?)').run('default', hookId, okHookId)
 
-  console.log('[fixtures] seeded: 3 sections, 13 conversations, 3 crons, 2 webhooks, 7 runs (2 waiting) + 1 chat question, 1 api key per user, 1 e2e user')
+  console.log('[fixtures] seeded: 3 sections, 14 conversations + 3 threads, 6 crons, 2 webhooks, 7 runs (2 waiting) + 1 chat question, 1 api key per user, 1 e2e user')
 }
 
 const FIXTURE_APP_HTML = `<!doctype html>

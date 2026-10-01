@@ -1,35 +1,34 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Check, Clock, Copy, Link2, Loader2, MessageSquare, Plus, Settings2, Trash2, X, Zap } from 'lucide-react'
+import { AlertCircle, Check, ChevronRight, Clock, Copy, Link2, Loader2, MessageCircleQuestion, MessageSquare, Hash, Plus, Settings2, Square, Trash2, X, Zap } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import ContentLayout from '../components/ContentLayout'
-import { Drawer, RoutineForm, webhookUrl, type Routine, type RoutineKind } from '../components/RoutineForm'
-import { api } from '../api'
-import { describeSchedule, firstLine, relative } from '../lib/runs'
+import { listRoutines, routinePath, webhookUrl, type Routine } from '../lib/routines'
+import { api, type RunListItem } from '../api'
+import { describeSchedule, firstLine, relative, RUNS_NUDGE_EVENT } from '../lib/runs'
 import { useChatStore } from '../stores/chatStore'
 
 /**
  * Every routine Jarvis runs without you, in one list — the crons and the
  * webhooks, because to the person reading they are the same thing: a saved
- * prompt, a trigger, a chat it posts into.
+ * prompt, a trigger, a thread it runs in, maybe a chat it reports into.
  *
- * What the routines DID is not here. A run is not content; the message it
- * produced is, and that lives in the chat it posted into, with Today holding
- * the day's inbox. This page is where a routine is created, paused, fired by
- * hand, edited or deleted — the low-traffic page a routine needs in order to
- * outlive its chat.
+ * Each routine's runs open under it, each a way into its thread at that run:
+ * the thread is the record, this page is the index. It is also where a
+ * routine is paused, fired by hand or deleted. Creating and editing one happen
+ * in its thread: a routine is a thread that runs by itself.
  *
  * Filtered to one chat (`?conversation_id=`) or one topic (`?section_id=`)
- * when reached from there; `?edit=<id>` opens a routine, `?new=cron|webhook`
- * a blank form, both consumed once.
+ * when reached from there. The old `?edit=<id>` and `?new=cron|webhook`
+ * addresses still land: on the routine's thread, or on a new routine.
  */
 export default function RoutinesPage() {
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
   const [items, setItems] = useState<Routine[] | null>(null)
   const [loadError, setLoadError] = useState(false)
-  const [drawer, setDrawer] = useState<{ kind: RoutineKind; item?: Routine; conversationId?: string | null } | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const conversations = useChatStore((s) => s.conversations)
   const sections = useChatStore(useShallow((s) => s.sections))
 
@@ -38,13 +37,7 @@ export default function RoutinesPage() {
 
   const load = useCallback(async () => {
     try {
-      const [crons, hooks] = await Promise.all([api.getCrons(), api.getWebhooks()])
-      const all: Routine[] = [
-        ...crons.map((row): Routine => ({ kind: 'cron', row })),
-        ...hooks.map((row): Routine => ({ kind: 'webhook', row })),
-      ]
-      all.sort((a, b) => a.row.name.localeCompare(b.row.name))
-      setItems(all)
+      setItems(await listRoutines())
       setLoadError(false)
     } catch {
       setLoadError(true)
@@ -54,20 +47,18 @@ export default function RoutinesPage() {
 
   useEffect(() => { load() }, [load])
 
-  // ?edit=<id> and ?new=<kind> open the drawer once — consumed, or saving would reopen it.
+  // ?edit=<id> → the routine's thread; ?new=<kind> → a new routine.
   useEffect(() => {
     const editId = params.get('edit')
     const newKind = params.get('new')
-    if (!items) return
-    if (editId) {
+    if (newKind === 'cron' || newKind === 'webhook') {
+      navigate(newRoutinePath(newKind, filterConvId), { replace: true })
+    } else if (editId && items) {
       const target = items.find((r) => r.row.id === editId)
-      if (target) setDrawer({ kind: target.kind, item: target })
-      setParams((p) => { p.delete('edit'); return p }, { replace: true })
-    } else if (newKind === 'cron' || newKind === 'webhook') {
-      setDrawer({ kind: newKind, conversationId: filterConvId })
-      setParams((p) => { p.delete('new'); return p }, { replace: true })
+      if (target) navigate(routinePath(target), { replace: true })
+      else setParams((p) => { p.delete('edit'); return p }, { replace: true })
     }
-  }, [items, params, setParams, filterConvId])
+  }, [items, params, setParams, filterConvId, navigate])
 
   async function toggle(r: Routine) {
     if (r.kind === 'cron') await api.updateCron(r.row.id, { enabled: !r.row.enabled })
@@ -77,7 +68,8 @@ export default function RoutinesPage() {
   async function fire(r: Routine) {
     if (r.kind === 'cron') await api.triggerCron(r.row.id)
     else await api.triggerWebhook(r.row.id)
-    window.__jarvisToast?.info(`${r.row.name} is running${r.row.conversation_id ? ' — its chat shows the result' : ''}.`)
+    window.__jarvisToast?.info(`${r.row.name} is running — its runs below show it.`)
+    setExpanded((e) => ({ ...e, [r.row.id]: true }))
   }
   async function remove(r: Routine) {
     if (!window.confirm(`Delete the routine “${r.row.name}”? What it already posted stays in its chat.`)) return
@@ -93,7 +85,7 @@ export default function RoutinesPage() {
 
   const displayed = useMemo(
     () => (items ?? []).filter((r) => {
-      if (filterConvId) return r.row.conversation_id === filterConvId
+      if (filterConvId) return r.row.conversation_id === filterConvId || r.row.thread_id === filterConvId
       if (filterSectionId) return !!r.row.conversation_id && conversations[r.row.conversation_id]?.section_id === filterSectionId
       return true
     }),
@@ -132,7 +124,7 @@ export default function RoutinesPage() {
         )}
         <span className='flex-1' />
         <button
-          onClick={() => setDrawer({ kind: 'cron', conversationId: filterConvId })}
+          onClick={() => navigate(newRoutinePath('cron', filterConvId))}
           className='inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover transition-colors'
         >
           <Plus size={13} /> New routine
@@ -166,18 +158,26 @@ export default function RoutinesPage() {
                   </div>
                   <div className='mt-0.5 flex flex-wrap items-center gap-x-2 text-[11.5px] text-text-muted'>
                     {conv ? (
-                      <button onClick={() => navigate(`/c/${conv.id}`)} className='inline-flex items-center gap-1 hover:text-text-primary transition-colors'>
+                      <button onClick={() => navigate(`/c/${conv.id}`)} className='inline-flex items-center gap-1 hover:text-text-primary transition-colors' title='The chat it reports into'>
                         <MessageSquare size={10} /> {conv.title}{topic ? <span className='opacity-70'>· {topic}</span> : null}
                       </button>
                     ) : (
-                      <span>opens a chat when it runs</span>
+                      <span>its own thread</span>
                     )}
                     <span>·</span>
-                    <span>{r.row.last_run ? `last ${relative(r.row.last_run)}` : 'never ran'}</span>
+                    <button
+                      onClick={() => setExpanded((e) => ({ ...e, [r.row.id]: !e[r.row.id] }))}
+                      className='inline-flex items-center gap-0.5 hover:text-text-primary transition-colors'
+                      aria-expanded={!!expanded[r.row.id]}
+                    >
+                      <ChevronRight size={10} className={`transition-transform ${expanded[r.row.id] ? 'rotate-90' : ''}`} />
+                      {r.row.last_run ? `last ran ${relative(r.row.last_run)}` : 'never ran'}
+                    </button>
                   </div>
-                  {r.row.last_result && (
+                  {r.row.last_result && !expanded[r.row.id] && (
                     <div className='mt-0.5 text-[12.5px] text-text-secondary line-clamp-1'>{firstLine(r.row.last_result)}</div>
                   )}
+                  {expanded[r.row.id] && <RoutineRuns sourceId={r.row.id} />}
                 </div>
                 <div className='flex shrink-0 items-center gap-0.5'>
                   <button
@@ -190,12 +190,15 @@ export default function RoutinesPage() {
                     <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${r.row.enabled ? 'left-[18px]' : 'left-0.5'}`} />
                   </button>
                   <IconButton title='Run now' onClick={() => fire(r)} hover='hover:text-accent'><Zap size={13} /></IconButton>
+                  {r.row.thread_id && (
+                    <IconButton title='Open its thread' onClick={() => navigate(`/c/${r.row.thread_id}`)}><Hash size={13} /></IconButton>
+                  )}
                   {r.kind === 'webhook' && (
                     <IconButton title={copied === r.row.token ? 'Copied!' : 'Copy its link'} onClick={() => copyUrl(r.row.token)} className={copied === r.row.token ? 'text-success' : ''}>
                       {copied === r.row.token ? <Check size={13} /> : <Copy size={13} />}
                     </IconButton>
                   )}
-                  <IconButton title='Edit this routine' onClick={() => setDrawer({ kind: r.kind, item: r })}><Settings2 size={13} /></IconButton>
+                  <IconButton title='Edit this routine' onClick={() => navigate(routinePath(r))}><Settings2 size={13} /></IconButton>
                   <IconButton title='Delete this routine' onClick={() => remove(r)} hover='hover:text-danger'><Trash2 size={13} /></IconButton>
                 </div>
               </div>
@@ -204,19 +207,12 @@ export default function RoutinesPage() {
         </div>
       )}
 
-      {drawer && (
-        <Drawer title='Routine' onClose={() => setDrawer(null)}>
-          <RoutineForm
-            initial={drawer.item}
-            kind={drawer.kind}
-            conversationId={drawer.conversationId ?? null}
-            onSaved={() => { setDrawer(null); load() }}
-            onCancel={() => setDrawer(null)}
-          />
-        </Drawer>
-      )}
     </ContentLayout>
   )
+}
+
+function newRoutinePath(kind: 'cron' | 'webhook', conversationId: string | null): string {
+  return `/routines/new?kind=${kind}${conversationId ? `&conversation_id=${conversationId}` : ''}`
 }
 
 function IconButton({ title, onClick, children, hover = 'hover:text-text-primary', className = '' }: {
@@ -231,4 +227,56 @@ function IconButton({ title, onClick, children, hover = 'hover:text-text-primary
       {children}
     </button>
   )
+}
+
+/**
+ * A routine's latest runs, newest first. A row opens the thread at that run;
+ * kept fresh by the app-wide runs nudge, so a run fired from here shows up.
+ */
+function RoutineRuns({ sourceId }: { sourceId: string }) {
+  const navigate = useNavigate()
+  const [runs, setRuns] = useState<RunListItem[] | null>(null)
+  useEffect(() => {
+    let alive = true
+    const load = () => api.listRunsAll({ sourceId, limit: 15 }).then((r) => alive && setRuns(r)).catch(() => alive && setRuns((p) => p ?? []))
+    load()
+    window.addEventListener(RUNS_NUDGE_EVENT, load)
+    return () => { alive = false; window.removeEventListener(RUNS_NUDGE_EVENT, load) }
+  }, [sourceId])
+  if (runs === null) return <div className='mt-2 flex items-center gap-1.5 text-[11.5px] text-text-muted'><Loader2 size={11} className='animate-spin' /> Loading runs…</div>
+  if (runs.length === 0) return <div className='mt-2 text-[11.5px] text-text-muted'>No runs yet.</div>
+  return (
+    <div className='mt-2 flex flex-col border-l border-border pl-3' data-testid='routine-runs'>
+      {runs.map((run) => (
+        <button
+          key={run.id}
+          onClick={() => navigate(`/c/${run.conversation_id}?run=${run.id}`)}
+          title='Open the thread at this run'
+          className='flex min-w-0 items-center gap-2 rounded py-1 text-left text-[12px] text-text-secondary transition-colors hover:text-text-primary'
+        >
+          <RunStatusIcon run={run} />
+          <span className='shrink-0 tabular-nums text-text-muted'>{relative(run.started_at)}</span>
+          <span className={`truncate ${run.quiet ? 'text-text-muted' : ''}`}>
+            {run.status === 'running' ? 'running…' : run.status === 'needs_you' ? 'waiting for you' : firstLine(run.error ?? run.result ?? '') || run.status}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function RunStatusIcon({ run }: { run: RunListItem }) {
+  switch (run.status) {
+    case 'running':
+      return <Loader2 size={11} className='shrink-0 animate-spin text-accent' />
+    case 'needs_you':
+      return <MessageCircleQuestion size={11} className='shrink-0 text-warning' />
+    case 'error':
+    case 'interrupted':
+      return <AlertCircle size={11} className='shrink-0 text-danger' />
+    case 'stopped':
+      return <Square size={9} className='shrink-0 text-text-muted' />
+    default:
+      return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${run.quiet ? 'bg-border' : 'bg-success'}`} />
+  }
 }

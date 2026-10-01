@@ -1,37 +1,8 @@
-import { getDb, uuid } from './db.js'
+import { getDb } from './db.js'
 import { processMessage } from './routes/conversations.js'
 import { startRun } from './runs.js'
-import type { WebhookRow, ConvRow } from './types.js'
-
-function ensureConversation(entry: WebhookRow): { conversationId: string; conv: ConvRow } {
-  if (entry.conversation_id) {
-    const conv = getDb()
-      .prepare('SELECT * FROM conversations WHERE id = ?')
-      .get(entry.conversation_id) as ConvRow | undefined
-    if (conv) {
-      return { conversationId: conv.id, conv }
-    }
-  }
-
-  const convId = uuid()
-  const notify = entry.notify ?? 'auto'
-  const convNotify = notify === 'auto' ? 'auto' : notify === 'never' ? 'unsubscribe' : 'subscribe'
-  getDb()
-    .prepare(
-      // Explicit NULL model — see the note in crons.ts.
-      `INSERT INTO conversations (id, title, notify, model, effort, last_read_at)
-       VALUES (?, ?, ?, NULL, 'default', unixepoch())`,
-    )
-    .run(convId, `Webhook: ${entry.name}`, convNotify)
-
-  getDb()
-    .prepare('UPDATE webhooks SET conversation_id = ? WHERE id = ?')
-    .run(convId, entry.id)
-  entry.conversation_id = convId
-
-  const conv = getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(convId) as ConvRow
-  return { conversationId: convId, conv }
-}
+import { ensureThread, threadNotifyOf } from './threads.js'
+import type { WebhookRow } from './types.js'
 
 export function fireWebhook(entry: WebhookRow, payload?: unknown): void {
   console.log(`[webhook] firing "${entry.name}"`)
@@ -48,7 +19,8 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
     .prepare('UPDATE webhooks SET last_run = unixepoch() WHERE id = ?')
     .run(entry.id)
 
-  const { conversationId, conv } = ensureConversation(entry)
+  const thread = ensureThread('webhooks', entry, threadNotifyOf(entry.notify))
+  const conversationId = thread.id
 
   let prompt = entry.prompt
   if (payload !== undefined && payload !== null) {
@@ -65,14 +37,10 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
     }
   }
 
-  // See crons.ts — a webhook fires on someone else's schedule, so by default it
-  // gets a clean session and reports into the linked conversation rather than
-  // inheriting (and paying for) everything said there.
-  const runKey = entry.inherit_context
-    ? undefined
-    : `hook-${entry.id}-${Date.now()}`
+  // See crons.ts: a fresh session per trigger, in the routine's thread.
+  const runKey = `hook-${entry.id}-${Date.now()}`
 
-  // Two fires of the same webhook land two runs in the same conversation, in
+  // Two fires of the same webhook land two runs in the same thread, in
   // parallel and by design. That only stays legible because each carries its
   // own id — the messages it writes are stamped with it, and Stop targets one
   // run rather than "whatever is running here".
@@ -97,6 +65,7 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
     effort: entry.effort,
     runKey,
     runId: run.id,
+    routine: { name: entry.name, kind: 'webhook' as const },
   }
 
   const donePromise = sync
@@ -107,7 +76,7 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
           // `running` is correct: it is, and it is still stoppable.
           reject(new Error('Webhook response timeout'))
         }, 120_000)
-        processMessage(conversationId, conv, prompt, [], {
+        processMessage(conversationId, thread, prompt, [], {
           ...msgOptions,
           onDone: (text) => {
             clearTimeout(timeout)
@@ -119,7 +88,7 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
     : undefined
 
   if (!sync) {
-    processMessage(conversationId, conv, prompt, [], {
+    processMessage(conversationId, thread, prompt, [], {
       ...msgOptions,
       onDone: recordDone,
     })

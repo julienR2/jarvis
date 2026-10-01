@@ -158,7 +158,7 @@ export const api = {
     ),
   updateConversation: (
     id: string,
-    data: { title?: string; notify?: string; section_id?: string | null },
+    data: { title?: string; notify?: string; section_id?: string | null; surfaced?: boolean },
   ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
   // Files are archived and routines kept unless told otherwise — the delete
   // dialog's two checkboxes, both off by default.
@@ -229,6 +229,8 @@ export const api = {
     request<{ stopped: boolean }>('POST', `/runs/${runId}/stop`),
   /** The Activity log: every conversation, filtered and paged by `seq`. */
   listRunsAll: (opts: {
+    /** One routine's runs. */
+    sourceId?: string
     status?: RunStatus[]
     kind?: 'cron' | 'webhook'
     sectionId?: string
@@ -238,6 +240,7 @@ export const api = {
     limit?: number
   } = {}) => {
     const q = new URLSearchParams()
+    if (opts.sourceId) q.set('source_id', opts.sourceId)
     if (opts.status?.length) q.set('status', opts.status.join(','))
     if (opts.kind) q.set('kind', opts.kind)
     if (opts.sectionId) q.set('section_id', opts.sectionId)
@@ -563,6 +566,14 @@ export interface Conversation {
   last_read_at?: number | null
   /** When a push last went out for it; Today ranks a notified chat above a merely unread one. */
   notified_at?: number | null
+  /** 'thread': a routine's own conversation, kept out of the chat groups. */
+  kind?: 'chat' | 'thread'
+  /** The chat a thread reports into; null = it stands alone. */
+  parent_id?: string | null
+  /** Listed in the sidebar's Threads group since then; null = not listed. */
+  surfaced_at?: number | null
+  /** A thread's routine, as `cron:<id>` or `webhook:<id>`. */
+  thread_of?: string | null
   created_at: number
   updated_at: number
 }
@@ -686,6 +697,8 @@ export interface RunListItem extends Run {
   seq: number
   conversation_title: string | null
   section_id: string | null
+  /** The chat the run's thread reports into, if any. */
+  parent_id: string | null
 }
 
 export interface Section {
@@ -705,13 +718,13 @@ export interface Cron {
   name: string
   schedule: string
   prompt: string
+  /** The chat the runs report into; null = the thread stands alone. */
   conversation_id: string | null
+  /** Where the runs happen. */
+  thread_id: string | null
   enabled: number
+  /** Fires once, then deletes itself. Set by Jarvis, not the form. */
   once: number
-  /** 0 = each fire runs in its own session, only posting into the conversation. */
-  inherit_context: number
-  /** 1 = a fire is skipped while any run is still active anywhere. */
-  solo: number
   model: string | null
   effort: Effort
   last_run: number | null
@@ -734,12 +747,12 @@ export interface CronInput {
   prompt: string
   enabled?: boolean
   once?: boolean
-  inherit_context?: boolean
-  solo?: boolean
   model?: string
   effort?: Effort
-  /** The chat the runs post into; null = open one on the first fire. */
+  /** The chat the runs report into; null = the thread stands alone. */
   conversation_id?: string | null
+  /** The thread's notify mode, for when it stands alone. */
+  notify?: Conversation['notify']
 }
 
 export interface Webhook {
@@ -747,10 +760,12 @@ export interface Webhook {
   name: string
   token: string
   prompt: string
+  /** The chat the runs report into; null = the thread stands alone. */
   conversation_id: string | null
+  /** Where the runs happen. */
+  thread_id: string | null
   enabled: number
-  /** 0 = each trigger runs in its own session, only posting into the conversation. */
-  inherit_context: number
+  notify: 'auto' | 'never' | 'always'
   model: string | null
   effort: Effort
   last_run: number | null
@@ -762,11 +777,11 @@ export interface WebhookInput {
   name: string
   prompt: string
   enabled?: boolean
-  inherit_context?: boolean
   model?: string
   effort?: Effort
-  /** The chat the runs post into; null = open one on the first trigger. */
+  /** The chat the runs report into; null = the thread stands alone. */
   conversation_id?: string | null
+  notify?: 'auto' | 'never' | 'always'
 }
 
 export interface ApiKey {
@@ -906,6 +921,8 @@ export type GlobalEvent =
   // A topic was renamed, rewritten or removed — refetch the sections.
   | { type: 'sections' }
   | { type: 'conversations_removed'; ids: string[] }
+  // A thread was listed in the sidebar (or a conversation changed shape).
+  | { type: 'conversation_changed'; conversation_id: string }
 
 // ── Global SSE connection ────────────────────────────────────────────────────
 

@@ -8,8 +8,14 @@ allowed-tools: Bash, Read
 
 Manage scheduled tasks (crons) via the internal API using `curl`. In the
 interface a cron is a **routine** that runs on a schedule (page `/routines`; the
-⟳ control in a chat's title bar lists the ones posting there). A cron whose chat
-is filed under a topic runs with that topic's brief.
+⟳ control in a chat's title bar lists the ones reporting there).
+
+Every routine runs in its own **thread** — a conversation hidden from the chat
+list, where each run happens in a fresh session. If the routine is attached to a
+chat (`conversation_id`), each run leaves a report there: the answer when it had
+something to say, a silent line when it opened with `[quiet]`. Unattached, the
+thread shows in the sidebar's Threads group when a run is worth seeing. A cron
+attached to a chat filed under a topic runs with that topic's brief.
 
 ## API
 
@@ -51,10 +57,10 @@ curl -s -X POST ${BACKEND_URL}/internal/crons \
 
 If a cron with the same `name` exists, it is updated.
 
-**Important — conversation linking:**
+**Important — attaching to a chat:**
 
-- **If `$JARVIS_CONVERSATION_ID` is set** (you're creating the cron from inside a chat), always include `"conversation_id": "'"$JARVIS_CONVERSATION_ID"'"` so the cron posts its responses in the current chat — unless the user explicitly asks to target a different conversation or no conversation at all.
-- **If `$JARVIS_CONVERSATION_ID` is empty** (e.g., created via the cron admin page), omit `conversation_id` entirely — a new conversation will be auto-created on first fire and reused afterwards.
+- **If `$JARVIS_CONVERSATION_ID` is set** (you're creating the cron from inside a chat), include `"conversation_id": "'"$JARVIS_CONVERSATION_ID"'"` so the cron reports into the current chat — unless the user explicitly asks for another chat or none.
+- **If `$JARVIS_CONVERSATION_ID` is empty**, omit `conversation_id` — the routine's thread stands alone.
 
 Check before building the payload:
 ```bash
@@ -78,8 +84,8 @@ curl -s -X DELETE "${BACKEND_URL}/internal/crons/<name>" \
 - `schedule` (string, required) — cron expression (5 fields, validated by node-cron)
 - `prompt` (string, required) — the prompt executed by the agent when the cron fires
 - `enabled` (boolean, default true) — toggle on/off without deleting
-- `once` (boolean, default false) — fires once then auto-deletes (useful for reminders)
-- `conversation_id` (string, optional) — link the cron to an existing conversation so responses appear there. Use `$JARVIS_CONVERSATION_ID` to target the current chat.
+- `once` (boolean, default false) — fires once then auto-deletes. Not offered in the UI: set it yourself for reminders and one-off tasks, and unset it if a one-off turns into a recurring job.
+- `conversation_id` (string, optional) — the chat the runs report into. Use `$JARVIS_CONVERSATION_ID` to target the current chat.
 
 ## Cron expression examples
 
@@ -94,9 +100,10 @@ Timezone is read from the `TZ` environment variable (defaults to UTC). Check `$T
 
 ## Behavior
 
-- If `conversation_id` is set, the cron posts responses directly in that conversation. If the conversation no longer exists, a new one is created.
-- If no `conversation_id` is set, a new conversation is auto-created on first fire and reused after.
-- The cron prompt is NOT shown as a user message — only the assistant response appears in the chat.
+- Runs happen in the routine's thread (created with the routine, reused by every run). Each run starts a fresh session; replying in the thread continues the latest run.
+- With `conversation_id`, each finished run posts a report into that chat. A run whose answer opens with `[quiet]` reports as a silent line: no badge, no notification. Write prompts so the run says `[quiet]` when there is nothing new.
+- If the attached chat is deleted, the thread stands alone from then on.
+- The cron prompt is NOT shown as a user message.
 - `once: true` crons fire once then delete themselves — use for reminders and one-off tasks
 - The prompt is executed by the agent with full tool access (web search, files, etc.)
 

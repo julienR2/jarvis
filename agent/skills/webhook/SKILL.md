@@ -8,8 +8,11 @@ allowed-tools: Bash, Read
 
 Manage webhooks (HTTP-triggered automations) via the internal API using `curl`.
 In the interface a webhook is a **routine** that runs when its link is called
-(page `/routines`; the ⟳ control in a chat's title bar lists the ones posting
-there). A webhook whose chat is filed under a topic runs with that topic's brief.
+(page `/routines`; the ⟳ control in a chat's title bar lists the ones reporting
+there). Like every routine it runs in its own **thread**; attached to a chat
+(`conversation_id`), each run leaves a report there — a silent line when its
+answer opens with `[quiet]`. A webhook attached to a chat filed under a topic
+runs with that topic's brief.
 
 ## API
 
@@ -49,7 +52,7 @@ curl -s -X POST ${BACKEND_URL}/internal/webhooks \
 
 If a webhook with the same `name` exists, it is updated (token is preserved).
 
-**Important:** Always include `"conversation_id": "'"$JARVIS_CONVERSATION_ID"'"` so the webhook posts its responses in the current chat. If the conversation no longer exists when the webhook fires, a new one is created automatically.
+**Important:** Include `"conversation_id": "'"$JARVIS_CONVERSATION_ID"'"` so the webhook reports into the current chat. Without it, or if that chat is deleted, its thread stands alone.
 
 ---
 
@@ -67,7 +70,7 @@ curl -s -X DELETE "${BACKEND_URL}/internal/webhooks/<name>" \
 - `name` (string, required) — unique identifier, kebab-case (e.g. `email-processor`, `deploy-notifier`)
 - `prompt` (string, required) — the prompt executed by the agent when triggered
 - `enabled` (boolean, default true) — toggle on/off without deleting
-- `conversation_id` (string, optional) — link the webhook to an existing conversation so responses appear there. Use `$JARVIS_CONVERSATION_ID` to target the current chat.
+- `conversation_id` (string, optional) — the chat the runs report into. Use `$JARVIS_CONVERSATION_ID` to target the current chat.
 
 ---
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import RoutinesPage from './RoutinesPage'
+import NewRoutinePage from './NewRoutinePage'
 import TopicPage from './TopicPage'
 import TodayPage from './TodayPage'
 import { Routes, Route, useNavigate, useLocation, useSearchParams, Navigate } from 'react-router-dom'
@@ -20,6 +21,7 @@ import {
 } from '../components/ContentLayout'
 import { api, type Conversation, type Attachment } from '../api'
 import { useChatStore } from '../stores/chatStore'
+import { isListed } from '../lib/threads'
 import { useServiceWorker } from '../hooks/useServiceWorker'
 import { useGlobalEvents } from '../hooks/useGlobalEvents'
 import { loadModelCatalogue } from '../components/ModelSelector'
@@ -29,7 +31,10 @@ import { useSwipeToOpen } from '../hooks/useSwipeToOpen'
 export default function ChatPage() {
   const listLoaded = useChatStore((s) => s.listLoaded)
   const hasUnread = useChatStore((s) =>
-    s.order.some((id) => (s.conversations[id]?.unread_count ?? 0) > 0),
+    s.order.some((id) => {
+      const c = s.conversations[id]
+      return !!c && isListed(c) && (c.unread_count ?? 0) > 0
+    }),
   )
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sharedMessage, setSharedMessage] = useState<string | null>(null)
@@ -214,6 +219,7 @@ export default function ChatPage() {
               }
             />
             <Route path='/routines' element={<RoutinesPage />} />
+            <Route path='/routines/new' element={<NewRoutinePage />} />
             <Route path='/t/:id' element={<TopicPage />} />
             {/* Crons and webhooks became routines, and the Activity page folded into
                 Today and the chats; the old addresses still land. */}
@@ -326,7 +332,7 @@ function ShareHandler({
     useShallow((s) => s.order.map((id) => s.conversations[id]).filter(Boolean) as Conversation[]),
   )
   const apps = conversations.filter(c => c.app_path)
-  const regularConvs = conversations.filter(c => !c.app_path)
+  const regularConvs = conversations.filter(c => !c.app_path && c.kind !== 'thread')
   const [message, setMessage] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [previews, setPreviews] = useState<string[]>([])

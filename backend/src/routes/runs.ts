@@ -24,6 +24,7 @@ export async function runRoutes(app: FastifyInstance) {
   app.get('/', auth, async (req) => {
     const q = req.query as {
       conversation_id?: string
+      source_id?: string
       /** Comma-separated. */
       status?: string
       kind?: string
@@ -37,6 +38,7 @@ export async function runRoutes(app: FastifyInstance) {
       .filter((s): s is RunStatus => RUN_STATUSES.includes(s as RunStatus))
     return listRuns({
       conversationId: q.conversation_id,
+      sourceId: q.source_id,
       statuses: statuses.length ? statuses : undefined,
       kind: q.kind === 'cron' || q.kind === 'webhook' ? q.kind : undefined,
       sectionId: q.section_id || undefined,

@@ -24,6 +24,8 @@ import {
   Blocks,
   Globe,
   Code2,
+  X,
+  Hash,
 } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 import { reloadApp } from '../lib/reload'
@@ -39,6 +41,7 @@ import type { Conversation, DeleteOptions, Section } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { api } from '../api'
 import { startOfToday, useRecentRuns } from '../lib/runs'
+import { confirmThreadMove, THREAD_GROUP } from '../lib/threads'
 import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
@@ -60,6 +63,8 @@ const COLLAPSE_KEY = 'sidebar-sections-collapsed'
 const CAN_HOVER = window.matchMedia('(hover: hover)').matches
 /** Stand-in id for the default group, which has no row of its own. */
 const DEFAULT_ID = '__default__'
+/** Collapse key of the automatic Threads group. */
+const THREADS_ID = '__threads__'
 /**
  * Indents a row under its section header, roughly past the emoji most section
  * names start with — the header itself has no chevron, so its name sits flush at
@@ -128,18 +133,26 @@ export default function Sidebar({
 
   // Sections in their own order, then the default group last — conversations
   // inside each stay sorted by most recent activity (the store's list order).
+  // Threads are a routine's own conversations: never in these groups.
+  const chats = conversations.filter((c) => c && c.kind !== 'thread')
   const groups: { id: string; section: Section | null; convs: Conversation[] }[] = [
     ...sections.map((section) => ({
       id: section.id,
       section,
-      convs: conversations.filter((c) => c?.section_id === section.id),
+      convs: chats.filter((c) => c.section_id === section.id),
     })),
     {
       id: DEFAULT_ID,
       section: null,
-      convs: conversations.filter((c) => c && !c.section_id),
+      convs: chats.filter((c) => !c.section_id),
     },
   ]
+  // The Threads group: those that had something worth seeing, or were opened,
+  // and have not been put away since. The open one always shows, so the
+  // sidebar says where you are.
+  const threads = conversations.filter(
+    (c) => c?.kind === 'thread' && (!!c.surfaced_at || location.pathname === `/c/${c.id}`),
+  )
 
   return (
     <aside
@@ -194,7 +207,24 @@ export default function Sidebar({
           expanded group (see SectionGroup) so a run of collapsed headers reads as
           a compact list rather than a widely spaced one. */}
       <div className='flex-1 overflow-y-auto px-2 pb-2 flex flex-col'>
-        {conversations.length === 0 && (
+        {threads.length > 0 && (
+          <ThreadsGroup
+            threads={threads}
+            collapsed={collapsed.includes(THREADS_ID)}
+            onToggle={() => toggleCollapsed(THREADS_ID)}
+            activePath={location.pathname}
+            onNav={handleNav}
+            onDelete={onDelete}
+            onRename={onRename}
+            onMove={onMove}
+            onDismiss={(id) => {
+              useChatStore.getState().setThreadSurfaced(id, false)
+              if (location.pathname === `/c/${id}`) navigate('/')
+            }}
+          />
+        )}
+
+        {chats.length === 0 && (
           <div className='px-3 py-6 text-text-muted text-xs text-center'>
             No conversations yet
           </div>
@@ -384,6 +414,70 @@ function SectionGroup({
   )
 }
 
+/**
+ * The automatic group: threads routines ran in, listed while they have
+ * something worth seeing. Dimmed, so it reads as the machine's corner rather
+ * than one of your topics; a row is put away by hand with its ✕.
+ */
+function ThreadsGroup({
+  threads,
+  collapsed,
+  onToggle,
+  activePath,
+  onNav,
+  onDelete,
+  onRename,
+  onMove,
+  onDismiss,
+}: {
+  threads: Conversation[]
+  collapsed: boolean
+  onToggle: () => void
+  activePath: string
+  onNav: (path: string) => void
+  onDelete: (id: string, opts: DeleteOptions) => void
+  onRename: (id: string, title: string) => void
+  onMove: (id: string, sectionId: string | null) => void
+  onDismiss: (id: string) => void
+}) {
+  const unread = threads.reduce((n, c) => n + (c.unread_count || 0), 0)
+  const visible = collapsed ? threads.filter((c) => activePath === `/c/${c.id}`) : threads
+  return (
+    <div className={`gap-0.5 flex flex-col ${collapsed ? 'py-1.5' : 'pt-1.5 pb-4'}`} data-testid='threads-group'>
+      <div className='h-8 flex items-center pr-3 rounded-lg'>
+        <button
+          onClick={onToggle}
+          aria-label={`${collapsed ? 'Expand' : 'Collapse'} Threads`}
+          className='flex-1 self-stretch flex items-center gap-1.5 pl-1.5 min-w-0 text-[11px] font-semibold uppercase tracking-wider text-text-muted/70 hover:text-text-secondary transition-colors'
+        >
+          <ChevronRight size={11} className={`shrink-0 text-text-muted/50 transition-transform ${collapsed ? '' : 'rotate-90'}`} />
+          <Repeat size={11} className='shrink-0' />
+          <span className='truncate'>Threads</span>
+        </button>
+        {collapsed && unread > 0 && (
+          <span className='shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[11px] font-medium'>
+            {unread}
+          </span>
+        )}
+      </div>
+      <div className='flex flex-col gap-0.5 opacity-80'>
+        {visible.map((conv) => (
+          <ConvItem
+            key={conv.id}
+            conv={conv}
+            active={activePath === `/c/${conv.id}`}
+            onNav={() => onNav(`/c/${conv.id}`)}
+            onDelete={(opts) => onDelete(conv.id, opts)}
+            onRename={(title) => onRename(conv.id, title)}
+            onMove={(sectionId) => onMove(conv.id, sectionId)}
+            onDismiss={() => onDismiss(conv.id)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /** Per-section ⋯ menu. Reordering is up/down rather than drag-and-drop. */
 function SectionMenu({
   canMoveUp,
@@ -503,6 +597,7 @@ function ConvItem({
   onDelete,
   onRename,
   onMove,
+  onDismiss,
 }: {
   conv: Conversation
   active: boolean
@@ -510,6 +605,8 @@ function ConvItem({
   onDelete: (opts: DeleteOptions) => void
   onRename: (title: string) => void
   onMove: (sectionId: string | null) => void
+  /** Threads: take it off the sidebar (nothing is deleted). */
+  onDismiss?: () => void
 }) {
   const navigate = useNavigate()
   const menuRef = useRef<ConversationMenuHandle>(null)
@@ -536,8 +633,10 @@ function ConvItem({
       )}
       {moving && (
         <SectionPicker
-          currentId={conv.section_id}
-          onPick={onMove}
+          currentId={conv.kind === 'thread' ? THREAD_GROUP : conv.section_id}
+          onPick={(sectionId) => {
+            if (confirmThreadMove(conv)) onMove(sectionId)
+          }}
           onClose={() => setMoving(false)}
         />
       )}
@@ -553,6 +652,8 @@ function ConvItem({
         <span
           className={`flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm min-w-0 ${unread ? 'font-medium text-text-primary' : ''}`}
         >
+          {/* A thread reads like a channel: #name. */}
+          {conv.kind === 'thread' && <Hash size={12} className='inline -mt-0.5 mr-1 text-text-muted' />}
           {conv.title}
         </span>
         <span className='flex items-center gap-2 shrink-0'>
@@ -589,6 +690,17 @@ function ConvItem({
           <span className='shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[11px] font-medium'>
             {conv.unread_count}
           </span>
+        )}
+        {onDismiss && (
+          <button
+            type='button'
+            onClick={(e) => { e.stopPropagation(); onDismiss() }}
+            title='Put away — it comes back when a run has something to say'
+            aria-label={`Put away ${conv.title}`}
+            className={`shrink-0 -mr-1 p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors ${CAN_HOVER ? 'hidden group-hover:block' : 'block'}`}
+          >
+            <X size={13} />
+          </button>
         )}
         <ConversationMenu
           ref={menuRef}

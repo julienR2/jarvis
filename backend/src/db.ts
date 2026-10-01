@@ -455,6 +455,48 @@ export function initDb(): void {
     db.exec(`ALTER TABLE conversations ADD COLUMN notified_at INTEGER`)
   } catch { /* already exists */ }
 
+  // Migration: threads. A routine runs in a conversation of its own — a thread —
+  // that the sidebar does not list with the chats. `parent_id` is the chat it
+  // reports into, if any; `surfaced_at` puts it in the sidebar's Threads group
+  // (something worth seeing landed, or it was opened) until it is dismissed.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'`)
+  } catch { /* already exists */ }
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN parent_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`)
+  } catch { /* already exists */ }
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN surfaced_at INTEGER`)
+  } catch { /* already exists */ }
+  for (const table of ['crons', 'webhooks']) {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN thread_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`)
+    } catch { /* already exists */ }
+  }
+  // Once: a chat a routine opened for itself ("Cron: x", never filed) was a
+  // thread in all but name — it becomes the routine's thread, attached to
+  // nothing. A chat someone chose for the routine stays a chat, and the
+  // routine reports into it from a new thread.
+  if ((db.pragma('user_version', { simple: true }) as number) < 2) {
+    db.transaction(() => {
+      for (const [table, prefix] of [['crons', 'Cron: '], ['webhooks', 'Webhook: ']] as const) {
+        const rows = db
+          .prepare(
+            `SELECT r.id, r.conversation_id FROM ${table} r
+               JOIN conversations c ON c.id = r.conversation_id
+              WHERE c.title LIKE ? AND c.section_id IS NULL`,
+          )
+          .all(`${prefix}%`) as { id: string; conversation_id: string }[]
+        for (const r of rows) {
+          db.prepare(`UPDATE conversations SET kind = 'thread', parent_id = NULL WHERE id = ?`).run(r.conversation_id)
+          db.prepare(`UPDATE ${table} SET thread_id = ?, conversation_id = NULL WHERE id = ?`).run(r.conversation_id, r.id)
+        }
+      }
+    })()
+    db.pragma('user_version = 2')
+    console.log('[db] routine-made chats turned into threads')
+  }
+
   // Connectors — one row per connector holding its definition AND its values.
   // Unified from the former three-way split (hardcoded catalog + custom_connectors
   // definitions + connectors secrets). See connectors.ts.

@@ -15,6 +15,7 @@
 import { getDb, uuid } from './db.js'
 import { emitConversationEvent , emitGlobalEvent } from './sse.js'
 import { interruptConversation } from './engine.js'
+import { reportRun } from './threads.js'
 import { ACTIVE_RUN_STATUSES, type RunRow, type RunKind, type RunStatus } from './types.js'
 
 const ACTIVE_SQL = `(${ACTIVE_RUN_STATUSES.map((s) => `'${s}'`).join(', ')})`
@@ -86,11 +87,11 @@ export function startRun(opts: {
 export function finishRun(
   id: string,
   status: Exclude<RunStatus, 'running' | 'needs_you'>,
-  detail?: { result?: string; error?: string },
+  detail?: { result?: string; error?: string; quiet?: boolean },
 ): boolean {
   const run = getRun(id)
   if (!run || !isActive(run.status)) return false
-  const quiet = status === 'done' && isQuietResult(detail?.result) ? 1 : 0
+  const quiet = status === 'done' && (detail?.quiet || isQuietResult(detail?.result)) ? 1 : 0
   getDb()
     .prepare(
       `UPDATE runs SET status = ?, ended_at = unixepoch(), result = ?, error = ?, quiet = ?
@@ -99,6 +100,7 @@ export function finishRun(
     .run(status, detail?.result ?? null, detail?.error ?? null, quiet, id)
   if (quiet) markQuietMessages(id)
   emitRuns(run.conversation_id)
+  reportRun(getRun(id)!, quiet === 1)
   return quiet === 1
 }
 
@@ -127,6 +129,13 @@ export function markQuietMessages(runId?: string): void {
  * whose every row is a skip — rather than a judgement call on the prose, so a
  * silence is always one the routine chose.
  */
+/**
+ * The marker a reply opens with to say "nothing to come back for". Removed
+ * from the text before it is stored; what is left is a silent message.
+ */
+export const SILENT_MARK = '[quiet]'
+export const SILENT_RE = /^\s*\[quiet\]\s*/i
+
 const QUIET_OPENERS = /^(?:\[quiet\]|ras\b|rien à signaler|nothing to report|no news|⏭️)/iu
 export function isQuietResult(result: string | null | undefined): boolean {
   if (!result) return false
@@ -193,11 +202,16 @@ export interface RunListRow extends RunRow {
   /** Insertion order — tie-breaker in the paging cursor. */
   seq: number
   conversation_title: string | null
+  /** The thread's section, or that of the chat it reports into. */
   section_id: string | null
+  /** The chat the run's thread reports into, if any. */
+  parent_id: string | null
 }
 
 export function listRuns(opts: {
   conversationId?: string
+  /** One routine's runs (its cron or webhook id). */
+  sourceId?: string
   /** One or several; omitted = all. */
   statuses?: RunStatus[]
   kind?: RunKind
@@ -215,6 +229,10 @@ export function listRuns(opts: {
     where.push('r.conversation_id = ?')
     params.push(opts.conversationId)
   }
+  if (opts.sourceId) {
+    where.push('r.source_id = ?')
+    params.push(opts.sourceId)
+  }
   if (opts.statuses?.length) {
     where.push(`r.status IN (${opts.statuses.map(() => '?').join(',')})`)
     params.push(...opts.statuses)
@@ -224,9 +242,9 @@ export function listRuns(opts: {
     params.push(opts.kind)
   }
   if (opts.sectionId === 'none') {
-    where.push('c.section_id IS NULL')
+    where.push('COALESCE(c.section_id, p.section_id) IS NULL')
   } else if (opts.sectionId) {
-    where.push('c.section_id = ?')
+    where.push('COALESCE(c.section_id, p.section_id) = ?')
     params.push(opts.sectionId)
   }
   if (opts.since) {
@@ -241,9 +259,11 @@ export function listRuns(opts: {
   params.push(limit)
   return getDb()
     .prepare(
-      `SELECT r.*, r.rowid AS seq, c.title AS conversation_title, c.section_id AS section_id
+      `SELECT r.*, r.rowid AS seq, c.title AS conversation_title,
+              COALESCE(c.section_id, p.section_id) AS section_id, c.parent_id AS parent_id
          FROM runs r
          LEFT JOIN conversations c ON c.id = r.conversation_id
+         LEFT JOIN conversations p ON p.id = c.parent_id
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY r.started_at DESC, r.rowid DESC
         LIMIT ?`,
@@ -296,6 +316,10 @@ export function reconcileStaleRuns(): void {
     )
     .run()
   console.log(`[runs] marked ${stale.length} stale run(s) as interrupted`)
+  for (const run of stale) {
+    const closed = getRun(run.id)
+    if (closed) reportRun(closed, false)
+  }
   for (const conversationId of new Set(stale.map((r) => r.conversation_id))) {
     emitRuns(conversationId)
   }

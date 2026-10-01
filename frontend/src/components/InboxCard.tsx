@@ -12,6 +12,7 @@ import AnswerCard, { answerFromComposer } from './AnswerCard'
 import ChatInput from './ChatInput'
 import MessageBubble from './MessageBubble'
 import RunBlock from './RunBlock'
+import { RunReportCard, RunReportStack } from './RunReport'
 import { useChatStore } from '../stores/chatStore'
 import { dropQuietRuns, groupMessagesByDay } from '../lib/transcript'
 
@@ -199,6 +200,10 @@ export default function InboxCard({
                     )
                   ) : item.type === 'unread' ? null : item.type === 'runBlock' ? (
                     <RunBlock key={item.key} run={runsById.get(item.runId)} msgs={item.msgs} live={false} />
+                  ) : item.type === 'report' ? (
+                    <RunReportCard key={item.key} msg={item.msg} report={item.report} />
+                  ) : item.type === 'reportStack' ? (
+                    <RunReportStack key={item.key} entries={item.entries} />
                   ) : (
                     <MessageBubble key={item.msg.id} msg={item.msg} />
                   ),

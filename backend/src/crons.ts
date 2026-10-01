@@ -1,65 +1,14 @@
 import cron, { type ScheduledTask } from 'node-cron'
-import { getDb, uuid } from './db.js'
+import { getDb } from './db.js'
 import { config } from './config.js'
 import { processMessage } from './routes/conversations.js'
-import { anyActiveRun, startRun } from './runs.js'
-import type { CronRow, ConvRow } from './types.js'
+import { startRun } from './runs.js'
+import { ensureThread } from './threads.js'
+import type { CronRow } from './types.js'
 
 const tasks = new Map<string, ScheduledTask>()
 
-function ensureConversation(entry: CronRow): { conversationId: string; conv: ConvRow } {
-  if (entry.conversation_id) {
-    const conv = getDb()
-      .prepare('SELECT * FROM conversations WHERE id = ?')
-      .get(entry.conversation_id) as ConvRow | undefined
-    if (conv) {
-      return { conversationId: conv.id, conv }
-    }
-  }
-
-  // Create a new conversation for this cron
-  const convId = uuid()
-  getDb()
-    .prepare(
-      // model is set explicitly, not left to the column default: that default
-      // is a hardcoded `claude-sonnet-4-6` the picker no longer even offers, so
-      // a cron's conversation was pinned to a stale model — and on an instance
-      // with no Claude credentials, to a bare id it cannot reach. NULL means
-      // "resolve the instance default", which is what talking in that
-      // conversation should use. The cron's own pinned model is separate and
-      // passed per turn, so the schedule keeps running on what it was set up with.
-      `INSERT INTO conversations (id, title, model, effort, last_read_at, notify)
-       VALUES (?, ?, NULL, 'default', unixepoch(), 'auto')`,
-    )
-    .run(convId, `Cron: ${entry.name}`)
-
-  // Link the cron to this conversation
-  getDb()
-    .prepare('UPDATE crons SET conversation_id = ? WHERE id = ?')
-    .run(convId, entry.id)
-  entry.conversation_id = convId
-
-  const conv = getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(convId) as ConvRow
-  return { conversationId: convId, conv }
-}
-
 export function fireCron(entry: CronRow): void {
-  // A solo cron yields to whatever is in flight — a live chat's turn is not a
-  // run, but every routine's is, including this cron's own previous fire (a
-  // task still going, or parked on a question). Nothing is recorded but the
-  // reason: a skipped hour is not an event worth a row.
-  if (entry.solo) {
-    const busy = anyActiveRun()
-    if (busy) {
-      const at = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      console.log(`[cron] "${entry.name}" skipped: "${busy.source_name}" is ${busy.status}`)
-      getDb()
-        .prepare('UPDATE crons SET last_result = ? WHERE id = ?')
-        .run(`Skipped at ${at} — "${busy.source_name}" was still ${busy.status === 'needs_you' ? 'waiting for you' : 'running'}.`, entry.id)
-      return
-    }
-  }
-
   console.log(`[cron] firing "${entry.name}"`)
 
   getDb()
@@ -71,15 +20,12 @@ export function fireCron(entry: CronRow): void {
     unschedule(entry.id)
   }
 
-  const { conversationId, conv } = ensureConversation(entry)
+  const thread = ensureThread('crons', entry)
 
-  // Unless the cron opts into the conversation's history, each fire runs in its
-  // own session and only reports into the linked conversation. The key is
-  // unique per fire so two runs never share a session, and the conversation's
-  // own session is never touched.
-  const runKey = entry.inherit_context
-    ? undefined
-    : `cron-${entry.id}-${Date.now()}`
+  // Every fire starts a fresh session in the routine's thread, under a key of
+  // its own so two fires never share one. The thread then resumes the latest
+  // run's session, so replying in it picks up where that run left off.
+  const runKey = `cron-${entry.id}-${Date.now()}`
 
   // Recorded before the prompt is sent, so the run is stoppable from the very
   // first moment it exists rather than from whenever the engine answers.
@@ -87,16 +33,17 @@ export function fireCron(entry: CronRow): void {
     kind: 'cron',
     sourceId: entry.id,
     sourceName: entry.name,
-    conversationId,
+    conversationId: thread.id,
     runKey,
   })
 
-  processMessage(conversationId, conv, entry.prompt, [], {
+  processMessage(thread.id, thread, entry.prompt, [], {
     skipUserMessage: true,
     model: entry.model ?? undefined,
     effort: entry.effort,
     runKey,
     runId: run.id,
+    routine: { name: entry.name, kind: 'cron' },
     onDone: (text) => {
       getDb()
         .prepare('UPDATE crons SET last_result = ? WHERE id = ?')

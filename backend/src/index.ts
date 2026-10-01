@@ -35,6 +35,7 @@ import { browserRoutes } from './routes/browser.js'
 import { modelRoutes } from './routes/models.js'
 import { apiKeyRoutes } from './routes/api-keys.js'
 import { startCronScheduler } from './crons.js'
+import { ensureRoutineThreads } from './threads.js'
 import { startFrontendWatch } from './frontend-watch.js'
 import { initPush } from './push.js'
 import { subscribeGlobal, addGlobalClient, removeGlobalClient } from './sse.js'
@@ -257,6 +258,7 @@ app.get('/health', async () => ({ ok: true, uptime: Math.round(process.uptime())
 
 // ── Cron scheduler ────────────────────────────────────────────────────────────
 
+ensureRoutineThreads()
 startCronScheduler()
 
 // ── Frontend build watcher ────────────────────────────────────────────────────

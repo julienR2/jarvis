@@ -88,6 +88,8 @@ interface ChatState {
   loadOlderMessages: (id: string) => Promise<void>
   resyncConversation: (id: string) => Promise<void>
   patchConversation: (id: string, patch: Partial<PatchableFields>) => Promise<void>
+  /** List a thread in the sidebar's Threads group, or put it away. */
+  setThreadSurfaced: (id: string, surfaced: boolean) => Promise<void>
   /** Mirror what the backend records on send: the model the input starts on next. */
   rememberModel: (id: string, model: string, effort: Conversation['effort']) => void
 
@@ -484,6 +486,9 @@ export const useChatStore = create<ChatState>()(
         set((s) => {
           s.conversations[id] = updated
         })
+        // A thread filed away became a chat, and its routine now reports into
+        // it: the list's derived fields (routine icons) come from the server.
+        if (before.kind === 'thread' && patch.section_id !== undefined) get().loadConversations()
       } catch (err) {
         console.error('Failed to update conversation:', err)
         toast('error', 'Failed to save changes')
@@ -491,6 +496,25 @@ export const useChatStore = create<ChatState>()(
           s.conversations[id] = before
         })
         throw err
+      }
+    },
+
+    async setThreadSurfaced(id, surfaced) {
+      const before = get().conversations[id]
+      if (!before) return
+      set((s) => {
+        s.conversations[id].surfaced_at = surfaced ? Math.floor(Date.now() / 1000) : null
+      })
+      try {
+        const updated = await api.updateConversation(id, { surfaced })
+        set((s) => {
+          if (s.conversations[id]) s.conversations[id].surfaced_at = updated.surfaced_at ?? null
+        })
+      } catch (err) {
+        console.error('Failed to update thread:', err)
+        set((s) => {
+          if (s.conversations[id]) s.conversations[id].surfaced_at = before.surfaced_at ?? null
+        })
       }
     },
 

@@ -36,6 +36,8 @@ import {
 import { config } from '../config.js'
 import { getConnectorValues } from '../connectors.js'
 import { topicContextFor } from '../topics.js'
+import { notifyTarget, routineRunPrompt, surfaceThread, unseenReportsPrompt } from '../threads.js'
+import { SILENT_MARK, SILENT_RE } from '../runs.js'
 import type { ConvRow, MessageRow, EffortLevel, PendingQuestion } from '../types.js'
 import { userForApiKey } from '../api-keys.js'
 
@@ -252,6 +254,15 @@ function emitConversationError(conversationId: string, content: string) {
 }
 
 /** A passage of an earlier message the person is replying to. */
+/** The section of the chat a thread reports into, for the topic brief. */
+function parentSectionId(conv: ConvRow): string | null {
+  if (!conv.parent_id) return null
+  const row = getDb().prepare('SELECT section_id FROM conversations WHERE id = ?').get(conv.parent_id) as
+    | { section_id: string | null }
+    | undefined
+  return row?.section_id ?? null
+}
+
 export interface ReplyTo {
   message_id: string
   text: string
@@ -285,6 +296,11 @@ export function processMessage(
     // writes, so the chat can say where a message came from and whether it saw
     // the conversation's history — and so a failure closes the run out.
     runId?: string
+    // Set for a routine's run in its thread. The run is told what it is and how
+    // to stay quiet, and its thread takes over the run's session afterwards.
+    // Who hears about it is decided when the run closes (threads.ts reportRun),
+    // not by the notify prompt.
+    routine?: { name: string; kind: 'cron' | 'webhook' }
   },
 ): string | null {
   // Slash commands pass through untouched — no notify prefix, no attachment refs.
@@ -296,7 +312,7 @@ export function processMessage(
   // in the saved message.
   let claudePrompt = userContent
 
-  if (conv.notify === 'auto' && !isCommand) {
+  if (conv.notify === 'auto' && !isCommand && !options?.routine) {
     const notifyInstruction = [
       '<article data-jarvis="notify-prompt">',
       '[NOTIFICATION DECISION REQUIRED]',
@@ -307,6 +323,7 @@ export function processMessage(
       `  -H "X-Internal-Secret: ${config.internalSecret}" \\`,
       `  -d '{"conversation_id": "${conversationId}", "title": "<short title>", "body": "<1-2 sentence summary>"}'`,
       'If the result is not worth notifying, do NOT run the command.',
+      `If your reply carries nothing the user needs to come back for (a pleasantry like "you're welcome", a bare acknowledgement), begin it with the marker ${SILENT_MARK} — it is removed before display, and the reply then counts as neither unread nor news.`,
       'IMPORTANT: Do NOT mention this notification decision in your response. Just run the curl silently or skip it. Your visible reply should only address the task.',
       '</article>',
     ].join('\n')
@@ -317,8 +334,21 @@ export function processMessage(
   // not seen the current text yet. Ephemeral like the notify block: the saved
   // message is what the person typed, not what the model was told around it.
   if (!isCommand) {
-    const brief = topicContextFor(conv, { freshSession: !!options?.runKey })
+    // A thread has no section of its own; it works for the topic of the chat
+    // it reports into.
+    const briefConv = conv.kind === 'thread' ? { ...conv, section_id: parentSectionId(conv) } : conv
+    const brief = topicContextFor(briefConv, { freshSession: !!options?.runKey })
     if (brief) claudePrompt = brief + '\n' + claudePrompt
+  }
+
+  if (options?.routine && !isCommand) {
+    claudePrompt = `${routineRunPrompt(options.routine.name, options.routine.kind)}\n${claudePrompt}`
+  } else if (!options?.runId && !isCommand) {
+    // What the chat's routines reported meanwhile, from sessions this one
+    // never saw. Read before the user row below is written: it is "since the
+    // person last spoke".
+    const reports = unseenReportsPrompt(conversationId)
+    if (reports) claudePrompt = `${reports}\n${claudePrompt}`
   }
 
   if (options?.transcribed && !isCommand) {
@@ -450,6 +480,7 @@ export function processMessage(
         isolated,
         runId: options?.runId,
         model,
+        routine: !!options?.routine,
       })
       if (queued) {
         console.log(`[msg] steered into the running turn of ${conversationId}`)
@@ -625,6 +656,9 @@ export function attachConversationStream(
     runId?: string
     // Stamped on the assistant rows this stream writes: who answered.
     model?: string
+    // A routine's run in its own thread: the thread adopts the run's session,
+    // and the push is left to the run's report.
+    routine?: boolean
   },
 ): void {
   // `conversationId` names two things that are usually the same and, for an
@@ -685,7 +719,7 @@ export function attachConversationStream(
    */
   const closeRuns = (
     status: 'done' | 'error' | 'interrupted',
-    detail?: { result?: string; error?: string },
+    detail?: { result?: string; error?: string; quiet?: boolean },
   ): boolean => {
     let quiet = attached.runIds.size > 0
     for (const id of attached.runIds) quiet = finishRun(id, status, detail) && quiet
@@ -715,8 +749,11 @@ export function attachConversationStream(
     appendLine('note', `Waiting for you: ${summary}`)
     // A question with nobody looking is the one case where a push is always
     // worth it — short of the person having asked never to be told.
-    if (conv.notify !== 'unsubscribe') {
-      pushForConversation(conversationId, `${conv.title} · needs you`, summary.slice(0, 200)).catch(
+    // A thread attached to a chat asks through it.
+    const target = notifyTarget(conv)
+    if (target.kind === 'thread' && target.notify !== 'unsubscribe') surfaceThread(target.id)
+    if (target.notify !== 'unsubscribe') {
+      pushForConversation(target.id, `${conv.title} · needs you`, summary.slice(0, 200)).catch(
         (err) => console.error('[push] pushForConversation failed:', err),
       )
     }
@@ -931,7 +968,9 @@ export function attachConversationStream(
 
       if (ev.type === 'done') {
         dropLive()
-        const resultText = ev.result || ''
+        // The silent marker is an instruction to us, not text for the person.
+        const silent = SILENT_RE.test(ev.result || '')
+        const resultText = (ev.result || '').replace(SILENT_RE, '')
         console.log(`[msg] done — result: ${resultText.length} chars`)
 
         // Set result on the message
@@ -962,7 +1001,10 @@ export function attachConversationStream(
         // real session — destroying exactly the continuity the isolation is
         // meant to protect, and leaving the next human message to resume a
         // session that only ever saw a cron prompt.
-        if (!isolated && ev.sessionId && ev.sessionId !== conv.claude_session_id) {
+        //
+        // A routine's run is the exception: it ran in its own thread, so the
+        // thread resumes it — replying there continues from the latest run.
+        if ((!isolated || options?.routine) && ev.sessionId && ev.sessionId !== conv.claude_session_id) {
           console.log(`[msg] db UPDATE conversation session: ${ev.sessionId}`)
           getDb()
             .prepare(
@@ -994,7 +1036,20 @@ export function attachConversationStream(
         // flag so it doesn't swallow a genuine error later in the session.
         cancelledConversations.delete(conversationId)
         closeQuestions()
-        quietTurn = !ev.pending && closeRuns('done', { result: resultText })
+        const wasRoutine = !!options?.routine
+        if (attached.runIds.size > 0) {
+          quietTurn = !ev.pending && closeRuns('done', { result: resultText, quiet: silent })
+        } else if (silent && !ev.pending) {
+          // A person's turn the model judged not worth coming back for: it
+          // stays on screen, but raises no badge and no push.
+          getDb()
+            .prepare(`UPDATE messages SET metadata = json_set(COALESCE(metadata, '{}'), '$.quiet', json('true')) WHERE id = ?`)
+            .run(msgId)
+          emitConversationEvent(conversationId, { type: 'message', message: getMessageRow(msgId!) })
+          quietTurn = true
+        } else {
+          quietTurn = false
+        }
         for (const cb of attached.onDoneQueue.splice(0)) cb(resultText)
         // Reset the per-turn state: the stream stays attached and the next
         // turn (steered, queued or wake-up) starts a fresh assistant message.
@@ -1008,7 +1063,7 @@ export function attachConversationStream(
         // - subscribe: always send (service worker suppresses if app visible)
         // - unsubscribe: never send
         // - auto: Claude decides via /internal/notify endpoint
-        if (conv.notify === 'subscribe' && !quietTurn) {
+        if (conv.notify === 'subscribe' && !quietTurn && !wasRoutine) {
           const plain = resultText
             .replace(/#{1,6}\s+/g, '') // headings
             .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1') // bold/italic
@@ -1096,7 +1151,9 @@ export function attachConversationStream(
         })
       }
 
-      if ((ev.type === 'done' && !quietTurn) || ev.type === 'error') {
+      // A routine's run reports when it closes (threads.ts reportRun), to the
+      // chat it is attached to or as its own thread — not from here.
+      if (!options?.routine && ((ev.type === 'done' && !quietTurn) || ev.type === 'error')) {
         // Notify global SSE subscribers (for sidebar unread badges)
         emitGlobalEvent({
           type: 'new_message',
@@ -1260,6 +1317,7 @@ export function resumeProcessMessage(
     runKey: options?.runKey,
     isolated: !!options?.runKey,
     runId: options?.runId,
+    routine: !!options?.runKey && conv.kind === 'thread',
   })
 }
 
@@ -1279,6 +1337,28 @@ function messageModel(
     return { model: conv.model ?? undefined, effort: normalizeEffort(conv.effort) }
   }
   return { model: model || conv.model || undefined, effort: normalizeEffort(effort ?? conv.effort) }
+}
+
+/**
+ * For a thread: the routine it belongs to, as `cron:<id>` or `webhook:<id>`,
+ * so the thread can link to it. NULL for a chat, or a thread whose routine is gone.
+ */
+const THREAD_OF_SQL = `COALESCE(
+          (SELECT 'cron:' || id FROM crons WHERE thread_id = c.id),
+          (SELECT 'webhook:' || id FROM webhooks WHERE thread_id = c.id)
+        ) AS thread_of`
+
+/**
+ * A thread filed into a section or the chats becomes a chat — the routine's
+ * chat from then on: it reports into it, from a new thread opened on its next
+ * run. The context the thread built stays with the chat.
+ */
+function promoteThread(id: string): void {
+  const db = getDb()
+  db.prepare(`UPDATE conversations SET kind = 'chat', parent_id = NULL, surfaced_at = NULL WHERE id = ?`).run(id)
+  for (const table of ['crons', 'webhooks']) {
+    db.prepare(`UPDATE ${table} SET conversation_id = ?, thread_id = NULL WHERE thread_id = ?`).run(id, id)
+  }
 }
 
 export async function conversationRoutes(app: FastifyInstance) {
@@ -1310,7 +1390,8 @@ export async function conversationRoutes(app: FastifyInstance) {
            AND COALESCE(m.metadata, '') NOT LIKE '%"quiet":true%'
         ) AS unread_count,
         (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
-        (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook
+        (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook,
+        ${THREAD_OF_SQL}
        FROM conversations c
        ORDER BY c.updated_at DESC`,
       )
@@ -1355,7 +1436,8 @@ export async function conversationRoutes(app: FastifyInstance) {
              AND COALESCE(m.metadata, '') NOT LIKE '%"quiet":true%'
           ) AS unread_count,
           (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
-          (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook
+          (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook,
+          ${THREAD_OF_SQL}
          FROM conversations c WHERE c.id = ?`,
         )
         .get(req.params.id)
@@ -1395,8 +1477,15 @@ export async function conversationRoutes(app: FastifyInstance) {
       title?: string
       notify?: string
       section_id?: string | null
+      /** Threads only: list it in the sidebar's Threads group, or take it off. */
+      surfaced?: boolean
     }
     const { title, notify } = body
+
+    const target = getDb()
+      .prepare('SELECT kind FROM conversations WHERE id = ?')
+      .get(req.params.id) as Pick<ConvRow, 'kind'> | undefined
+    if (!target) return reply.code(404).send({ error: 'Not found' })
 
     const sets: string[] = []
     const params: unknown[] = []
@@ -1411,6 +1500,9 @@ export async function conversationRoutes(app: FastifyInstance) {
       }
       sets.push('notify = ?')
       params.push(notify)
+    }
+    if (body.surfaced !== undefined && target.kind === 'thread') {
+      sets.push(body.surfaced ? 'surfaced_at = unixepoch()' : 'surfaced_at = NULL')
     }
     // null moves the conversation back to the default "Chats" group.
     if ('section_id' in body) {
@@ -1429,9 +1521,12 @@ export async function conversationRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'Nothing to update' })
     }
 
+    if ('section_id' in body && target.kind === 'thread') promoteThread(req.params.id)
+
     // Filing a chat isn't activity: bumping updated_at here would shuffle it to
     // the top of its new section, since sections sort by most recent activity.
-    const onlyMoved = sets.length === 1 && sets[0] === 'section_id = ?'
+    // Neither is putting a thread away.
+    const onlyMoved = sets.every((s) => s === 'section_id = ?' || s.startsWith('surfaced_at'))
     if (!onlyMoved) sets.push('updated_at = unixepoch()')
     params.push(req.params.id)
 
@@ -1464,10 +1559,10 @@ export async function conversationRoutes(app: FastifyInstance) {
     if (!conv) return reply.code(404).send({ error: 'Not found' })
     const { n: routines } = getDb()
       .prepare(
-        `SELECT (SELECT COUNT(*) FROM crons WHERE conversation_id = ?)
-              + (SELECT COUNT(*) FROM webhooks WHERE conversation_id = ?) AS n`,
+        `SELECT (SELECT COUNT(*) FROM crons WHERE conversation_id = @id OR thread_id = @id)
+              + (SELECT COUNT(*) FROM webhooks WHERE conversation_id = @id OR thread_id = @id) AS n`,
       )
-      .get(req.params.id, req.params.id) as { n: number }
+      .get({ id: req.params.id }) as { n: number }
     return { ...conversationFiles(req.params.id, conv.app_path), routines }
   })
 
@@ -1489,8 +1584,8 @@ export async function conversationRoutes(app: FastifyInstance) {
 
       if (req.query.routines === 'delete') {
         const db = getDb()
-        const crons = db.prepare('DELETE FROM crons WHERE conversation_id = ?').run(req.params.id)
-        db.prepare('DELETE FROM webhooks WHERE conversation_id = ?').run(req.params.id)
+        const crons = db.prepare('DELETE FROM crons WHERE conversation_id = @id OR thread_id = @id').run({ id: req.params.id })
+        db.prepare('DELETE FROM webhooks WHERE conversation_id = @id OR thread_id = @id').run({ id: req.params.id })
         if (crons.changes) rescheduleAll()
       }
 

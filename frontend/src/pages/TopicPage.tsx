@@ -10,7 +10,7 @@ import NeedsYouCard from '../components/NeedsYouCard'
 import NameModal from '../components/NameModal'
 import Popover from '../components/Popover'
 import { api, pendingQuestionOf, type Conversation } from '../api'
-import type { Routine } from '../components/RoutineForm'
+import { routinePath, type Routine } from '../lib/routines'
 import { useChatStore } from '../stores/chatStore'
 import { describeSchedule, relative } from '../lib/runs'
 
@@ -160,7 +160,7 @@ export default function TopicPage() {
             <div className='flex items-center justify-between mb-1'>
               <Eyebrow>Routines{routines && routines.length ? ` · ${routines.length}` : ''}</Eyebrow>
               <button
-                onClick={() => navigate(`/routines?new=cron${conversations[0] ? `&conversation_id=${conversations[0].id}` : ''}`)}
+                onClick={() => navigate(`/routines/new?kind=cron${conversations[0] ? `&conversation_id=${conversations[0].id}` : ''}`)}
                 className='inline-flex items-center gap-1 text-[11.5px] text-text-muted hover:text-text-primary transition-colors'
               >
                 <Plus size={11} /> New routine
@@ -199,7 +199,7 @@ export default function TopicPage() {
                         <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${r.row.enabled ? 'left-[14px]' : 'left-0.5'}`} />
                       </button>
                       <button onClick={() => fireRoutine(r)} title='Run now' className='rounded-md p-1 text-text-muted/60 hover:bg-surface2 hover:text-accent'><Zap size={13} /></button>
-                      <button onClick={() => navigate(`/routines?edit=${r.row.id}`)} title='Edit this routine' className='rounded-md p-1 text-text-muted/60 hover:bg-surface2 hover:text-text-primary'><Settings2 size={13} /></button>
+                      <button onClick={() => navigate(routinePath(r))} title='Edit this routine' className='rounded-md p-1 text-text-muted/60 hover:bg-surface2 hover:text-text-primary'><Settings2 size={13} /></button>
                     </div>
                   )
                 })}

@@ -24,7 +24,7 @@ export function sweepEmptyChats(): string[] {
   const candidates = db
     .prepare(
       `SELECT c.id, c.app_path FROM conversations c
-        WHERE c.created_at < unixepoch() - ?
+        WHERE c.created_at < unixepoch() - ? AND c.kind = 'chat'
           AND c.app_path IS NULL AND c.share_token IS NULL AND c.pending_question IS NULL
           AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id)
           AND NOT EXISTS (SELECT 1 FROM crons WHERE conversation_id = c.id)

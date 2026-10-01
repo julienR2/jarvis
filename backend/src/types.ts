@@ -30,6 +30,12 @@ export interface ConvRow {
   pending_question: string | null
   /** When the topic's context was last handed to this conversation's session. */
   topic_context_at: number | null
+  /** 'thread': a routine's own conversation, kept out of the chat groups. */
+  kind: 'chat' | 'thread'
+  /** The chat a thread reports into; null = it stands alone. */
+  parent_id: string | null
+  /** In the sidebar's Threads group since then; null = not listed. */
+  surfaced_at: number | null
   created_at: number
   updated_at: number
 }
@@ -85,6 +91,7 @@ export interface CronRow {
   name: string
   schedule: string
   prompt: string
+  /** The chat the runs report into; null = the thread stands alone. */
   conversation_id: string | null
   enabled: number
   once: number
@@ -92,10 +99,12 @@ export interface CronRow {
   effort: EffortLevel
   /** Legacy column, unused. */
   thinking: number
-  /** 0 = run in a throwaway session, reporting into the linked conversation. */
-  /** 1 = skip a fire while any run (any conversation) is still active. */
+  /** Legacy, unused: "only when idle" was removed with threads. */
   solo: number
+  /** Legacy, unused: a run starts fresh in the routine's thread. */
   inherit_context: number
+  /** The routine's thread, where its runs happen. Opened on the first fire. */
+  thread_id: string | null
   last_run: number | null
   last_result: string | null
   created_at: number
@@ -114,8 +123,10 @@ export interface WebhookRow {
   thinking: number
   notify: 'auto' | 'never' | 'always'
   user_message_key: string | null
-  /** 0 = run in a throwaway session, reporting into the linked conversation. */
+  /** Legacy, unused: a run starts fresh in the routine's thread. */
   inherit_context: number
+  /** The routine's thread, where its runs happen. Opened on the first trigger. */
+  thread_id: string | null
   last_run: number | null
   last_result: string | null
   created_at: number

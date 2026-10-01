@@ -5,7 +5,7 @@ import { api, type Run } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { describeSchedule, relative } from '../lib/runs'
 import Popover from './Popover'
-import type { Routine } from './RoutineForm'
+import { routinePath, type Routine } from '../lib/routines'
 
 /**
  * The chat's routines, from the chat.
@@ -36,8 +36,8 @@ export default function RoutinesPill({
     try {
       const [crons, hooks] = await Promise.all([api.getCrons(), api.getWebhooks()])
       const mine: Routine[] = [
-        ...crons.filter((c) => c.conversation_id === conversationId).map((row): Routine => ({ kind: 'cron', row })),
-        ...hooks.filter((h) => h.conversation_id === conversationId).map((row): Routine => ({ kind: 'webhook', row })),
+        ...crons.filter((c) => c.conversation_id === conversationId || c.thread_id === conversationId).map((row): Routine => ({ kind: 'cron', row })),
+        ...hooks.filter((h) => h.conversation_id === conversationId || h.thread_id === conversationId).map((row): Routine => ({ kind: 'webhook', row })),
       ]
       mine.sort((a, b) => a.row.name.localeCompare(b.row.name))
       setRoutines(mine)
@@ -144,7 +144,7 @@ export default function RoutinesPill({
                     <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${r.row.enabled ? 'left-[14px]' : 'left-0.5'}`} />
                   </button>
                   <button onClick={() => fire(r)} title='Run now' className='rounded-md p-1 text-text-muted/70 hover:bg-surface2 hover:text-accent'><Zap size={12} /></button>
-                  <button onClick={() => { setOpen(false); navigate(`/routines?edit=${r.row.id}`) }} title='Edit this routine' className='rounded-md p-1 text-text-muted/70 hover:bg-surface2 hover:text-text-primary'><Settings2 size={12} /></button>
+                  <button onClick={() => { setOpen(false); navigate(routinePath(r)) }} title='Edit this routine' className='rounded-md p-1 text-text-muted/70 hover:bg-surface2 hover:text-text-primary'><Settings2 size={12} /></button>
                 </div>
               )
             })
@@ -152,7 +152,7 @@ export default function RoutinesPill({
 
           <div className='mt-1 flex items-center justify-between border-t border-border pt-1'>
             <button
-              onClick={() => { setOpen(false); navigate(`/routines?new=cron&conversation_id=${conversationId}`) }}
+              onClick={() => { setOpen(false); navigate(`/routines/new?kind=cron&conversation_id=${conversationId}`) }}
               className='inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-text-secondary hover:bg-surface2 hover:text-text-primary'
             >
               <Plus size={12} /> New routine here

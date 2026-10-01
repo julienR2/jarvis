@@ -50,6 +50,10 @@ export function useGlobalEvents() {
         useChatStore.getState().forgetConversations(ev.ids)
         return
       }
+      if (ev.type === 'conversation_changed') {
+        useChatStore.getState().loadConversations()
+        return
+      }
       if (ev.type === 'sections') {
         // A topic's brief was rewritten (by Jarvis, or from another tab): the
         // topic page and the sidebar read the list, so refetch it.
