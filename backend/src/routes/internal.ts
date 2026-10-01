@@ -232,7 +232,7 @@ export async function internalRoutes(app: FastifyInstance) {
 
       const rows = getDb()
         .prepare(
-          `SELECT role, content, metadata, created_at
+          `SELECT role, content, result, metadata, created_at
              FROM messages
             WHERE conversation_id = ?
               AND type IS NULL
@@ -242,6 +242,7 @@ export async function internalRoutes(app: FastifyInstance) {
         .all(req.params.id, limit) as {
         role: string
         content: string
+        result: string | null
         metadata: string | null
         created_at: number
       }[]
@@ -252,10 +253,14 @@ export async function internalRoutes(app: FastifyInstance) {
       const MAX_CHARS = 2000
 
       const messages = rows.reverse().map((r) => {
-        const full = r.content ?? ''
+        // A finished answer reads as its answer, not the step log it was
+        // assembled from — and a routine's report has nothing but that.
+        const full = r.role === 'assistant' && r.result ? r.result : (r.content ?? '')
         let attachments: string[] = []
+        let report: string | undefined
         try {
           const meta = r.metadata ? JSON.parse(r.metadata) : null
+          report = meta?.report?.source_name
           attachments = (meta?.attachments ?? []).map(
             (a: { originalName?: string; url?: string }) => a.originalName || a.url || 'file',
           )
@@ -268,6 +273,8 @@ export async function internalRoutes(app: FastifyInstance) {
           content: full.length > MAX_CHARS ? full.slice(0, MAX_CHARS) : full,
           truncated: full.length > MAX_CHARS,
           ...(attachments.length ? { attachments } : {}),
+          // Posted by a routine's run rather than said in this chat.
+          ...(report ? { report } : {}),
         }
       })
 

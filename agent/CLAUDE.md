@@ -86,8 +86,12 @@ curl -s -H "X-Internal-Secret: $INTERNAL_SECRET" \
 ```
 
 Oldest-first, `limit` 1–100 (default 20). Each message carries `role`, `at`,
-`content`, a `truncated` flag (content is capped at 2000 characters, so a long
-turn comes back clipped) and `attachments` when it produced files.
+`content` (an answer's final text), a `truncated` flag (content is capped at 2000
+characters, so a long turn comes back clipped), `attachments` when it produced
+files, and `report` (the routine's name) when a routine's run posted it there.
+
+In a routine's run, `$JARVIS_CONVERSATION_ID` is the routine's own thread; the
+chat it reports into is named in the run's prompt, with its id.
 
 **Say when you had to look.** If you have just read history you did not remember,
 answer from it normally — but never present a reconstruction as recollection. And

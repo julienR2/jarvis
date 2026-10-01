@@ -342,7 +342,10 @@ export function processMessage(
   }
 
   if (options?.routine && !isCommand) {
-    claudePrompt = `${routineRunPrompt(options.routine.name, options.routine.kind)}\n${claudePrompt}`
+    const parent = conv.parent_id
+      ? (getDb().prepare('SELECT id, title FROM conversations WHERE id = ?').get(conv.parent_id) as { id: string; title: string } | undefined)
+      : undefined
+    claudePrompt = `${routineRunPrompt(options.routine.name, options.routine.kind, parent)}\n${claudePrompt}`
   } else if (!options?.runId && !isCommand) {
     // What the chat's routines reported meanwhile, from sessions this one
     // never saw. Read before the user row below is written: it is "since the

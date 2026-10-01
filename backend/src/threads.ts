@@ -80,10 +80,24 @@ export function syncThreadParent(threadId: string | null, parentId: string | nul
  * `[quiet]` opener is what keeps a routine that fires hourly from raising a
  * badge every hour.
  */
-export function routineRunPrompt(name: string, kind: 'cron' | 'webhook'): string {
+export function routineRunPrompt(
+  name: string,
+  kind: 'cron' | 'webhook',
+  parent?: { id: string; title: string } | null,
+): string {
+  // The run's own session starts empty and $JARVIS_CONVERSATION_ID is the
+  // thread: without this it could not know which chat it works for, let alone
+  // read what was said there.
+  const attached = parent
+    ? [
+        `It reports into the chat "${parent.title}" (conversation ${parent.id}). You do not remember that chat; when the task depends on what was said there, read it:`,
+        `curl -s -H "X-Internal-Secret: $INTERNAL_SECRET" "$BACKEND_URL/internal/conversations/${parent.id}/messages?limit=20"`,
+      ]
+    : []
   return [
     '<article data-jarvis="routine-run">',
     `This is a run of the routine "${name}" (${kind === 'cron' ? 'on a schedule' : 'triggered by a webhook'}), not a message typed by the user.`,
+    ...attached,
     'The user only hears about it when it matters. If there is nothing worth their attention — nothing new, nothing to do, every check fine —',
     'begin your final answer with the marker [quiet] followed by a one-line summary. Otherwise answer normally and lead with what matters.',
     'Errors and questions always reach the user; do not mark those [quiet].',
