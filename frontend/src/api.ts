@@ -162,6 +162,14 @@ export const api = {
   ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
   // Files are archived and routines kept unless told otherwise — the delete
   // dialog's two checkboxes, both off by default.
+  /**
+   * Start a thread from a passage: a conversation forked from this one, opening
+   * with `content` as a reply to the passage. Answers with the thread.
+   */
+  createThread: (
+    parentId: string,
+    data: { content: string; reply_to: ReplyTo; model?: string; effort?: Effort; attachments?: Attachment[] },
+  ) => request<Conversation>('POST', `/conversations/${parentId}/threads`, data),
   /** Open an empty thread to set up a routine in — its card is the form. */
   startRoutineSetup: (opts: { conversationId?: string | null } = {}) =>
     request<Conversation>('POST', '/conversations/routine-setup', { conversation_id: opts.conversationId ?? null }),
@@ -579,6 +587,8 @@ export interface Conversation {
   thread_of?: string | null
   /** Any routine ever ran here. A thread with neither this nor a routine is a setup draft. */
   has_runs?: number
+  /** A thread started from a passage of its parent chat: the message it was taken from. */
+  parent_message_id?: string | null
   created_at: number
   updated_at: number
 }

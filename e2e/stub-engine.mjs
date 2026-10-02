@@ -23,6 +23,9 @@ const ROUTES = [
   [/^\/running\//, { running: false }, 200],
   [/^\/status$/, { sessions: [], conversations: [] }, 200],
   [/^\/answer\//, { error: 'no session holds this prompt' }, 404],
+  // Nothing to fork from: the thread starts fresh, as it would on a real
+  // engine whose transcript is gone.
+  [/^\/fork$/, { error: 'no such session' }, 404],
 ]
 
 // Whisper, too (the backend's WHISPER_URL points here): every recording says

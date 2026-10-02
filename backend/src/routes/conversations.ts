@@ -25,6 +25,7 @@ import {
 } from '../questions.js'
 import { generateTitle, mediaTitle, UNTITLED } from '../titles.js'
 import { fastModel, resolveModel } from '../models.js'
+import { forkEngineSession } from '../engine.js'
 import { modelKind } from '../catalogue.js'
 import { generateMedia } from '../media.js'
 import { pushForConversation } from '../push.js'
@@ -1425,6 +1426,50 @@ export async function conversationRoutes(app: FastifyInstance) {
       )
       .run(id, fastModel(), parent?.id ?? null)
     return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id)
+  })
+
+  // A thread from a passage: a new conversation that starts where this one is
+  // (its Claude session forked, so it knows everything said so far) and opens
+  // with the person's message replying to the passage. It hangs off the chat
+  // — shown at the message the passage came from — rather than in the sidebar.
+  app.post<{ Params: { id: string } }>('/:id/threads', auth, async (req, reply) => {
+    const body = (req.body ?? {}) as {
+      content?: string
+      reply_to?: ReplyTo
+      model?: string
+      effort?: string
+      attachments?: Attachment[]
+    }
+    const parent = getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(req.params.id) as ConvRow | undefined
+    if (!parent) return reply.code(404).send({ error: 'Not found' })
+    const content = (body.content ?? '').trim()
+    const quote = body.reply_to
+    if (!content && !body.attachments?.length) return reply.code(400).send({ error: 'content is required' })
+    if (!quote?.message_id || !quote.text?.trim()) return reply.code(400).send({ error: 'reply_to is required' })
+    const source = getDb()
+      .prepare('SELECT id FROM messages WHERE id = ? AND conversation_id = ?')
+      .get(quote.message_id, parent.id)
+    if (!source) return reply.code(400).send({ error: 'reply_to must be a message of this conversation' })
+
+    const firstLine = quote.text.trim().split('\n')[0]
+    const title = firstLine.length > 60 ? `${firstLine.slice(0, 57).trimEnd()}…` : firstLine
+    const { model, effort } = messageModel(req, parent, body.model, body.effort)
+    const forked = parent.claude_session_id ? await forkEngineSession(parent.claude_session_id) : null
+    const id = uuid()
+    getDb()
+      .prepare(
+        `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, kind, parent_id, parent_message_id, claude_session_id)
+         VALUES (?, ?, ?, ?, unixepoch(), 'auto', 'thread', ?, ?, ?)`,
+      )
+      .run(id, title, model ?? null, effort ?? 'default', parent.id, quote.message_id, forked)
+    const conv = getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id) as ConvRow
+    processMessage(id, conv, content, body.attachments ?? [], {
+      replyTo: { message_id: quote.message_id, text: quote.text.slice(0, 2000) },
+      model,
+      effort,
+    })
+    emitGlobalEvent({ type: 'conversation_changed', conversation_id: id })
+    return conv
   })
 
   app.post('/', auth, async (req) => {

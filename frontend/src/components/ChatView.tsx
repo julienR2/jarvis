@@ -1,11 +1,11 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { Fragment, useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { API_BASE, BASE_PATH } from '../base'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { Earth, Loader2, ArrowDown, EyeOff, FileText } from 'lucide-react'
+import { Earth, Loader2, ArrowDown, EyeOff, FileText, Hash } from 'lucide-react'
 import {
   api,
   pendingQuestionOf,
@@ -31,6 +31,8 @@ import RunBlock from './RunBlock'
 import { RunReportCard, RunReportStack } from './RunReport'
 import { confirmThreadMove, THREAD_GROUP } from '../lib/threads'
 import { RoutineCard, RoutineChip } from './RoutineCard'
+import ThreadPanel, { type ThreadPanelState } from './ThreadPanel'
+import { useShallow } from 'zustand/react/shallow'
 import { routineOf, ROUTINE_CHANGED_EVENT, type Routine } from '../lib/routines'
 import { isDraftThread } from '../lib/threads'
 import SelectionReply from './SelectionReply'
@@ -84,6 +86,11 @@ export interface SharedMode {
 interface Props {
   /** Overrides the route param — the shared route carries a token, not an id. */
   conversationId?: string
+  /**
+   * Drawn inside another chat's thread panel: no title bar (the panel has its
+   * own), no side pane, no threads of its own, and the address bar isn't its.
+   */
+  embedded?: boolean
   shared?: SharedMode
   initialMessage?: string | null
   onInitialMessageConsumed?: () => void
@@ -102,6 +109,7 @@ export default function ChatView({
   onInitialFilesConsumed,
   shareIntent,
   onShareIntentConsumed,
+  embedded,
 }: Props) {
   const { id: routeId } = useParams<{ id: string }>()
   const conversationId = conversationIdProp ?? routeId
@@ -143,7 +151,7 @@ export default function ChatView({
 
   // A thread reads like a channel: #name.
   const title = conv ? `${conv.kind === 'thread' ? '# ' : ''}${conv.title}` : ''
-  const hasApp = !!conv?.app_path
+  const hasApp = !!conv?.app_path && !embedded
   // The turn is parked on this until it is answered — the card at the bottom.
   const pending = useMemo(() => pendingQuestionOf(conv), [conv?.pending_question])
   // While a question (not an approval) is open, the composer answers it: what
@@ -316,8 +324,51 @@ export default function ChatView({
 
   // `?run=` — opened from a report or the routines page: bring that run into
   // view, paging back through older messages until it is loaded.
-  const [searchParams] = useSearchParams()
-  const focusRun = searchParams.get('run')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const focusRun = embedded ? null : searchParams.get('run')
+
+  // Threads from passages of this chat: one open beside it (`?thread=<id>`, so
+  // it survives a reload and Back closes it), or one being started — not in
+  // the address, since it doesn't exist until its first message is sent.
+  const [newThread, setNewThread] = useState<{ convId: string; quote: ReplyTo } | null>(null)
+  const openThreadId = embedded ? null : searchParams.get('thread')
+  const threadPanel: ThreadPanelState | null =
+    newThread && newThread.convId === conversationId ? { kind: 'new', quote: newThread.quote }
+    : openThreadId ? { kind: 'open', id: openThreadId }
+    : null
+  function openThread(id: string | null) {
+    // Leaving a thread read: what landed while it was open was seen there.
+    if (openThreadId && openThreadId !== id) {
+      useChatStore.getState().markRead(openThreadId)
+      api.markConversationRead(openThreadId).catch(() => {})
+    }
+    setNewThread(null)
+    setSearchParams((p) => {
+      if (id) p.set('thread', id)
+      else p.delete('thread')
+      return p
+    }, { replace: !id })
+  }
+  // Beside the chat: an open thread takes the app's place while it is open.
+  const sidePane: 'thread' | 'app' | null = threadPanel ? 'thread' : hasApp ? 'app' : null
+  // The threads started from each message, for the marks under them.
+  const childThreads = useChatStore(useShallow((s) =>
+    s.order.map((id) => s.conversations[id]).filter((c) => !!c && c.parent_id === conversationId && !!c.parent_message_id),
+  ))
+  const threadsByMessage = useMemo(() => {
+    const map = new Map<string, Conversation[]>()
+    for (const t of childThreads) {
+      const list = map.get(t.parent_message_id!) ?? []
+      list.push(t)
+      map.set(t.parent_message_id!, list)
+    }
+    return map
+  }, [childThreads])
+  const threadMarks = (ids: string[]) => {
+    const threads = ids.flatMap((id) => threadsByMessage.get(id) ?? [])
+    if (embedded || threads.length === 0) return null
+    return <ThreadMarks threads={threads} openId={openThreadId} onOpen={openThread} />
+  }
   const focusedRef = useRef<string | null>(null)
   // The run you landed on is lit for a moment, then keeps only its margin mark.
   const [runLit, setRunLit] = useState(false)
@@ -367,10 +418,11 @@ export default function ChatView({
   // just before the navigation away lands) must not list it straight back.
   const surfacedFor = useRef<string | null>(null)
   useEffect(() => {
-    if (!conv || shared || surfacedFor.current === conv.id) return
+    // In a chat's thread panel it is already where it belongs.
+    if (!conv || shared || embedded || surfacedFor.current === conv.id) return
     surfacedFor.current = conv.id
     if (conv.kind === 'thread' && !conv.surfaced_at) useChatStore.getState().setThreadSurfaced(conv.id, true)
-  }, [conv, shared])
+  }, [conv, shared, embedded])
 
   // The unread divider lasts exactly one visit: it stays put while the
   // conversation is open — scrolling past it doesn't erase where you had got
@@ -662,7 +714,7 @@ export default function ChatView({
     )}
     <div className='flex flex-col h-full'>
       {/* Mobile title bar + toggle — above both panes */}
-      {title && (
+      {title && !embedded && !threadPanel && (
         <div className='md:hidden'>
           <ContentTitle
             action={conversationId && !shared ? (
@@ -701,10 +753,10 @@ export default function ChatView({
       <div ref={splitRef} className='flex flex-1 min-h-0'>
         {/* Chat pane — takes whatever the app pane leaves on desktop */}
         <div
-          className={`flex flex-col h-full min-w-0 ${hasApp ? 'md:flex-1 md:border-r md:border-border' : 'w-full'} ${hasApp && showPreview ? 'hidden md:flex' : 'flex w-full'}`}
+          className={`flex flex-col h-full min-w-0 ${sidePane ? 'md:flex-1 md:border-r md:border-border' : 'w-full'} ${(sidePane === 'app' && showPreview) || sidePane === 'thread' ? 'hidden md:flex' : 'flex w-full'}`}
         >
           {/* Desktop title — inside chat pane so preview gets full height */}
-          {title && (
+          {title && !embedded && (
             <div className='hidden md:block'>
               <ContentTitle
                 action={conversationId && !shared ? (
@@ -724,7 +776,13 @@ export default function ChatView({
 
           {/* Messages */}
           <div ref={paneRef} className='relative flex-1 min-h-0'>
-            {!shared?.readOnly && <SelectionReply paneRef={paneRef} onQuote={setQuote} />}
+            {!shared?.readOnly && (
+              <SelectionReply
+                paneRef={paneRef}
+                onQuote={setQuote}
+                onThread={embedded || shared ? undefined : (q) => conversationId && setNewThread({ convId: conversationId, quote: q })}
+              />
+            )}
             {/* Back to the latest messages, with what landed while reading up
                 there. Bottom-right like every messenger; quiet until needed. */}
             {awayFromBottom && (
@@ -799,16 +857,19 @@ export default function ChatView({
                             live={isProcessing && item.msgs.some((m) => m.id === lastMessageId)}
                             lastMessageId={lastMessageId}
                           />
+                          {threadMarks(item.msgs.map((m) => m.id))}
                         </div>
                       ) : (
-                        <MessageBubble
-                          key={item.msg.id}
-                          msg={item.msg}
-                          // The newest message while a turn runs is the one
-                          // being written, and it shows the step it is on.
-                          live={isProcessing && item.msg.id === lastMessageId}
-                          modelLabel={modelLabels.get(item.msg.id)}
-                        />
+                        <Fragment key={item.msg.id}>
+                          <MessageBubble
+                            msg={item.msg}
+                            // The newest message while a turn runs is the one
+                            // being written, and it shows the step it is on.
+                            live={isProcessing && item.msg.id === lastMessageId}
+                            modelLabel={modelLabels.get(item.msg.id)}
+                          />
+                          {threadMarks([item.msg.id])}
+                        </Fragment>
                       ),
                     )}
                     {outgoing?.kind === 'message' && <OutgoingBubble outgoing={outgoing} />}
@@ -833,7 +894,7 @@ export default function ChatView({
             conversationId={conversationId}
             autoFocus={!showSkeleton && messages.length === 0}
             question={!shared?.readOnly && pending ? pending : undefined}
-            placeholder={isDraftThread(conv) ? 'Or describe the routine you want — Jarvis sets it up…' : undefined}
+            placeholder={isDraftThread(conv) ? 'Or describe the routine you want — Jarvis sets it up…' : embedded ? 'Reply in the thread…' : undefined}
             initialText={initialMessage || undefined}
             initialFiles={initialFiles || undefined}
             onInitialFilesConsumed={onInitialFilesConsumed}
@@ -849,10 +910,10 @@ export default function ChatView({
           )}
         </div>
 
-        {/* Preview pane */}
-        {hasApp && isDesktop && (
+        {/* Side pane: a thread, when one is open — else the app */}
+        {sidePane && isDesktop && (
           <ResizeHandle
-            label='Resize app panel'
+            label={sidePane === 'thread' ? 'Resize thread panel' : 'Resize app panel'}
             onStart={() => {
               appDragFrom.current = appPct
             }}
@@ -867,7 +928,18 @@ export default function ChatView({
           />
         )}
 
-        {hasApp && (
+        {sidePane === 'thread' && threadPanel && conversationId && (
+          <div className={`flex h-full min-w-0 flex-col ${isDesktop ? 'shrink-0' : 'w-full'}`} style={isDesktop ? { width: `${appPct}%` } : undefined}>
+            <ThreadPanel
+              parentId={conversationId}
+              state={threadPanel}
+              onClose={() => openThread(null)}
+              onOpened={(id) => openThread(id)}
+            />
+          </div>
+        )}
+
+        {sidePane === 'app' && (
           <div
             className={`${showPreview ? 'flex' : 'hidden md:flex'} flex-col h-full min-w-0 ${showPreview ? 'w-full' : ''} ${isDesktop ? 'shrink-0' : ''}`}
             // Desktop only: on mobile this pane replaces the chat full-width,
@@ -1163,6 +1235,36 @@ function MessageSkeleton() {
           <div className='skeleton h-4 w-56' />
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Under a message a thread was started from: the way into it, as Slack's
+ * "3 replies" — its name, and whether something new landed there.
+ */
+function ThreadMarks({ threads, openId, onOpen }: { threads: Conversation[]; openId: string | null; onOpen: (id: string) => void }) {
+  return (
+    <div className='-mt-3 mb-5 flex flex-col items-start gap-1' data-testid='thread-marks'>
+      {threads.map((t) => {
+        const unread = t.unread_count > 0 && t.id !== openId
+        return (
+          <button
+            key={t.id}
+            type='button'
+            onClick={() => onOpen(t.id)}
+            className={`group inline-flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-[12px] transition-colors ${t.id === openId ? 'border-accent/40 bg-accent/5 text-text-primary' : 'border-border text-text-secondary hover:border-accent/40 hover:bg-surface2'}`}
+          >
+            <Hash size={12} className='shrink-0 text-accent' />
+            <span className='truncate'>{t.title}</span>
+            {unread ? (
+              <span className='shrink-0 rounded-full bg-accent px-1.5 text-[10.5px] font-medium text-white'>{t.unread_count} new</span>
+            ) : (
+              <span className='shrink-0 text-text-muted'>· {new Date(t.updated_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            )}
+          </button>
+        )
+      })}
     </div>
   )
 }

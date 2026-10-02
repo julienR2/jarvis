@@ -468,6 +468,11 @@ export function initDb(): void {
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN surfaced_at INTEGER`)
   } catch { /* already exists */ }
+  // A thread started from a passage of a chat: the message it was taken from.
+  // No foreign key — the message may go, the thread stays.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN parent_message_id TEXT`)
+  } catch { /* already exists */ }
   for (const table of ['crons', 'webhooks']) {
     try {
       db.exec(`ALTER TABLE ${table} ADD COLUMN thread_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`)

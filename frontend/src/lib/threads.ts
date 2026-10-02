@@ -25,5 +25,5 @@ export function isListed(conv: Conversation): boolean {
  * one: putting it away throws it away.
  */
 export function isDraftThread(conv: Conversation | undefined): boolean {
-  return conv?.kind === 'thread' && !conv.thread_of && !conv.has_runs
+  return conv?.kind === 'thread' && !conv.thread_of && !conv.has_runs && !conv.parent_message_id
 }

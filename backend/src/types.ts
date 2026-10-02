@@ -36,6 +36,8 @@ export interface ConvRow {
   parent_id: string | null
   /** In the sidebar's Threads group since then; null = not listed. */
   surfaced_at: number | null
+  /** A thread forked from a chat: the message whose passage started it. */
+  parent_message_id: string | null
   created_at: number
   updated_at: number
 }

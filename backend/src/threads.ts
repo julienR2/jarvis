@@ -199,7 +199,9 @@ export function surfaceThread(id: string): void {
  * speaks through it, with the chat's notify mode.
  */
 export function notifyTarget(conv: ConvRow): ConvRow {
-  if (conv.kind !== 'thread') return conv
+  // A thread someone started from a chat is their own conversation: it speaks
+  // for itself.
+  if (conv.kind !== 'thread' || conv.parent_message_id) return conv
   return getConv(conv.parent_id) ?? conv
 }
 
@@ -305,7 +307,7 @@ export function routineOfThread(threadId: string):
  * two messages, from the Routines page or another chat.
  */
 export function threadContextPrompt(conv: ConvRow): string | null {
-  if (conv.kind !== 'thread') return null
+  if (conv.kind !== 'thread' || conv.parent_message_id) return null
   const parent = getConv(conv.parent_id)
   const found = routineOfThread(conv.id)
   const where = parent

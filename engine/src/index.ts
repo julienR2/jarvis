@@ -1,4 +1,5 @@
 import Fastify from 'fastify'
+import { forkSession } from '@anthropic-ai/claude-agent-sdk'
 import { spawn } from 'child_process'
 import { WORKSPACE_DIR, internalSecret, secureEquals } from './shared.js'
 import {
@@ -62,6 +63,20 @@ app.post<{
   })
   const queued = sendUserMessage(sess, prompt)
   return { ok: true, queued }
+})
+
+// POST /fork — copy a session's transcript into a new one, for a thread that
+// starts from where a conversation is. The new session is resumable like any
+// other; nothing about the original changes, and no process is spawned here.
+app.post<{ Body: { sessionId: string } }>('/fork', async (req, reply) => {
+  const { sessionId } = req.body || ({} as any)
+  if (!sessionId) return reply.code(400).send({ error: 'sessionId is required' })
+  try {
+    const forked = await forkSession(sessionId, { dir: WORKSPACE_DIR })
+    return { sessionId: forked.sessionId }
+  } catch (err: any) {
+    return reply.code(404).send({ error: err?.message ?? String(err) })
+  }
 })
 
 // POST /interrupt/:conversationId — soft-cancel the current turn (control

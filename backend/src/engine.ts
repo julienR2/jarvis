@@ -357,3 +357,27 @@ export async function engineStatus(): Promise<{ busy: string[] } | null> {
     return null
   }
 }
+
+/**
+ * Fork a Claude session: a new session holding a copy of its transcript, for a
+ * thread that starts from where a conversation is. Null when the engine could
+ * not (no such transcript any more) — the thread then starts fresh.
+ */
+export async function forkEngineSession(sessionId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${ENGINE_URL}/fork`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ sessionId }),
+    })
+    if (!res.ok) {
+      console.warn(`[engine] fork of ${sessionId} failed: ${res.status} ${await res.text()}`)
+      return null
+    }
+    const { sessionId: forked } = (await res.json()) as { sessionId?: string }
+    return forked ?? null
+  } catch (err) {
+    console.warn('[engine] fork failed:', err)
+    return null
+  }
+}

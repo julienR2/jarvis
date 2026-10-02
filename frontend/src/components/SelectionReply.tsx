@@ -1,11 +1,13 @@
 import { useEffect, useState, type RefObject } from 'react'
-import { Reply } from 'lucide-react'
+import { Hash, Reply } from 'lucide-react'
 import type { ReplyTo } from '../api'
 
 interface Props {
   /** The pane the messages scroll in; the button is positioned inside it. */
   paneRef: RefObject<HTMLElement | null>
   onQuote: (quote: ReplyTo) => void
+  /** Start a thread from the passage instead — the # beside the reply button. */
+  onThread?: (quote: ReplyTo) => void
 }
 
 /**
@@ -15,7 +17,7 @@ interface Props {
  * to the composer. The selection itself is the browser's — nothing is drawn
  * over it — so copying still works the usual way.
  */
-export default function SelectionReply({ paneRef, onQuote }: Props) {
+export default function SelectionReply({ paneRef, onQuote, onThread }: Props) {
   const [target, setTarget] = useState<{ top: number; quote: ReplyTo } | null>(null)
 
   useEffect(() => {
@@ -56,22 +58,27 @@ export default function SelectionReply({ paneRef, onQuote }: Props) {
   }, [paneRef])
 
   if (!target) return null
+  const take = (fn: (quote: ReplyTo) => void) => () => {
+    fn(target.quote)
+    window.getSelection()?.removeAllRanges()
+    setTarget(null)
+  }
+  const round = 'flex h-8 w-8 items-center justify-center rounded-full border border-border bg-bg-alt text-text-muted shadow-md transition-colors hover:text-accent'
   return (
-    <button
-      type='button'
-      data-testid='reply-selection'
-      title='Reply to this passage'
-      // mousedown would collapse the selection before the click lands.
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={() => {
-        onQuote(target.quote)
-        window.getSelection()?.removeAllRanges()
-        setTarget(null)
-      }}
+    <div
       style={{ top: target.top }}
-      className='absolute right-3 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-bg-alt text-text-muted shadow-md transition-colors hover:text-accent animate-fade-in'
+      className='absolute right-3 z-20 flex -translate-y-1/2 flex-col gap-1.5 animate-fade-in'
+      // Keep the selection while a button is pressed.
+      onMouseDown={(e) => e.preventDefault()}
     >
-      <Reply size={14} />
-    </button>
+      <button type='button' data-testid='reply-selection' title='Reply to this passage' onClick={take(onQuote)} className={round}>
+        <Reply size={14} />
+      </button>
+      {onThread && (
+        <button type='button' data-testid='thread-selection' title='Start a thread from this passage' onClick={take(onThread)} className={round}>
+          <Hash size={14} />
+        </button>
+      )}
+    </div>
   )
 }
