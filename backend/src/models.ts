@@ -22,6 +22,11 @@ export const GATEWAY_DEFAULT_MODEL = 'google/gemini-3.8-flash'
 // agents whose definition pins an explicit model still win over this default.
 export const SUBAGENT_MODEL = 'claude-sonnet-5'
 
+// Model for short housekeeping conversations — setting up or changing a
+// routine: a few questions and an API call, where a quick answer matters more
+// than depth.
+export const FAST_MODEL = 'claude-haiku-4-5-20251001'
+
 // The same models reached through a gateway. A namespaced id routes to the
 // gateway (see the engine's providerEnv), so these are what the defaults have
 // to become on an instance that has no Claude subscription — otherwise the
@@ -112,6 +117,11 @@ export function defaultSubagentModel(model?: string | null): string {
   // it would make — otherwise a gateway-by-default instance fans out onto bare
   // Anthropic ids the gateway has no reason to recognise.
   return defaultProvider() === 'gateway' ? GATEWAY_PREFIX + SUBAGENT_MODEL : SUBAGENT_MODEL
+}
+
+/** The fast model, on the provider the instance defaults to (see defaultSubagentModel). */
+export function fastModel(): string {
+  return defaultProvider() === 'gateway' ? GATEWAY_PREFIX + FAST_MODEL : FAST_MODEL
 }
 
 /** Resolve a stored/optional model id, falling back to the instance default. */

@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { AlertCircle, Check, ChevronRight, Clock, Copy, Link2, Loader2, MessageCircleQuestion, MessageSquare, Hash, Plus, Settings2, Square, Trash2, X, Zap } from 'lucide-react'
+import { AlertCircle, Check, ChevronRight, Clock, Copy, Link2, Loader2, MessageCircleQuestion, MessageSquare, MoreHorizontal, Plus, Settings2, Square, Trash2, X, Zap } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import ContentLayout from '../components/ContentLayout'
+import Popover from '../components/Popover'
+import { Switch } from '../components/RoutineSettings'
 import { listRoutines, routinePath, webhookUrl, type Routine } from '../lib/routines'
 import { api, type RunListItem } from '../api'
 import { describeSchedule, firstLine, relative, RUNS_NUDGE_EVENT } from '../lib/runs'
@@ -148,7 +150,15 @@ export default function RoutinesPage() {
             const when = r.kind === 'cron' ? describeSchedule(r.row.schedule) : 'when called'
             const topic = conv?.section_id ? sections.find((s) => s.id === conv.section_id)?.name : undefined
             return (
-              <div key={`${r.kind}-${r.row.id}`} className={`group flex items-start gap-3 py-3 ${r.row.enabled ? '' : 'opacity-60'}`} data-testid='routine-row'>
+              // The row is the way into the routine's thread; what sits on it
+              // (its chat, its runs, the menu, the switch) keeps its own click.
+              <div
+                key={`${r.kind}-${r.row.id}`}
+                onClick={() => navigate(routinePath(r, false))}
+                className='group -mx-2 flex cursor-pointer items-start gap-3 rounded-lg px-2 py-3 transition-colors hover:bg-surface2/60'
+                data-testid='routine-row'
+              >
+                <div className={`flex min-w-0 flex-1 items-start gap-3 ${r.row.enabled ? '' : 'opacity-60'}`}>
                 <span className='mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-surface2 text-text-muted'><Icon size={13} /></span>
                 <div className='min-w-0 flex-1'>
                   <div className='flex flex-wrap items-baseline gap-x-2'>
@@ -158,7 +168,7 @@ export default function RoutinesPage() {
                   </div>
                   <div className='mt-0.5 flex flex-wrap items-center gap-x-2 text-[11.5px] text-text-muted'>
                     {conv ? (
-                      <button onClick={() => navigate(`/c/${conv.id}`)} className='inline-flex items-center gap-1 hover:text-text-primary transition-colors' title='The chat it reports into'>
+                      <button onClick={(e) => { e.stopPropagation(); navigate(`/c/${conv.id}`) }} className='inline-flex items-center gap-1 hover:text-text-primary transition-colors' title='The chat it reports into'>
                         <MessageSquare size={10} /> {conv.title}{topic ? <span className='opacity-70'>· {topic}</span> : null}
                       </button>
                     ) : (
@@ -166,7 +176,7 @@ export default function RoutinesPage() {
                     )}
                     <span>·</span>
                     <button
-                      onClick={() => setExpanded((e) => ({ ...e, [r.row.id]: !e[r.row.id] }))}
+                      onClick={(e) => { e.stopPropagation(); setExpanded((x) => ({ ...x, [r.row.id]: !x[r.row.id] })) }}
                       className='inline-flex items-center gap-0.5 hover:text-text-primary transition-colors'
                       aria-expanded={!!expanded[r.row.id]}
                     >
@@ -179,27 +189,18 @@ export default function RoutinesPage() {
                   )}
                   {expanded[r.row.id] && <RoutineRuns sourceId={r.row.id} />}
                 </div>
-                <div className='flex shrink-0 items-center gap-0.5'>
-                  <button
-                    role='switch'
-                    aria-checked={!!r.row.enabled}
-                    aria-label={`${r.row.enabled ? 'Pause' : 'Resume'} ${r.row.name}`}
-                    onClick={() => toggle(r)}
-                    className={`relative mr-1.5 h-5 w-9 rounded-full transition-colors ${r.row.enabled ? 'bg-success' : 'bg-border'}`}
-                  >
-                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${r.row.enabled ? 'left-[18px]' : 'left-0.5'}`} />
-                  </button>
-                  <IconButton title='Run now' onClick={() => fire(r)} hover='hover:text-accent'><Zap size={13} /></IconButton>
-                  {r.row.thread_id && (
-                    <IconButton title='Open its thread' onClick={() => navigate(`/c/${r.row.thread_id}`)}><Hash size={13} /></IconButton>
-                  )}
-                  {r.kind === 'webhook' && (
-                    <IconButton title={copied === r.row.token ? 'Copied!' : 'Copy its link'} onClick={() => copyUrl(r.row.token)} className={copied === r.row.token ? 'text-success' : ''}>
-                      {copied === r.row.token ? <Check size={13} /> : <Copy size={13} />}
-                    </IconButton>
-                  )}
-                  <IconButton title='Edit this routine' onClick={() => navigate(routinePath(r))}><Settings2 size={13} /></IconButton>
-                  <IconButton title='Delete this routine' onClick={() => remove(r)} hover='hover:text-danger'><Trash2 size={13} /></IconButton>
+                </div>
+                {/* The switch last, so it lines up down the list whatever the menu holds. */}
+                <div className='flex shrink-0 items-center gap-1' onClick={(e) => e.stopPropagation()}>
+                  <RowMenu
+                    routine={r}
+                    copied={r.kind === 'webhook' && copied === r.row.token}
+                    onRun={() => fire(r)}
+                    onCopy={r.kind === 'webhook' ? () => copyUrl(r.row.token) : undefined}
+                    onSettings={() => navigate(routinePath(r))}
+                    onDelete={() => remove(r)}
+                  />
+                  <Switch on={!!r.row.enabled} label={`${r.row.enabled ? 'Pause' : 'Resume'} ${r.row.name}`} onClick={() => toggle(r)} />
                 </div>
               </div>
             )
@@ -215,17 +216,37 @@ function newRoutinePath(kind: 'cron' | 'webhook', conversationId: string | null)
   return `/routines/new?kind=${kind}${conversationId ? `&conversation_id=${conversationId}` : ''}`
 }
 
-function IconButton({ title, onClick, children, hover = 'hover:text-text-primary', className = '' }: {
-  title: string
-  onClick: () => void
-  children: React.ReactNode
-  hover?: string
-  className?: string
+/** The rarer actions on a routine, behind ⋯. */
+function RowMenu({ routine, copied, onRun, onCopy, onSettings, onDelete }: {
+  routine: Routine
+  copied: boolean
+  onRun: () => void
+  onCopy?: () => void
+  onSettings: () => void
+  onDelete: () => void
 }) {
+  const [open, setOpen] = useState(false)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const item = 'w-full flex items-center gap-2.5 px-2 py-1.5 text-sm rounded-lg hover:bg-surface2 transition-colors text-text-secondary'
+  const pick = (fn: () => void) => () => { setOpen(false); fn() }
   return (
-    <button onClick={onClick} title={title} className={`rounded-md p-1 text-text-muted/60 hover:bg-surface2 ${hover} ${className}`}>
-      {children}
-    </button>
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen((o) => !o)}
+        title='More'
+        aria-label={`More for ${routine.row.name}`}
+        className={`rounded-md p-1 text-text-muted/70 transition-colors hover:bg-surface2 hover:text-text-primary ${open ? 'bg-surface2 text-text-primary' : ''}`}
+      >
+        <MoreHorizontal size={15} />
+      </button>
+      <Popover anchor={btnRef} open={open} onClose={() => setOpen(false)} className='min-w-[170px] bg-surface border border-border rounded-xl shadow-md/5 p-1'>
+        <button className={item} onClick={pick(onRun)}><Zap size={14} /> Run now</button>
+        {onCopy && <button className={item} onClick={pick(onCopy)}>{copied ? <Check size={14} /> : <Copy size={14} />} Copy its link</button>}
+        <button className={item} onClick={pick(onSettings)}><Settings2 size={14} /> Settings</button>
+        <button className={`${item} !text-danger`} onClick={pick(onDelete)}><Trash2 size={14} /> Delete</button>
+      </Popover>
+    </>
   )
 }
 
@@ -250,7 +271,7 @@ function RoutineRuns({ sourceId }: { sourceId: string }) {
       {runs.map((run) => (
         <button
           key={run.id}
-          onClick={() => navigate(`/c/${run.conversation_id}?run=${run.id}`)}
+          onClick={(e) => { e.stopPropagation(); navigate(`/c/${run.conversation_id}?run=${run.id}`) }}
           title='Open the thread at this run'
           className='flex min-w-0 items-center gap-2 rounded py-1 text-left text-[12px] text-text-secondary transition-colors hover:text-text-primary'
         >

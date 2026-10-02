@@ -41,7 +41,7 @@ import type { Conversation, DeleteOptions, Section } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { api } from '../api'
 import { startOfToday, useRecentRuns } from '../lib/runs'
-import { confirmThreadMove, THREAD_GROUP } from '../lib/threads'
+import { confirmThreadMove, isDraftThread, THREAD_GROUP } from '../lib/threads'
 import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
@@ -218,7 +218,11 @@ export default function Sidebar({
             onRename={onRename}
             onMove={onMove}
             onDismiss={(id) => {
-              useChatStore.getState().setThreadSurfaced(id, false)
+              const store = useChatStore.getState()
+              // A routine never set up: nothing to keep, so putting it away
+              // cancels it.
+              if (isDraftThread(store.conversations[id])) store.deleteConversation(id)
+              else store.setThreadSurfaced(id, false)
               if (location.pathname === `/c/${id}`) navigate('/')
             }}
           />

@@ -26,7 +26,10 @@ test.describe('routines', () => {
     await expect(brief.getByRole('button', { name: /Morning brief/ })).toBeVisible()
     const hook = rows.filter({ hasText: 'fixture-hook' })
     await expect(hook.getByText('when called')).toBeVisible()
-    await expect(hook.getByTitle('Copy its link')).toBeVisible()
+    // The rarer actions sit behind ⋯; the switch closes every row.
+    await hook.getByRole('button', { name: 'More for fixture-hook' }).click()
+    await expect(page.getByRole('button', { name: 'Copy its link' })).toBeVisible()
+    await page.keyboard.press('Escape')
     // No run log on this page any more.
     await expect(page.getByRole('tab')).toHaveCount(0)
   })
@@ -42,59 +45,38 @@ test.describe('routines', () => {
     await expect(page.getByRole('switch', { name: 'Resume morning-brief' })).toBeVisible()
   })
 
-  test('a routine is created like a chat: settings on top, its prompt sent from the composer', async ({ page }) => {
+  test('a new routine is a thread where Jarvis asks; cancelling throws the draft away', async ({ page }) => {
     await page.goto('routines')
     await page.getByRole('button', { name: 'New routine' }).click()
-    await expect(page).toHaveURL(/\/routines\/new/)
-    const fields = page.getByTestId('routine-fields')
-    // The trigger is the one question up front; a schedule is the default.
-    await expect(fields.getByRole('radio', { name: 'On a schedule' })).toHaveAttribute('aria-checked', 'true')
-    await fields.getByLabel('Name', { exact: true }).fill('e2e-nightly')
-    await fields.getByLabel('Schedule', { exact: true }).fill('0 3 * * *')
-    // The expression is read back in words before saving.
-    await expect(fields.getByText('daily at 03:00')).toBeVisible()
-    // Standing alone, the thread's own notify mode applies; attached, the chat's.
-    await expect(fields.getByLabel('Notifications')).toBeEnabled()
-    await fields.getByLabel('Reports into').selectOption({ label: '📝 Blog publish · 🏗️ Projects' })
-    await expect(fields.getByLabel('Notifications')).toBeDisabled()
-    // No session knobs: every run starts fresh in the routine's thread.
-    await expect(page.getByLabel('Only when idle')).toHaveCount(0)
-    await expect(page.getByLabel('Use chat memory')).toHaveCount(0)
-    // The prompt is written in the real composer, and sending creates it.
-    const composer = page.getByPlaceholder('What should Jarvis do on each run?')
-    await composer.fill('Tidy up.')
-    await composer.press('Enter')
-    // …and lands in its thread, the routine on top.
+    // No form: a thread, listed with the others, saying what it is for.
     await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
-    const panel = page.getByTestId('routine-panel')
-    await expect(panel).toContainText('daily at 03:00')
-    await expect(panel).toContainText('reports into 📝 Blog publish')
-    await expect(page.getByTestId('threads-group').getByText('e2e-nightly', { exact: true })).toBeVisible()
-
-    // The prompt is edited in the composer too.
-    await panel.getByRole('button', { name: /daily at 03:00/ }).click()
-    await panel.getByRole('button', { name: 'Edit in the composer' }).click()
-    const editor = page.getByTestId('prompt-editor')
-    const box = editor.getByPlaceholder('What should Jarvis do on each run?')
-    await expect(box).toHaveValue('Tidy up.')
-    await box.fill('Tidy up the downloads.')
-    await box.press('Enter')
-    await expect(editor).toBeHidden()
-    await expect(panel).toContainText('Tidy up the downloads.')
-
-    // Leave the instance as found, so the specs do not depend on their order.
-    page.once('dialog', (d) => d.accept())
-    await panel.getByRole('button', { name: 'Delete routine' }).click()
-    await expect(panel).toBeHidden()
+    const id = new URL(page.url()).pathname.split('/').pop()!
+    await expect(page.getByTestId('routine-draft')).toContainText('Setting up a routine')
+    await expect(page.getByTestId('threads-group').getByText('New routine', { exact: true })).toBeVisible()
+    await page.getByTestId('routine-draft').getByRole('button', { name: 'Cancel' }).click()
+    await expect(page).toHaveURL(/\/routines$/)
+    await expect(page.getByTestId('threads-group').getByText('New routine', { exact: true })).toHaveCount(0)
+    // Gone, not merely hidden.
+    const res = await page.request.get(`api/conversations/${id}`, { headers: { Authorization: `Bearer ${process.env.E2E_TOKEN}` } })
+    expect(res.status()).toBe(404)
   })
 
-  test('a new routine without a name says so and keeps what was typed', async ({ page }) => {
+  test('a draft put away from the sidebar is deleted too', async ({ page }) => {
     await page.goto('routines/new')
-    const composer = page.getByPlaceholder('What should Jarvis do on each run?')
-    await composer.fill('Do the thing.')
-    await composer.press('Enter')
-    await expect(page.getByRole('alert')).toHaveText('Give it a name')
-    await expect(composer).toHaveValue('Do the thing.')
+    await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
+    const id = new URL(page.url()).pathname.split('/').pop()!
+    const row = page.getByTestId('threads-group').getByText('New routine', { exact: true })
+    await row.hover()
+    await page.getByRole('button', { name: 'Put away New routine' }).click()
+    await expect(row).toHaveCount(0)
+    await expect.poll(async () => (await page.request.get(`api/conversations/${id}`, { headers: { Authorization: `Bearer ${process.env.E2E_TOKEN}` } })).status()).toBe(404)
+  })
+
+  test('a row opens the routine’s thread', async ({ page }) => {
+    await page.goto('routines')
+    await page.getByTestId('routine-row').filter({ hasText: 'price-watch' }).getByText('price-watch', { exact: true }).click()
+    await expect(page).toHaveURL(/\/c\/00000000-0000-4000-8000-000000000011$/)
+    await expect(page.getByTestId('routine-panel')).toContainText('daily at 09:00')
   })
 
   test('a webhook routine shows its link at the top of its thread', async ({ page }) => {
@@ -118,6 +100,6 @@ test.describe('routines', () => {
     await expect(page).toHaveURL(/\/routines$/)
     await page.goto('crons?edit=00000000-0000-4000-8000-0000000000c1')
     // Editing a routine happens in its thread.
-    await expect(page.getByTestId('routine-panel').getByLabel('Name', { exact: true })).toHaveValue('morning-brief')
+    await expect(page.getByTestId('routine-panel')).toContainText('Write the morning brief.')
   })
 })

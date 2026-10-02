@@ -4,6 +4,7 @@ import { connectGlobalEvents } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { FRONTEND_UPDATED_EVENT } from '../components/UpdateBanner'
 import { RUNS_NUDGE_EVENT } from '../lib/runs'
+import { ROUTINE_CHANGED_EVENT } from '../lib/routines'
 import { closeNotificationsFor, closeNotificationsOfRead } from '../lib/notifications'
 
 // Subscribes to the global SSE stream and dispatches into the chat store.
@@ -48,6 +49,10 @@ export function useGlobalEvents() {
       if (ev.type === 'conversations_removed') {
         // Empty chats the backend swept. Dropped locally, like a delete.
         useChatStore.getState().forgetConversations(ev.ids)
+        return
+      }
+      if (ev.type === 'routine_changed') {
+        window.dispatchEvent(new CustomEvent(ROUTINE_CHANGED_EVENT, { detail: ev.thread_id }))
         return
       }
       if (ev.type === 'conversation_changed') {

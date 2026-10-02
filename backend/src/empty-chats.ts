@@ -33,6 +33,22 @@ export function sweepEmptyChats(): string[] {
     )
     .all(GRACE_S) as { id: string; app_path: string | null }[]
 
+  // A thread opened to set up a routine that never came to be, and that the
+  // person never wrote in: Jarvis's opening questions alone are not worth
+  // keeping. (One that got a routine, a run, or a word from the person stays.)
+  const drafts = db
+    .prepare(
+      `SELECT c.id, c.app_path FROM conversations c
+        WHERE c.kind = 'thread' AND c.updated_at < unixepoch() - ?
+          AND c.app_path IS NULL AND c.share_token IS NULL AND c.pending_question IS NULL
+          AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user')
+          AND NOT EXISTS (SELECT 1 FROM crons WHERE thread_id = c.id OR conversation_id = c.id)
+          AND NOT EXISTS (SELECT 1 FROM webhooks WHERE thread_id = c.id OR conversation_id = c.id)
+          AND NOT EXISTS (SELECT 1 FROM runs WHERE conversation_id = c.id)`,
+    )
+    .all(GRACE_S) as { id: string; app_path: string | null }[]
+  candidates.push(...drafts)
+
   const swept = candidates
     .filter((c) => conversationFiles(c.id, c.app_path).uploads === 0)
     .map((c) => c.id)

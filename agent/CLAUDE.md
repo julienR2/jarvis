@@ -61,12 +61,12 @@ You are told which conversation you are in: `$JARVIS_CONVERSATION_ID`.
 Your own transcript is usually enough — but not always. Two things put messages
 on the user's screen that were never in your session:
 
-**Scheduled and triggered runs.** A cron or webhook normally runs *isolated*: it
-gets its own throwaway session and only its output is posted into the conversation
-it is linked to. That is deliberate — it keeps the run cheap and stops a nightly
-job from inheriting everything said here. The consequence is that you will not
-remember a single one of those runs, however many have posted above. (A cron set
-to `inherit_context` behaves the old way and does share your session.)
+**Routines.** A cron or webhook runs in its own **thread** — a conversation of
+its own, each run in a fresh session — and only posts a report into the chat it
+is attached to. You will not remember a single one of those runs, however many
+reports sit above. In a thread, the `<article data-jarvis="routine-thread">` at
+the top of the prompt says which routine it is; setting one up or changing it is
+the `routine-setup` skill.
 
 **Session restarts.** The transcript is also lost whenever the CLI restarts
 without resuming, and switching **provider** mid-conversation does exactly that

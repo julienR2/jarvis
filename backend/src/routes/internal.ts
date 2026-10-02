@@ -10,14 +10,15 @@ import { getDb, uuid, normalizeEffort } from '../db.js'
 import { processMessage, type Attachment } from './conversations.js'
 import { getAllConnectors, getConnector } from '../connectors.js'
 import { archiveAppDir } from '../app-archive.js'
-import { schedule, rescheduleAll } from '../crons.js'
+import { schedule, rescheduleAll, fireCron } from '../crons.js'
+import { fireWebhook } from '../webhooks.js'
 import { getSection, setSectionContext, topicConversations, MAX_CONTEXT_CHARS } from '../topics.js'
 import { emitConversationEvent } from '../sse.js'
 import { pushForConversation } from '../push.js'
 import { config } from '../config.js'
 import { secureEquals } from '../security.js'
 import type { CronRow, WebhookRow, ConvRow } from '../types.js'
-import { ensureThread, syncThreadParent } from '../threads.js'
+import { afterRoutineWrite, checkRoutineRefs, routineOfThread } from '../threads.js'
 
 function checkSecret(req: any, reply: any): boolean {
   const auth = req.headers['x-internal-secret']
@@ -82,60 +83,69 @@ export async function internalRoutes(app: FastifyInstance) {
     return { ok: true, restarting: true, mode }
   })
 
+  // Create or update a cron. Upserts by `id` when given (which also allows a
+  // rename), else by `name`. On update every field is optional: what is left
+  // out is kept. `conversation_id: null` detaches it from its chat; `thread_id`
+  // makes an existing thread (one opened to set the routine up) its home.
   app.post('/crons', async (req, reply) => {
     if (!checkSecret(req, reply)) return
 
     const body = req.body as {
-      name: string
-      schedule: string
-      prompt: string
+      id?: string
+      name?: string
+      schedule?: string
+      prompt?: string
       enabled?: boolean
       /** 'high' = think hard; anything else = the model's default. */
       effort?: string | boolean
       once?: boolean
-      model?: string
-      conversation_id?: string
+      model?: string | null
+      conversation_id?: string | null
+      thread_id?: string
+      /** The thread's notify mode: subscribe | unsubscribe | auto. */
+      notify?: string
+    }
+
+    if (body.schedule !== undefined && !cron.validate(body.schedule)) {
+      return reply.code(400).send({ error: `Invalid cron expression: ${body.schedule}` })
+    }
+    const problem = checkRoutineRefs(body)
+    if (problem) return reply.code(400).send({ error: problem })
+
+    const existing = (body.id
+      ? getDb().prepare('SELECT * FROM crons WHERE id = ?').get(body.id)
+      : body.name ? getDb().prepare('SELECT * FROM crons WHERE name = ?').get(body.name) : undefined) as CronRow | undefined
+    if (body.id && !existing) return reply.code(404).send({ error: 'Cron not found' })
+
+    if (existing) {
+      getDb()
+        .prepare('UPDATE crons SET name=?, schedule=?, prompt=?, enabled=?, once=?, model=?, effort=?, conversation_id=? WHERE id=?')
+        .run(
+          body.name ?? existing.name,
+          body.schedule ?? existing.schedule,
+          body.prompt ?? existing.prompt,
+          body.enabled === undefined ? existing.enabled : body.enabled ? 1 : 0,
+          body.once === undefined ? existing.once : body.once ? 1 : 0,
+          body.model === undefined ? existing.model : body.model,
+          body.effort === undefined ? existing.effort : normalizeEffort(body.effort),
+          body.conversation_id === undefined ? existing.conversation_id : body.conversation_id,
+          existing.id,
+        )
+      const row = afterRoutineWrite('crons', existing.id, existing.name, body) as unknown as CronRow
+      schedule(row)
+      return { updated: true, cron: row }
     }
 
     if (!body.name || !body.schedule || !body.prompt) {
       return reply.code(400).send({ error: 'name, schedule, and prompt are required' })
     }
-    if (!cron.validate(body.schedule)) {
-      return reply.code(400).send({ error: `Invalid cron expression: ${body.schedule}` })
-    }
-    // Upsert by name
-    const existing = getDb()
-      .prepare('SELECT * FROM crons WHERE name = ?')
-      .get(body.name) as CronRow | undefined
-
-    if (existing) {
-      getDb()
-        .prepare('UPDATE crons SET schedule=?, prompt=?, enabled=?, once=?, model=COALESCE(?, model), effort=?, conversation_id=COALESCE(?, conversation_id) WHERE id=?')
-        .run(
-          body.schedule,
-          body.prompt,
-          body.enabled !== false ? 1 : 0,
-          body.once ? 1 : 0,
-          body.model ?? null,
-          normalizeEffort(body.effort),
-          body.conversation_id ?? null,
-          existing.id,
-        )
-      const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(existing.id) as CronRow
-      syncThreadParent(row.thread_id, row.conversation_id)
-      schedule(row)
-      return { updated: true, cron: row }
-    }
-
     const id = uuid()
     getDb()
       // model = null → "use the global default" (resolved at fire time); never
       // rely on the column default, which may be a stale value on older DBs.
       .prepare('INSERT INTO crons (id, name, schedule, prompt, enabled, once, conversation_id, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, body.name, body.schedule, body.prompt, body.enabled !== false ? 1 : 0, body.once ? 1 : 0, body.conversation_id || null, body.model ?? null, normalizeEffort(body.effort))
-
-    const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(id) as CronRow
-    ensureThread('crons', row)
+    const row = afterRoutineWrite('crons', id, null, body) as unknown as CronRow
     schedule(row)
     return { created: true, cron: row }
   })
@@ -161,15 +171,48 @@ export async function internalRoutes(app: FastifyInstance) {
   //
   // The conversation the agent runs in, with the topic it is filed under —
   // what the `topic` skill reads before updating a brief.
+  // Fire a routine now — "run it once so I see" during setup.
+  app.post<{ Params: { id: string } }>('/crons/:id/trigger', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(req.params.id) as CronRow | undefined
+    if (!row) return reply.code(404).send({ error: 'Cron not found' })
+    fireCron(row)
+    return { ok: true }
+  })
+  app.post<{ Params: { id: string } }>('/webhooks/:id/trigger', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(req.params.id) as WebhookRow | undefined
+    if (!row) return reply.code(404).send({ error: 'Webhook not found' })
+    fireWebhook(row)
+    return { ok: true }
+  })
+
+  // The chats, most recent first — what a routine can report into.
+  app.get<{ Querystring: { limit?: string } }>('/conversations', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    const asked = Number(req.query.limit)
+    const limit = Math.min(Math.max(Number.isFinite(asked) ? asked : 50, 1), 200)
+    return getDb()
+      .prepare(
+        `SELECT c.id, c.title, s.name AS topic, c.updated_at FROM conversations c
+           LEFT JOIN sections s ON s.id = c.section_id
+          WHERE c.kind = 'chat' ORDER BY c.updated_at DESC LIMIT ?`,
+      )
+      .all(limit)
+  })
+
   app.get<{ Params: { id: string } }>('/conversations/:id', async (req, reply) => {
     if (!checkSecret(req, reply)) return
     const conv = getDb()
-      .prepare('SELECT id, title, section_id, app_path, created_at, updated_at FROM conversations WHERE id = ?')
-      .get(req.params.id) as Pick<ConvRow, 'id' | 'title' | 'section_id' | 'app_path' | 'created_at' | 'updated_at'> | undefined
+      .prepare('SELECT id, title, section_id, app_path, kind, parent_id, created_at, updated_at FROM conversations WHERE id = ?')
+      .get(req.params.id) as Pick<ConvRow, 'id' | 'title' | 'section_id' | 'app_path' | 'kind' | 'parent_id' | 'created_at' | 'updated_at'> | undefined
     if (!conv) return reply.code(404).send({ error: 'Conversation not found' })
     const section = conv.section_id ? getSection(conv.section_id) : undefined
+    // A thread: the routine it belongs to, if one was set up in it yet.
+    const routine = conv.kind === 'thread' ? routineOfThread(conv.id) : null
     return {
       ...conv,
+      routine: routine ? { kind: routine.table === 'crons' ? 'cron' : 'webhook', ...routine.row } : null,
       topic: section ? { id: section.id, name: section.name, context: section.context, context_updated_at: section.context_updated_at } : null,
     }
   })
@@ -327,44 +370,58 @@ export async function internalRoutes(app: FastifyInstance) {
     return getDb().prepare('SELECT * FROM webhooks ORDER BY created_at ASC').all()
   })
 
+  // Create or update a webhook — same upsert rules as /crons. The token is
+  // kept across updates.
   app.post('/webhooks', async (req, reply) => {
     if (!checkSecret(req, reply)) return
 
     const body = req.body as {
-      name: string
-      prompt: string
+      id?: string
+      name?: string
+      prompt?: string
       enabled?: boolean
       effort?: string | boolean
-      conversation_id?: string
+      model?: string | null
+      user_message_key?: string | null
+      conversation_id?: string | null
+      thread_id?: string
+      notify?: string
+    }
+    const problem = checkRoutineRefs(body)
+    if (problem) return reply.code(400).send({ error: problem })
+
+    const existing = (body.id
+      ? getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(body.id)
+      : body.name ? getDb().prepare('SELECT * FROM webhooks WHERE name = ?').get(body.name) : undefined) as WebhookRow | undefined
+    if (body.id && !existing) return reply.code(404).send({ error: 'Webhook not found' })
+
+    if (existing) {
+      getDb()
+        .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=?, model=?, effort=?, user_message_key=?, conversation_id=? WHERE id=?')
+        .run(
+          body.name ?? existing.name,
+          body.prompt ?? existing.prompt,
+          body.enabled === undefined ? existing.enabled : body.enabled ? 1 : 0,
+          body.model === undefined ? existing.model : body.model,
+          body.effort === undefined ? existing.effort : normalizeEffort(body.effort),
+          body.user_message_key === undefined ? existing.user_message_key : body.user_message_key,
+          body.conversation_id === undefined ? existing.conversation_id : body.conversation_id,
+          existing.id,
+        )
+      const row = afterRoutineWrite('webhooks', existing.id, existing.name, body)
+      return { updated: true, webhook: row }
     }
 
     if (!body.name || !body.prompt) {
       return reply.code(400).send({ error: 'name and prompt are required' })
     }
-
-    // Upsert by name
-    const existing = getDb()
-      .prepare('SELECT * FROM webhooks WHERE name = ?')
-      .get(body.name) as WebhookRow | undefined
-
-    if (existing) {
-      getDb()
-        .prepare('UPDATE webhooks SET prompt=?, enabled=?, conversation_id=COALESCE(?, conversation_id) WHERE id=?')
-        .run(body.prompt, body.enabled !== false ? 1 : 0, body.conversation_id ?? null, existing.id)
-      const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(existing.id) as WebhookRow
-      syncThreadParent(row.thread_id, row.conversation_id)
-      return { updated: true, webhook: row }
-    }
-
     const id = uuid()
     const token = uuid()
     getDb()
       // model = null → "use the global default" (resolved at fire time)
-      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, conversation_id, model, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, token, body.prompt, body.enabled !== false ? 1 : 0, body.conversation_id || null, null, normalizeEffort(body.effort))
-
-    const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(id) as WebhookRow
-    ensureThread('webhooks', row)
+      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, conversation_id, model, effort, user_message_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, token, body.prompt, body.enabled !== false ? 1 : 0, body.conversation_id || null, body.model ?? null, normalizeEffort(body.effort), body.user_message_key ?? null)
+    const row = afterRoutineWrite('webhooks', id, null, body)
     return { created: true, webhook: row }
   })
 

@@ -24,7 +24,7 @@ import {
   questionsOf,
 } from '../questions.js'
 import { generateTitle, mediaTitle, UNTITLED } from '../titles.js'
-import { resolveModel } from '../models.js'
+import { fastModel, resolveModel } from '../models.js'
 import { modelKind } from '../catalogue.js'
 import { generateMedia } from '../media.js'
 import { pushForConversation } from '../push.js'
@@ -36,7 +36,7 @@ import {
 import { config } from '../config.js'
 import { getConnectorValues } from '../connectors.js'
 import { topicContextFor } from '../topics.js'
-import { notifyTarget, routineRunPrompt, surfaceThread, unseenReportsPrompt } from '../threads.js'
+import { notifyTarget, routineRunPrompt, surfaceThread, threadContextPrompt, unseenReportsPrompt } from '../threads.js'
 import { SILENT_MARK, SILENT_RE } from '../runs.js'
 import type { ConvRow, MessageRow, EffortLevel, PendingQuestion } from '../types.js'
 import { userForApiKey } from '../api-keys.js'
@@ -347,6 +347,8 @@ export function processMessage(
       : undefined
     claudePrompt = `${routineRunPrompt(options.routine.name, options.routine.kind, parent)}\n${claudePrompt}`
   } else if (!options?.runId && !isCommand) {
+    const threadNote = threadContextPrompt(conv)
+    if (threadNote) claudePrompt = `${threadNote}\n${claudePrompt}`
     // What the chat's routines reported meanwhile, from sessions this one
     // never saw. Read before the user row below is written: it is "since the
     // person last spoke".
@@ -1394,11 +1396,50 @@ export async function conversationRoutes(app: FastifyInstance) {
         ) AS unread_count,
         (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
         (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook,
-        ${THREAD_OF_SQL}
+        ${THREAD_OF_SQL},
+        (SELECT COUNT(*) > 0 FROM runs WHERE conversation_id = c.id) AS has_runs
        FROM conversations c
        ORDER BY c.updated_at DESC`,
       )
       .all()
+  })
+
+  // A new routine starts as a thread: Jarvis opens it by asking what the
+  // routine should be (the `routine-setup` skill), and creates it there once
+  // it knows. Until then the thread is a draft — put away, it is deleted.
+  // Setup talk is short and practical, so it runs on the fast model.
+  app.post('/routine-setup', auth, async (req, reply) => {
+    const body = (req.body ?? {}) as { conversation_id?: string | null; kind?: 'cron' | 'webhook' }
+    const parent = body.conversation_id
+      ? (getDb().prepare(`SELECT id, title FROM conversations WHERE id = ? AND kind = 'chat'`).get(body.conversation_id) as
+          | { id: string; title: string }
+          | undefined)
+      : undefined
+    if (body.conversation_id && !parent) return reply.code(400).send({ error: 'Unknown conversation' })
+    const id = uuid()
+    const model = fastModel()
+    getDb()
+      .prepare(
+        `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, kind, parent_id, surfaced_at)
+         VALUES (?, 'New routine', ?, 'default', unixepoch(), 'unsubscribe', 'thread', ?, unixepoch())`,
+      )
+      .run(id, model, parent?.id ?? null)
+    const conv = getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id) as ConvRow
+    const opening = [
+      parent ? `I want a new routine for the chat "${parent.title}".` : 'I want to set up a new routine.',
+      body.kind === 'webhook' ? 'It should run when something calls its link (a webhook).' : '',
+    ].filter(Boolean).join(' ')
+    processMessage(id, conv, opening, [], { skipUserMessage: true, model })
+    return conv
+  })
+
+  // "Change something": the routine's thread asks what. The person can as
+  // well just say it — this only opens the conversation.
+  app.post<{ Params: { id: string } }>('/:id/routine-edit', auth, async (req, reply) => {
+    const conv = getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(req.params.id) as ConvRow | undefined
+    if (!conv || conv.kind !== 'thread') return reply.code(404).send({ error: 'Not a thread' })
+    processMessage(conv.id, conv, 'I want to change this routine.', [], { skipUserMessage: true, model: fastModel() })
+    return { ok: true }
   })
 
   app.post('/', auth, async (req) => {
@@ -1440,7 +1481,8 @@ export async function conversationRoutes(app: FastifyInstance) {
           ) AS unread_count,
           (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
           (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook,
-          ${THREAD_OF_SQL}
+          ${THREAD_OF_SQL},
+          (SELECT COUNT(*) > 0 FROM runs WHERE conversation_id = c.id) AS has_runs
          FROM conversations c WHERE c.id = ?`,
         )
         .get(req.params.id)

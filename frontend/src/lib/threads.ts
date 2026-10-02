@@ -19,3 +19,11 @@ export function confirmThreadMove(conv: Conversation | undefined): boolean {
 export function isListed(conv: Conversation): boolean {
   return conv.kind !== 'thread' || !!conv.surfaced_at
 }
+
+/**
+ * A thread opened to set up a routine that does not exist yet, and never ran
+ * one: putting it away throws it away.
+ */
+export function isDraftThread(conv: Conversation | undefined): boolean {
+  return conv?.kind === 'thread' && !conv.thread_of && !conv.has_runs
+}

@@ -1,4 +1,4 @@
-import { api, type Conversation, type Cron, type CronInput, type Webhook, type WebhookInput } from '../api'
+import { api, type Conversation, type Cron, type CronInput, type Webhook } from '../api'
 
 /**
  * A routine is a saved prompt Jarvis runs without you: on a schedule, or when
@@ -24,7 +24,9 @@ export function webhookUrl(token: string): string {
   return `${window.location.origin}/api/hooks/${token}/trigger`
 }
 
-/** Where a routine is seen and edited: its thread, settings open. */
+export const ROUTINE_CHANGED_EVENT = 'jarvis:routine-changed'
+
+/** Where a routine is seen and edited: its thread (settings open, if asked). */
 export function routinePath(r: Routine, open = true): string {
   return r.row.thread_id ? `/c/${r.row.thread_id}${open ? '?routine=open' : ''}` : '/routines'
 }
@@ -47,47 +49,6 @@ export async function routineOf(threadOf: string): Promise<Routine | null> {
   }
   const row = (await api.getWebhooks()).find((h) => h.id === id)
   return row ? { kind: 'webhook', row } : null
-}
-
-/** What the settings panel edits — everything but the prompt, which the composer holds. */
-export interface RoutineSettingsDraft {
-  kind: RoutineKind
-  name: string
-  schedule: string
-  conversation_id: string | null
-  notify: Notify
-  enabled: boolean
-}
-
-export function draftOf(r: Routine, threadNotify?: Notify): RoutineSettingsDraft {
-  return {
-    kind: r.kind,
-    name: r.row.name,
-    schedule: r.kind === 'cron' ? r.row.schedule : '',
-    conversation_id: r.row.conversation_id,
-    notify: threadNotify ?? 'auto',
-    enabled: !!r.row.enabled,
-  }
-}
-
-/** Why the draft can't be saved yet, or null. */
-export function draftProblem(d: RoutineSettingsDraft): string | null {
-  if (!d.name.trim()) return 'Give it a name'
-  if (d.kind === 'cron' && !d.schedule.trim()) return 'Give it a schedule'
-  return null
-}
-
-/** Create a routine; answers with the row, its thread already opened. */
-export function createRoutine(
-  d: RoutineSettingsDraft,
-  prompt: string,
-  model: string,
-  effort: CronInput['effort'],
-): Promise<Cron | Webhook> {
-  const common = { name: d.name.trim(), prompt, enabled: d.enabled, model, effort, conversation_id: d.conversation_id }
-  if (d.kind === 'cron') return api.createCron({ ...common, schedule: d.schedule.trim(), notify: d.notify })
-  const body: WebhookInput = { ...common, notify: HOOK_NOTIFY[d.notify] }
-  return api.createWebhook(body)
 }
 
 export function updateRoutine(r: Routine, patch: Partial<CronInput & { notify: Notify }>): Promise<Cron | Webhook> {

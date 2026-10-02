@@ -58,12 +58,9 @@ interface Props {
   effort?: Effort
   onModelChange?: (model: string) => void
   onEffortChange?: (effort: Effort) => void
-  /** The mic dictates into the box instead of sending a voice message — for
-   *  a composer that writes something other than a message (a routine's prompt). */
-  dictateOnly?: boolean
 }
 
-export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio, onCancel, isProcessing, conversationId, autoFocus, focusKey, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange, dictateOnly }: Props) {
+export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio, onCancel, isProcessing, conversationId, autoFocus, focusKey, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange }: Props) {
   const [input, setInput] = useState(initialText || '')
   // A fresh quote is an invitation to type under it.
   useEffect(() => {
@@ -192,7 +189,6 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
   }
 
   async function handleTranscript(blob: Blob) {
-    if (dictateOnly) return handleTranscribeOnly(blob)
     await onSendAudio(blob)
   }
 

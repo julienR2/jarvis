@@ -47,6 +47,7 @@ agent/skills/*
 !agent/skills/browser/
 !agent/skills/media/
 !agent/skills/topic/
+!agent/skills/routine-setup/
 
 # Whitelist default rules — anything else under agent/rules/ is gitignored
 agent/rules/*

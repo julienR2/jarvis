@@ -277,8 +277,103 @@ export function ensureRoutineThreads(): void {
 /** A routine renamed: its thread follows, unless someone renamed the thread by hand. */
 export function renameThread(threadId: string | null, from: string, to: string): void {
   if (!threadId || from === to) return
+  // 'New routine' is the setup thread's placeholder: the routine names it.
   const r = getDb()
-    .prepare(`UPDATE conversations SET title = ? WHERE id = ? AND kind = 'thread' AND title = ?`)
+    .prepare(`UPDATE conversations SET title = ? WHERE id = ? AND kind = 'thread' AND title IN (?, 'New routine')`)
     .run(to, threadId, from)
   if (r.changes) emitConversationEvent(threadId, { type: 'conversation', id: threadId, title: to })
+}
+
+/** The routine a thread belongs to, if any. */
+export function routineOfThread(threadId: string):
+  | { table: RoutineTable; row: Record<string, unknown> & { id: string; name: string } }
+  | null {
+  for (const table of ['crons', 'webhooks'] as const) {
+    const row = getDb().prepare(`SELECT * FROM ${table} WHERE thread_id = ?`).get(threadId) as
+      | (Record<string, unknown> & { id: string; name: string })
+      | undefined
+    if (row) return { table, row }
+  }
+  return null
+}
+
+/**
+ * What a person's turn in a thread is told about it. A thread is a routine's
+ * place, so talking there is how a routine is set up and changed: the model
+ * gets the routine as it stands (or learns there is none yet) and the skill
+ * that edits it. Small, and sent every turn — the routine can change between
+ * two messages, from the Routines page or another chat.
+ */
+export function threadContextPrompt(conv: ConvRow): string | null {
+  if (conv.kind !== 'thread') return null
+  const parent = getConv(conv.parent_id)
+  const found = routineOfThread(conv.id)
+  const where = parent
+    ? `It reports into the chat "${parent.title}" (conversation ${parent.id}).`
+    : 'It is not attached to any chat.'
+  if (!found) {
+    return [
+      '<article data-jarvis="routine-thread">',
+      `This conversation (${conv.id}) is a thread for a routine that does not exist yet — the user opened it to set one up. ${where}`,
+      'Use the `routine-setup` skill: find out what the routine should do and when, then create it with this thread as its `thread_id`.',
+      '</article>',
+    ].join('\n')
+  }
+  const { table, row } = found
+  const settings: Record<string, unknown> = {
+    kind: table === 'crons' ? 'cron' : 'webhook',
+    id: row.id,
+    name: row.name,
+    ...(table === 'crons' ? { schedule: row.schedule, once: !!row.once } : {}),
+    enabled: !!row.enabled,
+    prompt: row.prompt,
+    model: row.model ?? 'instance default',
+    reports_into: parent ? { conversation_id: parent.id, title: parent.title } : null,
+    notify: conv.notify,
+  }
+  return [
+    '<article data-jarvis="routine-thread">',
+    `This conversation is the thread of the routine "${row.name}": every run of it happens here. ${where}`,
+    'Its current settings:',
+    JSON.stringify(settings, null, 2),
+    'If the user asks to change, pause, re-target or delete it, use the `routine-setup` skill. Otherwise this is an ordinary conversation about its runs.',
+    '</article>',
+  ].join('\n')
+}
+
+/** Why a routine write points somewhere it can't, or null. */
+export function checkRoutineRefs(body: { conversation_id?: string | null; thread_id?: string; notify?: string }): string | null {
+  if (body.conversation_id && !getDb().prepare(`SELECT 1 FROM conversations WHERE id = ? AND kind = 'chat'`).get(body.conversation_id)) {
+    return 'conversation_id must be an existing chat'
+  }
+  if (body.thread_id && !getDb().prepare(`SELECT 1 FROM conversations WHERE id = ? AND kind = 'thread'`).get(body.thread_id)) {
+    return 'thread_id must be an existing thread'
+  }
+  if (body.notify !== undefined && !NOTIFY_MODES.includes(body.notify as ConvRow['notify'])) {
+    return 'notify must be subscribe, unsubscribe or auto'
+  }
+  return null
+}
+
+/**
+ * After a routine was created or changed through the agent's API: give it its
+ * thread (the one it was set up in, or a new one), keep the thread's name,
+ * parent and notify mode in step, and tell open screens.
+ */
+export function afterRoutineWrite(
+  table: RoutineTable,
+  id: string,
+  previousName: string | null,
+  body: { thread_id?: string; notify?: string },
+): Record<string, unknown> & RoutineRef {
+  const db = getDb()
+  if (body.thread_id) db.prepare(`UPDATE ${table} SET thread_id = ? WHERE id = ?`).run(body.thread_id, id)
+  const row = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) as Record<string, unknown> & RoutineRef
+  const notify = body.notify !== undefined ? validNotify(body.notify) : undefined
+  const thread = ensureThread(table, row, notify ?? (table === 'webhooks' ? threadNotifyOf(row.notify) : 'auto'))
+  if (notify) setThreadNotify(thread.id, notify)
+  renameThread(thread.id, previousName ?? 'New routine', row.name)
+  emitGlobalEvent({ type: 'routine_changed', thread_id: thread.id })
+  emitGlobalEvent({ type: 'conversation_changed', conversation_id: thread.id })
+  return db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) as Record<string, unknown> & RoutineRef
 }

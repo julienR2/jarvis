@@ -5,7 +5,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { Earth, Loader2, ArrowDown, EyeOff, FileText, Pencil } from 'lucide-react'
+import { Earth, Loader2, ArrowDown, EyeOff, FileText } from 'lucide-react'
 import {
   api,
   pendingQuestionOf,
@@ -30,8 +30,9 @@ import RoutinesPill from './RoutinesPill'
 import RunBlock from './RunBlock'
 import { RunReportCard, RunReportStack } from './RunReport'
 import { confirmThreadMove, THREAD_GROUP } from '../lib/threads'
-import { RoutinePanel } from './RoutineSettings'
-import { routineOf, updateRoutine, type Routine } from '../lib/routines'
+import { RoutineDraftBar, RoutinePanel } from './RoutineSettings'
+import { routineOf, ROUTINE_CHANGED_EVENT, type Routine } from '../lib/routines'
+import { isDraftThread } from '../lib/threads'
 import SelectionReply from './SelectionReply'
 import { dropQuietRuns, groupMessagesByDay, isFinishedReply } from '../lib/transcript'
 import { answerFromComposer } from './AnswerCard'
@@ -334,47 +335,26 @@ export default function ChatView({
     }
   }, [focusRun, conversationId, loaded, messages, hasMore])
 
-  // A routine's thread: the routine itself, shown and edited at the top, its
-  // prompt written in this composer (see editingPrompt below).
+  // A routine's thread: the routine itself, shown at the top. Changing it is a
+  // conversation here, so Jarvis's edits show up through ROUTINE_CHANGED_EVENT.
   const threadOf = conv?.thread_of ?? null
   const [routine, setRoutine] = useState<Routine | null>(null)
-  const [editingPrompt, setEditingPrompt] = useState(false)
-  const [promptText, setPromptText] = useState('')
-  const [promptModel, setPromptModel] = useState<{ model: string; effort: Conversation['effort'] } | null>(null)
   const reloadRoutine = useCallback(() => {
     if (!threadOf) return setRoutine(null)
     routineOf(threadOf).then(setRoutine).catch(() => setRoutine(null))
   }, [threadOf])
   useEffect(() => {
     setRoutine(null)
-    setEditingPrompt(false)
     reloadRoutine()
   }, [reloadRoutine, conversationId])
-  const routineOpen = searchParams.get('routine') === 'open'
-
-  function startEditingPrompt() {
-    if (!routine) return
-    setPromptText(routine.row.prompt)
-    setPromptModel({ model: routine.row.model ?? catalogueDefault, effort: routine.row.effort ?? DEFAULT_EFFORT })
-    setEditingPrompt(true)
-  }
-
-  async function savePrompt(text: string, attachments: Attachment[]) {
-    if (!routine || !promptModel) return
-    if (attachments.length) window.__jarvisToast?.info('A routine’s prompt keeps text only — the files were left out.')
-    if (!text.trim()) return
-    try {
-      await updateRoutine(routine, { prompt: text, model: promptModel.model, effort: promptModel.effort })
-      window.__jarvisToast?.info('Saved — the next run uses it.')
-      setEditingPrompt(false)
-      reloadRoutine()
-    } catch (err: any) {
-      window.__jarvisToast?.error(err.message ?? 'Could not save the prompt')
-      // The composer emptied on send: put the text back.
-      setPromptText('')
-      setTimeout(() => setPromptText(text), 0)
+  useEffect(() => {
+    const onChanged = (e: Event) => {
+      if ((e as CustomEvent<string>).detail === conversationId) reloadRoutine()
     }
-  }
+    window.addEventListener(ROUTINE_CHANGED_EVENT, onChanged)
+    return () => window.removeEventListener(ROUTINE_CHANGED_EVENT, onChanged)
+  }, [conversationId, reloadRoutine])
+  const routineOpen = searchParams.get('routine') === 'open'
 
   // Opening a thread lists it in the sidebar's Threads group, where it stays
   // until dismissed — navigating away does not put it back.
@@ -734,15 +714,9 @@ export default function ChatView({
           )}
 
           {routine && conv && !shared && (
-            <RoutinePanel
-              routine={routine}
-              thread={conv}
-              defaultOpen={routineOpen}
-              editingPrompt={editingPrompt}
-              onEditPrompt={startEditingPrompt}
-              onChanged={reloadRoutine}
-            />
+            <RoutinePanel routine={routine} thread={conv} defaultOpen={routineOpen} onChanged={reloadRoutine} />
           )}
+          {!routine && conv && !shared && isDraftThread(conv) && <RoutineDraftBar thread={conv} />}
 
           {/* Messages */}
           <div ref={paneRef} className='relative flex-1 min-h-0'>
@@ -830,34 +804,8 @@ export default function ChatView({
             </div>
           </div>
 
-          {/* The routine's prompt, written in the composer it is "sent" from. */}
-          {editingPrompt && routine && promptModel && (
-            <div data-testid='prompt-editor'>
-              <div className='max-w-3xl mx-auto w-full px-4 md:px-6 pt-2 flex items-center gap-2 text-[12px] text-text-muted'>
-                <Pencil size={11} />
-                <span className='flex-1'>What <span className='text-text-secondary'>{routine.row.name}</span> runs with — Send saves it.</span>
-                <button type='button' onClick={() => setEditingPrompt(false)} className='hover:text-text-primary'>Cancel</button>
-              </div>
-              <ChatInput
-                key={`prompt-${routine.row.id}`}
-                onSend={savePrompt}
-                onSendAudio={async () => {}}
-                dictateOnly
-                onCancel={() => setEditingPrompt(false)}
-                isProcessing={false}
-                autoFocus
-                placeholder='What should Jarvis do on each run?'
-                initialText={promptText}
-                model={promptModel.model}
-                effort={promptModel.effort}
-                onModelChange={(m) => setPromptModel((p) => p && { ...p, model: m })}
-                onEffortChange={(e) => setPromptModel((p) => p && { ...p, effort: e })}
-              />
-            </div>
-          )}
-
           {/* Input — absent on a read-only link, present on an editable one */}
-          {!shared?.readOnly && !editingPrompt && (
+          {!shared?.readOnly && (
           <ChatInput
             onSend={sendMessage}
             onSendAudio={sendAudio}

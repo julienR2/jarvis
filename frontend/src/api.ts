@@ -162,6 +162,11 @@ export const api = {
   ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
   // Files are archived and routines kept unless told otherwise — the delete
   // dialog's two checkboxes, both off by default.
+  /** Open a thread to set up a routine in; Jarvis starts asking at once. */
+  startRoutineSetup: (opts: { conversationId?: string | null; kind?: 'cron' | 'webhook' } = {}) =>
+    request<Conversation>('POST', '/conversations/routine-setup', { conversation_id: opts.conversationId ?? null, kind: opts.kind }),
+  /** "Change something": the routine's thread asks what. */
+  startRoutineEdit: (threadId: string) => request<{ ok: boolean }>('POST', `/conversations/${threadId}/routine-edit`),
   /** Mark read without opening — Today's ✓ on a chat's card. */
   markConversationRead: (id: string) => request<{ ok: boolean }>('POST', `/conversations/${id}/read`),
   /** What a delete would touch besides the messages. */
@@ -574,6 +579,8 @@ export interface Conversation {
   surfaced_at?: number | null
   /** A thread's routine, as `cron:<id>` or `webhook:<id>`. */
   thread_of?: string | null
+  /** Any routine ever ran here. A thread with neither this nor a routine is a setup draft. */
+  has_runs?: number
   created_at: number
   updated_at: number
 }
@@ -923,6 +930,8 @@ export type GlobalEvent =
   | { type: 'conversations_removed'; ids: string[] }
   // A thread was listed in the sidebar (or a conversation changed shape).
   | { type: 'conversation_changed'; conversation_id: string }
+  // A routine was created or changed (by Jarvis, in its thread): its panel refetches.
+  | { type: 'routine_changed'; thread_id: string }
 
 // ── Global SSE connection ────────────────────────────────────────────────────
 
