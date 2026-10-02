@@ -30,7 +30,7 @@ import RoutinesPill from './RoutinesPill'
 import RunBlock from './RunBlock'
 import { RunReportCard, RunReportStack } from './RunReport'
 import { confirmThreadMove, THREAD_GROUP } from '../lib/threads'
-import { RoutineDraftBar, RoutinePanel } from './RoutineSettings'
+import { RoutineCard, RoutineChip } from './RoutineCard'
 import { routineOf, ROUTINE_CHANGED_EVENT, type Routine } from '../lib/routines'
 import { isDraftThread } from '../lib/threads'
 import SelectionReply from './SelectionReply'
@@ -335,8 +335,9 @@ export default function ChatView({
     }
   }, [focusRun, conversationId, loaded, messages, hasMore])
 
-  // A routine's thread: the routine itself, shown at the top. Changing it is a
-  // conversation here, so Jarvis's edits show up through ROUTINE_CHANGED_EVENT.
+  // A routine's thread: the routine's card is its first "message" (the form,
+  // in a new one), with a chip in the title bar for when the top is far up.
+  // Jarvis can change it too, which shows up through ROUTINE_CHANGED_EVENT.
   const threadOf = conv?.thread_of ?? null
   const [routine, setRoutine] = useState<Routine | null>(null)
   const reloadRoutine = useCallback(() => {
@@ -659,7 +660,7 @@ export default function ChatView({
           <ContentTitle
             action={conversationId && !shared ? (
               <span className='flex items-center gap-2'>
-                <RoutinesPill conversationId={conversationId} hasRoutines={hasCron || hasWebhook} />
+                {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <RoutinesPill conversationId={conversationId} hasRoutines={hasCron || hasWebhook} />}
                 <ShareIcon shareMode={shareMode} />
                 <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
                 <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
@@ -701,7 +702,7 @@ export default function ChatView({
               <ContentTitle
                 action={conversationId && !shared ? (
                   <span className='flex items-center gap-2'>
-                    <RoutinesPill conversationId={conversationId} hasRoutines={hasCron || hasWebhook} />
+                    {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <RoutinesPill conversationId={conversationId} hasRoutines={hasCron || hasWebhook} />}
                     <ShareIcon shareMode={shareMode} />
                     <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
                         <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} />
@@ -713,10 +714,6 @@ export default function ChatView({
             </div>
           )}
 
-          {routine && conv && !shared && (
-            <RoutinePanel routine={routine} thread={conv} defaultOpen={routineOpen} onChanged={reloadRoutine} />
-          )}
-          {!routine && conv && !shared && isDraftThread(conv) && <RoutineDraftBar thread={conv} />}
 
           {/* Messages */}
           <div ref={paneRef} className='relative flex-1 min-h-0'>
@@ -761,6 +758,11 @@ export default function ChatView({
                       <div ref={topSentinelRef} className='flex justify-center py-4'>
                         <Loader2 size={16} className='animate-spin text-text-muted' />
                       </div>
+                    )}
+                    {/* The routine, as the thread's first message: shown once the
+                        top of the thread is loaded (or straight away in a new one). */}
+                    {isThread && conv && !shared && !hasMore && (routine || isDraftThread(conv)) && (
+                      <RoutineCard routine={routine} thread={conv} onChanged={reloadRoutine} />
                     )}
                     {/* A thread is where its runs are kept, the silent ones included:
                         it is the record a report links back to. */}
@@ -815,6 +817,7 @@ export default function ChatView({
             conversationId={conversationId}
             autoFocus={!showSkeleton && messages.length === 0}
             question={!shared?.readOnly && pending ? pending : undefined}
+            placeholder={isDraftThread(conv) ? 'Or describe the routine you want — Jarvis sets it up…' : undefined}
             initialText={initialMessage || undefined}
             initialFiles={initialFiles || undefined}
             onInitialFilesConsumed={onInitialFilesConsumed}

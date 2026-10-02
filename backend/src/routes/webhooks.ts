@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { fireWebhook, fireWebhookSync } from '../webhooks.js'
 import { stopRunsFor } from '../runs.js'
-import { ensureThread, setThreadNotify, syncThreadParent, renameThread, threadNotifyOf } from '../threads.js'
+import { afterRoutineWrite, checkRoutineRefs, ensureThread, setThreadNotify, syncThreadParent, renameThread, threadNotifyOf } from '../threads.js'
 import type { WebhookRow } from '../types.js'
 
 function conversationExists(id: string): boolean {
@@ -27,6 +27,8 @@ export async function webhookRoutes(app: FastifyInstance) {
       user_message_key?: string
       /** The chat the runs report into. Omitted: the thread stands alone. */
       conversation_id?: string | null
+      /** A thread opened to set the routine up: it becomes the routine's home. */
+      thread_id?: string
     }
 
     if (!body.name || !body.prompt) {
@@ -36,6 +38,8 @@ export async function webhookRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'Unknown conversation' })
     }
 
+    const problem = checkRoutineRefs({ thread_id: body.thread_id })
+    if (problem) return reply.code(400).send({ error: problem })
     const id = uuid()
     const token = uuid()
     const enabled = body.enabled !== false ? 1 : 0
@@ -49,7 +53,8 @@ export async function webhookRoutes(app: FastifyInstance) {
       .run(id, body.name, token, body.prompt, enabled, model, effort, notify, user_message_key, body.conversation_id || null)
 
     const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(id) as WebhookRow
-    ensureThread('webhooks', row, threadNotifyOf(notify))
+    const fresh = afterRoutineWrite('webhooks', row.id, null, { thread_id: body.thread_id, notify: threadNotifyOf(notify) })
+    Object.assign(row, fresh)
     return row
   })
 

@@ -1404,42 +1404,27 @@ export async function conversationRoutes(app: FastifyInstance) {
       .all()
   })
 
-  // A new routine starts as a thread: Jarvis opens it by asking what the
-  // routine should be (the `routine-setup` skill), and creates it there once
-  // it knows. Until then the thread is a draft — put away, it is deleted.
-  // Setup talk is short and practical, so it runs on the fast model.
+  // A new routine starts as a thread: an empty one, where the routine's card
+  // is the form — fill it in, or say what you want and Jarvis sets it up
+  // (the thread tells him so, see threadContextPrompt). Until a routine exists
+  // the thread is a draft: put away, it is deleted. Talk here is short and
+  // practical, so the thread starts on the fast model.
   app.post('/routine-setup', auth, async (req, reply) => {
-    const body = (req.body ?? {}) as { conversation_id?: string | null; kind?: 'cron' | 'webhook' }
+    const body = (req.body ?? {}) as { conversation_id?: string | null }
     const parent = body.conversation_id
-      ? (getDb().prepare(`SELECT id, title FROM conversations WHERE id = ? AND kind = 'chat'`).get(body.conversation_id) as
-          | { id: string; title: string }
+      ? (getDb().prepare(`SELECT id FROM conversations WHERE id = ? AND kind = 'chat'`).get(body.conversation_id) as
+          | { id: string }
           | undefined)
       : undefined
     if (body.conversation_id && !parent) return reply.code(400).send({ error: 'Unknown conversation' })
     const id = uuid()
-    const model = fastModel()
     getDb()
       .prepare(
         `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, kind, parent_id, surfaced_at)
          VALUES (?, 'New routine', ?, 'default', unixepoch(), 'unsubscribe', 'thread', ?, unixepoch())`,
       )
-      .run(id, model, parent?.id ?? null)
-    const conv = getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id) as ConvRow
-    const opening = [
-      parent ? `I want a new routine for the chat "${parent.title}".` : 'I want to set up a new routine.',
-      body.kind === 'webhook' ? 'It should run when something calls its link (a webhook).' : '',
-    ].filter(Boolean).join(' ')
-    processMessage(id, conv, opening, [], { skipUserMessage: true, model })
-    return conv
-  })
-
-  // "Change something": the routine's thread asks what. The person can as
-  // well just say it — this only opens the conversation.
-  app.post<{ Params: { id: string } }>('/:id/routine-edit', auth, async (req, reply) => {
-    const conv = getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(req.params.id) as ConvRow | undefined
-    if (!conv || conv.kind !== 'thread') return reply.code(404).send({ error: 'Not a thread' })
-    processMessage(conv.id, conv, 'I want to change this routine.', [], { skipUserMessage: true, model: fastModel() })
-    return { ok: true }
+      .run(id, fastModel(), parent?.id ?? null)
+    return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id)
   })
 
   app.post('/', auth, async (req) => {

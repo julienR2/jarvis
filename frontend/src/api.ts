@@ -162,11 +162,9 @@ export const api = {
   ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
   // Files are archived and routines kept unless told otherwise — the delete
   // dialog's two checkboxes, both off by default.
-  /** Open a thread to set up a routine in; Jarvis starts asking at once. */
-  startRoutineSetup: (opts: { conversationId?: string | null; kind?: 'cron' | 'webhook' } = {}) =>
-    request<Conversation>('POST', '/conversations/routine-setup', { conversation_id: opts.conversationId ?? null, kind: opts.kind }),
-  /** "Change something": the routine's thread asks what. */
-  startRoutineEdit: (threadId: string) => request<{ ok: boolean }>('POST', `/conversations/${threadId}/routine-edit`),
+  /** Open an empty thread to set up a routine in — its card is the form. */
+  startRoutineSetup: (opts: { conversationId?: string | null } = {}) =>
+    request<Conversation>('POST', '/conversations/routine-setup', { conversation_id: opts.conversationId ?? null }),
   /** Mark read without opening — Today's ✓ on a chat's card. */
   markConversationRead: (id: string) => request<{ ok: boolean }>('POST', `/conversations/${id}/read`),
   /** What a delete would touch besides the messages. */
@@ -760,6 +758,8 @@ export interface CronInput {
   conversation_id?: string | null
   /** The thread's notify mode, for when it stands alone. */
   notify?: Conversation['notify']
+  /** The draft thread it was set up in — it becomes the routine's home. */
+  thread_id?: string
 }
 
 export interface Webhook {
@@ -789,6 +789,8 @@ export interface WebhookInput {
   /** The chat the runs report into; null = the thread stands alone. */
   conversation_id?: string | null
   notify?: 'auto' | 'never' | 'always'
+  /** The draft thread it was set up in — it becomes the routine's home. */
+  thread_id?: string
 }
 
 export interface ApiKey {

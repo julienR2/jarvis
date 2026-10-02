@@ -4,7 +4,7 @@ import { AlertCircle, Check, ChevronRight, Clock, Copy, Link2, Loader2, MessageC
 import { useShallow } from 'zustand/react/shallow'
 import ContentLayout from '../components/ContentLayout'
 import Popover from '../components/Popover'
-import { Switch } from '../components/RoutineSettings'
+import { Switch } from '../components/RoutineCard'
 import { listRoutines, routinePath, webhookUrl, type Routine } from '../lib/routines'
 import { api, type RunListItem } from '../api'
 import { describeSchedule, firstLine, relative, RUNS_NUDGE_EVENT } from '../lib/runs'

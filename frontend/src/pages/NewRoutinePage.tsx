@@ -5,11 +5,10 @@ import { api, type Conversation } from '../api'
 import { useChatStore } from '../stores/chatStore'
 
 /**
- * `/routines/new` — not a form: a new routine is a thread where Jarvis asks
- * what it should be. This opens one and steps into it.
+ * `/routines/new` — a new routine is a thread, its card the form (or tell
+ * Jarvis what you want). This opens one and steps into it.
  *
- * `?conversation_id=` attaches it to the chat it was started from, `?kind=`
- * says it should be a webhook.
+ * `?conversation_id=` attaches it to the chat it was started from.
  */
 // One thread per visit to the page — keyed by the navigation, at module level:
 // a remount (StrictMode does one on purpose) must not open a second thread.
@@ -23,8 +22,7 @@ export default function NewRoutinePage() {
 
   useEffect(() => {
     let alive = true
-    const kind = params.get('kind') === 'webhook' ? 'webhook' : undefined
-    if (!opening.has(key)) opening.set(key, api.startRoutineSetup({ conversationId: params.get('conversation_id'), kind }))
+    if (!opening.has(key)) opening.set(key, api.startRoutineSetup({ conversationId: params.get('conversation_id') }))
     opening.get(key)!
       .then(async (thread) => {
         if (!alive) return

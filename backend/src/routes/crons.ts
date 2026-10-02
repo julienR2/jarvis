@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import cron from 'node-cron'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { schedule, rescheduleAll, fireCron, nextRun } from '../crons.js'
-import { ensureThread, setThreadNotify, syncThreadParent, renameThread, validNotify } from '../threads.js'
+import { afterRoutineWrite, checkRoutineRefs, ensureThread, setThreadNotify, syncThreadParent, renameThread, validNotify } from '../threads.js'
 import type { CronRow } from '../types.js'
 
 function conversationExists(id: string): boolean {
@@ -41,6 +41,8 @@ export async function cronRoutes(app: FastifyInstance) {
       effort?: string
       /** The chat the runs report into. Omitted: the thread stands alone. */
       conversation_id?: string | null
+      /** A thread opened to set the routine up: it becomes the routine's home. */
+      thread_id?: string
       /** The thread's notify mode — only matters while it stands alone. */
       notify?: 'subscribe' | 'unsubscribe' | 'auto'
     }
@@ -55,6 +57,8 @@ export async function cronRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'Unknown conversation' })
     }
 
+    const problem = checkRoutineRefs({ thread_id: body.thread_id })
+    if (problem) return reply.code(400).send({ error: problem })
     const id = uuid()
     const enabled = body.enabled !== false ? 1 : 0
     const once = body.once ? 1 : 0
@@ -68,7 +72,10 @@ export async function cronRoutes(app: FastifyInstance) {
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(id) as CronRow
     // The thread is opened now rather than on the first fire, so the routine
     // has somewhere to be looked at — and its notify mode somewhere to live.
-    ensureThread('crons', row, validNotify(body.notify))
+    // Opened from a draft thread (or a new one now), so the routine has a
+    // place to be looked at — and its notify mode somewhere to live.
+    const fresh = afterRoutineWrite('crons', row.id, null, { thread_id: body.thread_id, notify: body.notify })
+    Object.assign(row, fresh)
     schedule(row)
     return row
   })
