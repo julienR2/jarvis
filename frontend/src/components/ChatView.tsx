@@ -856,6 +856,7 @@ export default function ChatView({
                             msgs={item.msgs}
                             live={isProcessing && item.msgs.some((m) => m.id === lastMessageId)}
                             lastMessageId={lastMessageId}
+                            inOwnThread={isThread}
                           />
                           {threadMarks(item.msgs.map((m) => m.id))}
                         </div>

@@ -21,12 +21,19 @@ export default function RunBlock({
   msgs,
   live,
   lastMessageId,
+  inOwnThread,
 }: {
   run?: Run
   msgs: Message[]
   /** A turn is being written into this block right now. */
   live: boolean
   lastMessageId?: string
+  /**
+   * Drawn in the routine's own thread, where every run is the routine's: its
+   * name and settings link would only repeat the title. What's left is the
+   * state, when it is news, and the prompt.
+   */
+  inOwnThread?: boolean
 }) {
   const navigate = useNavigate()
   const [showPrompt, setShowPrompt] = useState(false)
@@ -35,13 +42,18 @@ export default function RunBlock({
   const running = run?.status === 'running' || (live && !run)
   const Icon = run?.kind === 'webhook' ? Link2 : Clock
 
+  const newsworthy = running || (!!run && run.status !== 'done')
+  const header = !inOwnThread || newsworthy || !!prompt
   return (
     <div className='my-3 animate-fade-in' data-testid='run-card'>
+      {header && (
       <div className='mb-3 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-text-muted'>
-        <span className='inline-flex items-center gap-1 rounded-full bg-surface2 px-2 py-px font-medium text-text-secondary'>
-          <Icon size={10} />
-          {run?.source_name ?? 'automation'}
-        </span>
+        {!inOwnThread && (
+          <span className='inline-flex items-center gap-1 rounded-full bg-surface2 px-2 py-px font-medium text-text-secondary'>
+            <Icon size={10} />
+            {run?.source_name ?? 'automation'}
+          </span>
+        )}
         <State run={run} running={running} />
         {prompt && (
           <button
@@ -53,7 +65,7 @@ export default function RunBlock({
             prompt
           </button>
         )}
-        {run?.source_id && (
+        {run?.source_id && !inOwnThread && (
           <button
             type='button'
             onClick={() => navigate(`/routines?edit=${run.source_id}`)}
@@ -64,6 +76,7 @@ export default function RunBlock({
           </button>
         )}
       </div>
+      )}
 
       {showPrompt && prompt && (
         <div className='mb-3 whitespace-pre-wrap rounded-lg border border-border bg-bg-alt px-3 py-2 text-[12.5px] leading-relaxed text-text-secondary'>
