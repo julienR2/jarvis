@@ -319,6 +319,8 @@ export default function ChatView({
   const [searchParams] = useSearchParams()
   const focusRun = searchParams.get('run')
   const focusedRef = useRef<string | null>(null)
+  // The run you landed on is lit for a moment, then keeps only its margin mark.
+  const [runLit, setRunLit] = useState(false)
   useEffect(() => {
     if (!focusRun || !conversationId || !loaded || focusedRef.current === `${conversationId}:${focusRun}`) return
     const el = contentRef.current?.querySelector(`[data-run-id="${CSS.escape(focusRun)}"]`)
@@ -329,6 +331,8 @@ export default function ChatView({
         el.scrollIntoView({ block: 'start' })
         recordAnchor()
         setAwayFromBottom(true)
+        setRunLit(true)
+        setTimeout(() => setRunLit(false), 1800)
       })
     } else if (hasMore) {
       useChatStore.getState().loadOlderMessages(conversationId)
@@ -780,7 +784,15 @@ export default function ChatView({
                       ) : item.type === 'reportStack' ? (
                         <RunReportStack key={item.key} entries={item.entries} />
                       ) : item.type === 'runBlock' ? (
-                        <div key={item.key} data-run-id={item.runId} className={item.runId === focusRun ? 'rounded-xl ring-1 ring-accent/40 -mx-2 px-2 transition-shadow' : undefined}>
+                        <div
+                          key={item.key}
+                          data-run-id={item.runId}
+                          // The run asked for: a mark in the margin, as a reader
+                          // would pencil one, under a tint that fades.
+                          className={item.runId === focusRun
+                            ? `relative -mx-4 rounded-r-xl px-4 transition-colors duration-[1500ms] before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-accent/70 ${runLit ? 'bg-accent/[0.07]' : 'bg-transparent'}`
+                            : undefined}
+                        >
                           <RunBlock
                             run={runsById.get(item.runId)}
                             msgs={item.msgs}
