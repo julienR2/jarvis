@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import Select from './Select'
 import {
   Mail,
   GitBranch,
@@ -366,15 +367,16 @@ function FieldRowInput({
           </button>
         )}
       </div>
-      <select
+      <Select
+        aria-label='Field type'
         value={field.type}
-        onChange={(e) => onChange({ type: e.target.value as FieldRow['type'] })}
-        className='bg-surface2 border border-border text-text-primary rounded-lg px-2 py-1.5 text-xs focus:border-accent focus:outline-none'
-      >
-        <option value='password'>Secret</option>
-        <option value='text'>Text</option>
-        <option value='email'>Email</option>
-      </select>
+        onChange={(type: FieldRow['type']) => onChange({ type })}
+        options={[
+          { value: 'password' as FieldRow['type'], label: 'Secret' },
+          { value: 'text' as FieldRow['type'], label: 'Text' },
+          { value: 'email' as FieldRow['type'], label: 'Email' },
+        ]}
+      />
       <button
         onClick={onRemove}
         disabled={!canRemove}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import Select from './Select'
 import { Check, Loader2, ChevronDown, KeyRound, Trash2, ExternalLink, Eye, EyeOff } from 'lucide-react'
 import { api } from '../api'
 import type { ConnectionStatus, ProviderStatus } from '../api'
@@ -337,22 +338,20 @@ function ProviderDefaults({
             {modelName(defaultModel)}
           </button>
         ) : (
-          <select
+          <Select
+            aria-label='Default model'
             value={defaultModel}
             disabled={saving}
-            onChange={(e) => save({ anthropicModel: e.target.value })}
-            className='max-w-[200px] truncate rounded-lg border border-border bg-bg px-2 py-1 text-text-primary outline-none focus:border-accent disabled:opacity-60'
-          >
-            {/* The stored default may not be in the list (a model that has since
-                been retired) — keep it selectable rather than silently showing
-                a different one as current. */}
-            {!choices.some((m) => m.id === defaultModel) && (
-              <option value={defaultModel}>{modelName(defaultModel)}</option>
-            )}
-            {choices.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </select>
+            onChange={(id: string) => save({ anthropicModel: id })}
+            className='max-w-[220px]'
+            // The stored default may not be in the list (a model that has since
+            // been retired) — keep it selectable rather than silently showing a
+            // different one as current.
+            options={[
+              ...(choices.some((m) => m.id === defaultModel) ? [] : [{ value: defaultModel, label: modelName(defaultModel) }]),
+              ...choices.map((m) => ({ value: m.id, label: m.name })),
+            ]}
+          />
         )}
         {saving && <Loader2 size={13} className='animate-spin text-text-muted' />}
       </div>

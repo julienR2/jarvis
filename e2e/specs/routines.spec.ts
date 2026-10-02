@@ -55,23 +55,32 @@ test.describe('routines', () => {
     await card.getByRole('button', { name: 'Create routine' }).click()
     await expect(card.getByRole('alert')).toHaveText('Give it a name.')
     await card.getByLabel('Name').fill('e2e-nightly')
-    await card.getByLabel('How often').selectOption('weekdays')
+    await card.getByRole('button', { name: 'How often' }).click()
+    await page.getByRole('option', { name: 'On weekdays' }).click()
     await card.getByLabel('Time').fill('03:00')
     await card.getByLabel('Prompt').fill('Tidy up.')
     await card.getByRole('button', { name: 'Create routine' }).click()
-    // The thread is now the routine's: named after it, the card in edit mode.
+    // The thread is now the routine's: named after it; the card leaves the
+    // transcript for the chip in the title bar.
     await expect(page.getByRole('heading', { name: '# e2e-nightly' }).first()).toBeAttached()
-    await expect(card.getByText('weekdays at 03:00')).toBeVisible()
-    await expect(page.getByTestId('routine-chip').locator('visible=true')).toContainText('weekdays at 03:00')
+    const chip = page.getByTestId('routine-chip').locator('visible=true')
+    await expect(chip).toContainText('weekdays at 03:00')
+    await expect(page.getByRole('main').getByTestId('routine-card')).toHaveCount(0)
 
-    // Edited in place: Save appears with a change.
-    await card.getByLabel('Prompt').fill('Tidy up the downloads.')
-    await card.getByRole('button', { name: 'Save' }).click()
-    await expect(card.getByText('Up to date')).toBeVisible()
+    // Edited from the chip's card: Save appears with a change, and a dropdown
+    // opened inside it doesn't close it.
+    await chip.click()
+    const edit = page.getByTestId('routine-card')
+    await edit.getByRole('button', { name: 'Reports into' }).click()
+    await page.getByRole('option', { name: /Surf/ }).click()
+    await expect(edit.getByText('through that chat')).toBeVisible()
+    await edit.getByLabel('Prompt').fill('Tidy up the downloads.')
+    await edit.getByRole('button', { name: 'Save' }).click()
+    await expect(edit.getByText('Up to date')).toBeVisible()
 
     // Leave the instance as found.
     page.once('dialog', (d) => d.accept())
-    await card.getByRole('button', { name: 'More' }).click()
+    await edit.getByRole('button', { name: 'More' }).click()
     await page.getByRole('button', { name: 'Delete routine' }).click()
     await expect(page.getByTestId('routine-chip')).toHaveCount(0)
   })
@@ -109,7 +118,7 @@ test.describe('routines', () => {
 
   test('a webhook routine shows its link on its card', async ({ page }) => {
     await page.goto('routines?edit=00000000-0000-4000-8000-0000000000a1')
-    const card = page.getByTestId('routine-card').locator('visible=true').first()
+    const card = page.getByTestId('routine-card')
     await expect(card.getByText(/\/api\/hooks\/.+\/trigger/)).toBeVisible()
   })
 

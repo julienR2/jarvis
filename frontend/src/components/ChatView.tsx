@@ -359,11 +359,14 @@ export default function ChatView({
 
   // Opening a thread lists it in the sidebar's Threads group, where it stays
   // until dismissed — navigating away does not put it back.
+  // Once per opening: putting it away while it is still on screen (the ✕,
+  // just before the navigation away lands) must not list it straight back.
+  const surfacedFor = useRef<string | null>(null)
   useEffect(() => {
-    if (conv?.kind === 'thread' && !conv.surfaced_at && !shared) {
-      useChatStore.getState().setThreadSurfaced(conv.id, true)
-    }
-  }, [conv?.id, conv?.kind, conv?.surfaced_at, shared])
+    if (!conv || shared || surfacedFor.current === conv.id) return
+    surfacedFor.current = conv.id
+    if (conv.kind === 'thread' && !conv.surfaced_at) useChatStore.getState().setThreadSurfaced(conv.id, true)
+  }, [conv, shared])
 
   // The unread divider lasts exactly one visit: it stays put while the
   // conversation is open — scrolling past it doesn't erase where you had got
@@ -759,10 +762,11 @@ export default function ChatView({
                         <Loader2 size={16} className='animate-spin text-text-muted' />
                       </div>
                     )}
-                    {/* The routine, as the thread's first message: shown once the
-                        top of the thread is loaded (or straight away in a new one). */}
-                    {isThread && conv && !shared && !hasMore && (routine || isDraftThread(conv)) && (
-                      <RoutineCard routine={routine} thread={conv} onChanged={reloadRoutine} />
+                    {/* A routine being set up: its card is the form, where the
+                        conversation starts. Once it exists, the card lives behind
+                        the title bar's chip instead. */}
+                    {isThread && conv && !shared && !routine && isDraftThread(conv) && (
+                      <RoutineCard routine={null} thread={conv} onChanged={reloadRoutine} />
                     )}
                     {/* A thread is where its runs are kept, the silent ones included:
                         it is the record a report links back to. */}

@@ -58,6 +58,14 @@ test.describe('threads', () => {
     await expect(page.getByTestId('threads-group').getByText('surf-watch', { exact: true })).toHaveCount(0)
     await page.goto(`c/${SURF_THREAD}`)
     await expect(page.getByTestId('run-card').first()).toBeVisible()
+    // Put away from where it is open: it goes, and stays gone.
+    await page.getByTestId('threads-group').getByText('surf-watch', { exact: true }).hover()
+    await page.getByRole('button', { name: 'Put away surf-watch' }).click()
+    await expect(page).toHaveURL(/\/$/)
+    await page.waitForTimeout(800)
+    await expect(page.getByTestId('threads-group').getByText('surf-watch', { exact: true })).toHaveCount(0)
+    await page.goto(`c/${SURF_THREAD}`)
+    await expect(page.getByTestId('run-card').first()).toBeVisible()
     // Leave it as found.
     await page.goto('')
     await page.getByTestId('threads-group').getByText('surf-watch', { exact: true }).hover()

@@ -79,6 +79,9 @@ export default function Popover({ anchor, open, onClose, placement = 'bottom-end
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node
       if (panelRef.current?.contains(t) || anchor.current?.contains(t)) return
+      // A popover opened from inside this one (a dropdown in a card) is part
+      // of it as far as the person is concerned.
+      if (t instanceof Element && t.closest('[data-popover]')) return
       onClose()
     }
     const onKey = (e: KeyboardEvent) => {
@@ -105,6 +108,7 @@ export default function Popover({ anchor, open, onClose, placement = 'bottom-end
   return createPortal(
     <div
       ref={panelRef}
+      data-popover=''
       className={`fixed z-[1000] overflow-y-auto ${className}`}
       // Measured first, shown once placed — never a frame at the wrong spot.
       style={pos ? { top: pos.top, left: pos.left, maxHeight: pos.maxHeight } : { top: 0, left: 0, visibility: 'hidden' }}

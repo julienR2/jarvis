@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Check, Clock, Copy, Link2, Loader2, MoreHorizontal, Repeat, Trash2, Zap } from 'lucide-react'
+import { Check, Clock, Copy, Hash, Link2, Loader2, MessageSquare, MoreHorizontal, Repeat, Trash2, Zap } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { api, type Conversation, type Effort } from '../api'
 import { useChatStore } from '../stores/chatStore'
@@ -9,6 +9,7 @@ import { HOOK_NOTIFY, NOTIFY_OPTIONS, updateRoutine, webhookUrl, type Notify, ty
 import { buildSchedule, DAY_NAMES, FREQ_LABELS, parseSchedule, type Freq, type Schedule } from '../lib/schedule'
 import ModelSelector, { DEFAULT_EFFORT, useModelCatalogue } from './ModelSelector'
 import Popover from './Popover'
+import Select from './Select'
 
 /** What the card edits. */
 interface Draft {
@@ -97,6 +98,8 @@ export function RoutineCard({
 
   const chats = useChatStore(useShallow((s) => s.order.map((id) => s.conversations[id]).filter((c) => c && c.kind !== 'thread')))
   const sorted = useMemo(() => [...chats].sort((a, b) => a.title.localeCompare(b.title)), [chats])
+  const sections = useChatStore(useShallow((s) => s.sections))
+  const topicOf = (id: string | null) => sections.find((x) => x.id === id)?.name
   const cronExpr = draft.kind === 'cron' ? buildSchedule(draft.schedule) : ''
   const words = cronExpr ? describeSchedule(cronExpr) : ''
 
@@ -127,6 +130,8 @@ export function RoutineCard({
       }
       // The thread's name, notify mode and routine come back from the server.
       await useChatStore.getState().loadConversations()
+      // The card leaves the transcript once the routine exists; say where it went.
+      if (isNew) window.__jarvisToast?.info(`${draft.name.trim()} is set — ${draft.kind === 'cron' ? describeSchedule(cronExpr) : 'its link is on the card'}. The chip at the top opens it.`)
       onChanged()
     } catch (err: any) {
       setError(err.message ?? 'Could not save')
@@ -164,7 +169,8 @@ export function RoutineCard({
 
   const enabled = !!routine?.row.enabled
   const Icon = draft.kind === 'webhook' ? Link2 : isNew ? Repeat : Clock
-  const field = 'rounded-lg border border-border bg-bg px-2 py-1 text-[13px] text-text-primary transition-colors hover:border-text-muted/60 focus:border-accent focus:outline-none'
+  // The free-typed fields, matched to Select's button.
+  const field = 'h-8 rounded-lg border border-border bg-bg px-2.5 text-[13px] text-text-primary transition-colors hover:border-text-muted/50 focus:border-accent focus:outline-none'
 
   return (
     <div className={compact ? '' : 'my-5 animate-fade-in'} data-testid='routine-card'>
@@ -211,13 +217,19 @@ export function RoutineCard({
             )}
             {draft.kind === 'cron' ? (
               <>
-                <select value={draft.schedule.freq} onChange={(e) => setSchedule({ freq: e.target.value as Freq, cron: cronExpr || draft.schedule.cron })} className={field} aria-label='How often'>
-                  {FREQ_LABELS.map(([f, label]) => <option key={f} value={f}>{label}</option>)}
-                </select>
+                <Select
+                  aria-label='How often'
+                  value={draft.schedule.freq}
+                  options={FREQ_LABELS.map(([f, label]) => ({ value: f, label }))}
+                  onChange={(f: Freq) => setSchedule({ freq: f, cron: cronExpr || draft.schedule.cron })}
+                />
                 {draft.schedule.freq === 'weekly' && (
-                  <select value={draft.schedule.day} onChange={(e) => setSchedule({ day: Number(e.target.value) })} className={field} aria-label='Day'>
-                    {DAY_NAMES.map((d, i) => <option key={d} value={i}>on {d}</option>)}
-                  </select>
+                  <Select
+                    aria-label='Day'
+                    value={draft.schedule.day}
+                    options={DAY_NAMES.map((d, i) => ({ value: i, label: `on ${d}` }))}
+                    onChange={(day: number) => setSchedule({ day })}
+                  />
                 )}
                 {draft.schedule.freq === 'hourly' && (
                   <label className='inline-flex items-center gap-1 text-text-muted'>
@@ -241,18 +253,31 @@ export function RoutineCard({
           </div>
 
           <span className='text-text-muted'>Reports into</span>
-          <select value={draft.conversation_id ?? ''} onChange={(e) => set({ conversation_id: e.target.value || null })} className={`${field} min-w-0 max-w-full justify-self-start`} aria-label='Reports into'>
-            <option value=''>This thread only</option>
-            {sorted.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
-          </select>
+          <div className='min-w-0'>
+            <Select
+              aria-label='Reports into'
+              value={draft.conversation_id ?? ''}
+              options={[
+                { value: '', label: 'This thread only', icon: <Hash size={13} />, hint: 'Shows in Threads when a run is worth seeing' },
+                ...sorted.map((c) => ({ value: c.id, label: c.title, icon: <MessageSquare size={13} />, hint: topicOf(c.section_id) })),
+              ]}
+              onChange={(id: string) => set({ conversation_id: id || null })}
+              searchable
+            />
+          </div>
 
           <span className='text-text-muted'>Notifies</span>
           {draft.conversation_id ? (
             <span className='text-[12.5px] text-text-secondary'>through that chat</span>
           ) : (
-            <select value={draft.notify} onChange={(e) => set({ notify: e.target.value as Notify })} className={`${field} justify-self-start`} aria-label='Notifications'>
-              {NOTIFY_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-            </select>
+            <div>
+              <Select
+                aria-label='Notifications'
+                value={draft.notify}
+                options={NOTIFY_OPTIONS.map(([v, label]) => ({ value: v, label }))}
+                onChange={(v: Notify) => set({ notify: v })}
+              />
+            </div>
           )}
         </div>
 
