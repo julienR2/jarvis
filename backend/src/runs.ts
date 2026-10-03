@@ -134,7 +134,20 @@ export function markQuietMessages(runId?: string): void {
  * from the text before it is stored; what is left is a silent message.
  */
 export const SILENT_MARK = '[quiet]'
-export const SILENT_RE = /^\s*\[quiet\]\s*/i
+
+/**
+ * Whether a reply is marked silent, and its text without the marker.
+ *
+ * The model is asked to *open* with it, but doesn't always: "Clean tree, no
+ * open items.\n\n[quiet] Nothing to do" is the same decision, and reading it
+ * as news rang a phone for nothing. So the marker counts at the start of any
+ * line, and is removed wherever it stands.
+ */
+export function splitSilent(text: string): { silent: boolean; text: string } {
+  const silent = /(^|\n)[ \t]*\[quiet\]/i.test(text)
+  if (!silent) return { silent, text }
+  return { silent, text: text.replace(/(^|\n)([ \t]*)\[quiet\][ \t]*/gi, '$1$2').trim() }
+}
 
 const QUIET_OPENERS = /^(?:\[quiet\]|ras\b|rien à signaler|nothing to report|no news|⏭️)/iu
 export function isQuietResult(result: string | null | undefined): boolean {

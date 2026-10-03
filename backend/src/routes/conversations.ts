@@ -38,7 +38,7 @@ import { config } from '../config.js'
 import { getConnectorValues } from '../connectors.js'
 import { topicContextFor } from '../topics.js'
 import { notifyTarget, routineRunPrompt, surfaceThread, threadContextPrompt, unseenReportsPrompt } from '../threads.js'
-import { SILENT_MARK, SILENT_RE } from '../runs.js'
+import { SILENT_MARK, splitSilent } from '../runs.js'
 import type { ConvRow, MessageRow, EffortLevel, PendingQuestion } from '../types.js'
 import { userForApiKey } from '../api-keys.js'
 
@@ -975,8 +975,7 @@ export function attachConversationStream(
       if (ev.type === 'done') {
         dropLive()
         // The silent marker is an instruction to us, not text for the person.
-        const silent = SILENT_RE.test(ev.result || '')
-        const resultText = (ev.result || '').replace(SILENT_RE, '')
+        const { silent, text: resultText } = splitSilent(ev.result || '')
         console.log(`[msg] done — result: ${resultText.length} chars`)
 
         // Set result on the message
