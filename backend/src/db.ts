@@ -502,6 +502,41 @@ export function initDb(): void {
     console.log('[db] routine-made chats turned into threads')
   }
 
+  // The share sheet's pins: what the share screen lists first, in this order,
+  // above the full tree. A pin names a chat, a topic (a new chat in it) or a
+  // webhook (fired with the shared content). No foreign key — the target may
+  // be in any of three tables; a pin whose target is gone is dropped on read.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS share_targets (
+      kind TEXT NOT NULL CHECK(kind IN ('conversation', 'section', 'webhook')),
+      target_id TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (kind, target_id)
+    )
+  `)
+  // Once: the share screen's hard-coded "Transcribe with Whisper" button
+  // becomes an ordinary webhook, pinned first, with the prompt it used to send.
+  // Only on an install that had the button — a fresh one (no user yet) starts
+  // with nothing pinned, and may have no Whisper to call.
+  if ((db.pragma('user_version', { simple: true }) as number) < 3) {
+    const existingInstall = !!db.prepare('SELECT 1 FROM users LIMIT 1').get()
+    if (existingInstall) db.transaction(() => {
+      const id = randomUUID()
+      db.prepare(
+        `INSERT INTO webhooks (id, name, token, prompt, enabled, model, effort, notify)
+         VALUES (?, ?, ?, ?, 1, NULL, 'default', 'auto')`,
+      ).run(
+        id,
+        'Transcribe with Whisper',
+        randomUUID(),
+        'Please transcribe the attached audio file using the local Whisper service (the whisper skill), not ElevenLabs, then return the full transcript.',
+      )
+      db.prepare(`INSERT INTO share_targets (kind, target_id, position) VALUES ('webhook', ?, 0)`).run(id)
+    })()
+    db.pragma('user_version = 3')
+    console.log('[db] Whisper share button turned into a pinned webhook')
+  }
+
   // Connectors — one row per connector holding its definition AND its values.
   // Unified from the former three-way split (hardcoded catalog + custom_connectors
   // definitions + connectors secrets). See connectors.ts.

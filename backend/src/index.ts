@@ -22,6 +22,7 @@ import { runRoutes } from './routes/runs.js'
 import { runByKey, reconcileStaleRuns, markQuietMessages } from './runs.js'
 import { seedFixtures } from './fixtures.js'
 import { webhookRoutes, webhookTriggerRoute } from './routes/webhooks.js'
+import { shareTargetRoutes } from './routes/share-targets.js'
 import { uploadRoutes, UPLOADS_DIR, MAX_FILE_SIZE } from './routes/uploads.js'
 import { pushRoutes } from './routes/push.js'
 import { appRoutes } from './routes/apps.js'
@@ -194,6 +195,7 @@ await app.register(cronRoutes, { prefix: '/api/crons' })
 await app.register(runRoutes, { prefix: '/api/runs' })
 await app.register(webhookRoutes, { prefix: '/api/webhooks' })
 await app.register(webhookTriggerRoute, { prefix: '/api/hooks' })
+await app.register(shareTargetRoutes, { prefix: '/api/share-targets' })
 await app.register(uploadRoutes)
 await app.register(pushRoutes, { prefix: '/api/push' })
 await app.register(appRoutes, { prefix: '/api/apps' })

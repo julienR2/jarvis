@@ -3,6 +3,7 @@ import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { Bell, BellOff, Check, Copy, LogOut, RefreshCw, Send, Sparkles } from 'lucide-react'
 import ContentLayout from '../components/ContentLayout'
 import ApiKeysPanel from '../components/ApiKeysPage'
+import { ShareSheetSettings } from '../components/ShareTargets'
 import { useTheme, type Preference } from '../hooks/useTheme'
 import { useNotifications } from '../hooks/useNotifications'
 import { reloadApp } from '../lib/reload'
@@ -35,6 +36,11 @@ export default function SettingsPage() {
             <ThemeRow />
             <NotificationsRow />
           </Card>
+        </section>
+
+        <section>
+          <SectionTitle>Share sheet</SectionTitle>
+          <ShareSheetSettings />
         </section>
 
         <section>

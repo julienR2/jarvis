@@ -1471,17 +1471,20 @@ export async function conversationRoutes(app: FastifyInstance) {
     return conv
   })
 
-  app.post('/', auth, async (req) => {
-    const { title } = (req.body as { title?: string }) ?? {}
+  app.post('/', auth, async (req, reply) => {
+    const { title, section_id } = (req.body as { title?: string; section_id?: string | null }) ?? {}
+    if (section_id && !getDb().prepare('SELECT 1 FROM sections WHERE id = ?').get(section_id)) {
+      return reply.code(400).send({ error: 'Unknown section' })
+    }
     const id = uuid()
     getDb()
       .prepare(
-        `INSERT INTO conversations (id, title, model, effort, last_read_at, notify)
-         VALUES (?, ?, ?, ?, unixepoch(), 'auto')`,
+        `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, section_id)
+         VALUES (?, ?, ?, ?, unixepoch(), 'auto', ?)`,
       )
       // model = null → "use the global default" (resolved at invoke time);
       // effort 'default' → no --effort flag, the model decides.
-      .run(id, title ?? 'New conversation', null, 'default')
+      .run(id, title ?? 'New conversation', null, 'default', section_id || null)
     return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id)
   })
 

@@ -1,5 +1,5 @@
 import { getDb } from './db.js'
-import { processMessage } from './routes/conversations.js'
+import { processMessage, type Attachment } from './routes/conversations.js'
 import { startRun } from './runs.js'
 import { ensureThread, threadNotifyOf } from './threads.js'
 import type { WebhookRow } from './types.js'
@@ -9,12 +9,31 @@ export function fireWebhook(entry: WebhookRow, payload?: unknown): void {
   _fireWebhook(entry, payload)
 }
 
+/** What the share sheet hands a webhook: the shared text and link, and files already uploaded into its thread. */
+export interface SharedContent {
+  title?: string
+  text?: string
+  url?: string
+  attachments?: Attachment[]
+}
+
+/**
+ * Fire a webhook from the share sheet. The shared content is the run's own
+ * message — text in the bubble, files as its attachments — so the thread shows
+ * what was sent, unlike a payload from outside, which only the prompt sees.
+ */
+export function fireWebhookShare(entry: WebhookRow, shared: SharedContent): string {
+  console.log(`[webhook] firing "${entry.name}" from the share sheet`)
+  _fireWebhook(entry, undefined, false, shared)
+  return entry.thread_id!
+}
+
 export function fireWebhookSync(entry: WebhookRow, payload?: unknown): Promise<string> {
   console.log(`[webhook] firing sync "${entry.name}"`)
   return _fireWebhook(entry, payload, true) as Promise<string>
 }
 
-function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Promise<string> | void {
+function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean, shared?: SharedContent): Promise<string> | void {
   getDb()
     .prepare('UPDATE webhooks SET last_run = unixepoch() WHERE id = ?')
     .run(entry.id)
@@ -27,10 +46,16 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
     prompt += `\n\nWebhook payload:\n${JSON.stringify(payload, null, 2)}`
   }
 
+  const sharedText = shared ? [shared.title, shared.text, shared.url].filter((x) => x?.trim()).join('\n') : ''
+  if (sharedText) prompt += `\n\nShared content:\n${sharedText}`
+  const attachments = shared?.attachments ?? []
+
   // Extract display message from payload if user_message_key is set
   const userMessageKey = entry.user_message_key
   let displayMessage: string | undefined
-  if (userMessageKey && payload && typeof payload === 'object') {
+  if (shared) {
+    displayMessage = sharedText
+  } else if (userMessageKey && payload && typeof payload === 'object') {
     const val = (payload as Record<string, unknown>)[userMessageKey]
     if (typeof val === 'string' && val.trim()) {
       displayMessage = val.trim()
@@ -59,7 +84,8 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
   }
 
   const msgOptions = {
-    skipUserMessage: !displayMessage,
+    // A share always shows its message: the files are on it, even with no text.
+    skipUserMessage: !shared && !displayMessage,
     userMessageOverride: displayMessage,
     model: entry.model ?? undefined,
     effort: entry.effort,
@@ -76,7 +102,7 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
           // `running` is correct: it is, and it is still stoppable.
           reject(new Error('Webhook response timeout'))
         }, 120_000)
-        processMessage(conversationId, thread, prompt, [], {
+        processMessage(conversationId, thread, prompt, attachments, {
           ...msgOptions,
           onDone: (text) => {
             clearTimeout(timeout)
@@ -88,7 +114,7 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean): Pro
     : undefined
 
   if (!sync) {
-    processMessage(conversationId, thread, prompt, [], {
+    processMessage(conversationId, thread, prompt, attachments, {
       ...msgOptions,
       onDone: recordDone,
     })

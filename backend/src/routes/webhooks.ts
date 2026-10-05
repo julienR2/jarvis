@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { getDb, uuid, normalizeEffort } from '../db.js'
-import { fireWebhook, fireWebhookSync } from '../webhooks.js'
+import { fireWebhook, fireWebhookShare, fireWebhookSync, type SharedContent } from '../webhooks.js'
 import { stopRunsFor } from '../runs.js'
 import { afterRoutineWrite, checkRoutineRefs, ensureThread, setThreadNotify, syncThreadParent, renameThread, threadNotifyOf } from '../threads.js'
 import type { WebhookRow } from '../types.js'
@@ -108,6 +108,28 @@ export async function webhookRoutes(app: FastifyInstance) {
     if (!row) return reply.code(404).send({ error: 'Not found' })
     fireWebhook(row)
     return { ok: true }
+  })
+
+  // The share sheet uploads its files into the routine's thread before firing,
+  // so they belong to it — and the thread may not have been opened yet.
+  app.post<{ Params: { id: string } }>('/:id/thread', auth, async (req, reply) => {
+    const row = getDb()
+      .prepare('SELECT * FROM webhooks WHERE id = ?')
+      .get(req.params.id) as WebhookRow | undefined
+    if (!row) return reply.code(404).send({ error: 'Not found' })
+    return { thread_id: ensureThread('webhooks', row, threadNotifyOf(row.notify)).id }
+  })
+
+  app.post<{ Params: { id: string } }>('/:id/share', auth, async (req, reply) => {
+    const row = getDb()
+      .prepare('SELECT * FROM webhooks WHERE id = ?')
+      .get(req.params.id) as WebhookRow | undefined
+    if (!row) return reply.code(404).send({ error: 'Not found' })
+    const body = (req.body ?? {}) as SharedContent
+    if (![body.title, body.text, body.url].some((x) => x?.trim()) && !body.attachments?.length) {
+      return reply.code(400).send({ error: 'Nothing to share' })
+    }
+    return { ok: true, thread_id: fireWebhookShare(row, body) }
   })
 
   app.delete<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {

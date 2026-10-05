@@ -136,8 +136,8 @@ export const api = {
   // Conversations
   getConversations: () =>
     request<Conversation[]>('GET', '/conversations'),
-  createConversation: (title?: string) =>
-    request<Conversation>('POST', '/conversations', { title }),
+  createConversation: (title?: string, sectionId?: string | null) =>
+    request<Conversation>('POST', '/conversations', { title, section_id: sectionId ?? undefined }),
   // Messages come back as the newest page (oldest-first within the page).
   // `limit` is how many of them to load — pass the count already held to keep
   // previously paged-in history when re-syncing.
@@ -325,6 +325,16 @@ export const api = {
     request<Webhook>('PATCH', `/webhooks/${id}`, data),
   deleteWebhook: (id: string) => request<{ ok: boolean }>('DELETE', `/webhooks/${id}`),
   triggerWebhook: (id: string) => request<{ ok: boolean }>('POST', `/webhooks/${id}/trigger`),
+  /** Open the webhook's thread if it has none yet — shared files are uploaded into it. */
+  webhookThread: (id: string) => request<{ thread_id: string }>('POST', `/webhooks/${id}/thread`),
+  /** Fire it from the share sheet, the shared content as the run's message. */
+  shareToWebhook: (id: string, data: { title?: string; text?: string; url?: string; attachments?: Attachment[] }) =>
+    request<{ ok: boolean; thread_id: string }>('POST', `/webhooks/${id}/share`, data),
+
+  // The share sheet's pins, in order. Written whole.
+  getShareTargets: () => request<ShareTarget[]>('GET', '/share-targets'),
+  setShareTargets: (targets: ShareTarget[]) =>
+    request<ShareTarget[]>('PUT', '/share-targets', { targets }),
 
   // API keys
   getApiKeys: () => request<ApiKey[]>('GET', '/api-keys'),
@@ -788,6 +798,12 @@ export interface Webhook {
   last_run: number | null
   last_result: string | null
   created_at: number
+}
+
+/** A pin on the share sheet: a chat, a topic (a new chat in it) or a webhook. */
+export interface ShareTarget {
+  kind: 'conversation' | 'section' | 'webhook'
+  target_id: string
 }
 
 export interface WebhookInput {
