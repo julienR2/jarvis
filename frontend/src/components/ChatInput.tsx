@@ -392,7 +392,7 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
             did (both hand `addFiles` whatever they're given) and the backend has
             no type allowlist either, so the whitelist here only made the attach
             button the one route that refused a file the rest of the stack would
-            have accepted. Size is the real limit: 20MB, reported per file.
+            have accepted. Size is the real limit: 100MB, reported per file.
           */}
           <input
             ref={fileInputRef}

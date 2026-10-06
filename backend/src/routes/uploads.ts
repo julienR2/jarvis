@@ -7,7 +7,7 @@ import { pipeline } from 'stream/promises'
 import { config } from '../config.js'
 
 const UPLOADS_DIR = join(config.workspaceDir, 'uploads')
-const MAX_FILE_SIZE = 20 * 1024 * 1024 // 20 MB
+const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100 MB
 
 // Conversation ids are uuids. Validated before being used as a directory name so
 // a crafted `?conversationId=../..` can't write outside the uploads tree.
@@ -50,7 +50,7 @@ export function uploadRoutes(app: FastifyInstance, _opts: unknown, done: () => v
       // Clean up
       const { unlink } = await import('fs/promises')
       await unlink(filePath).catch(() => {})
-      return reply.code(413).send({ error: 'File too large (max 20MB)' })
+      return reply.code(413).send({ error: 'File too large (max 100MB)' })
     }
 
     return {
