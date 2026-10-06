@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Sparkles, Terminal } from 'lucide-react'
 import { api, type SlashCommand } from '../api'
 
 // One fetch shared by every composer, refreshed after a minute: skills can be
@@ -53,7 +54,13 @@ export function useSlashMenu(input: string, enabled: boolean, setInput: (v: stri
     }
   }, [typed !== undefined])
 
-  const items = useMemo(() => (typed === undefined || !commands ? [] : rank(commands, typed)), [commands, typed])
+  // Grouped as drawn — the instance's skills, then Claude Code's own — so the
+  // arrow keys walk the list in the order it reads; best match first in each.
+  const items = useMemo(() => {
+    if (typed === undefined || !commands) return []
+    const ranked = rank(commands, typed)
+    return [...ranked.filter((c) => !c.builtin), ...ranked.filter((c) => c.builtin)]
+  }, [commands, typed])
   useEffect(() => setActive(0), [typed])
   const open = items.length > 0 && dismissedAt !== input
 
@@ -100,25 +107,36 @@ export function SlashMenu({ items, active, onHover, onPick }: {
       className='absolute bottom-full left-0 right-0 z-20 mb-2 max-h-72 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-lg animate-fade-in'
     >
       {items.map((c, i) => (
-        <button
-          key={`${c.builtin ? 'b' : 's'}:${c.name}`}
-          type='button'
-          role='option'
-          aria-selected={i === active}
-          data-index={i}
-          // Not a click: the textarea would blur first and the keyboard drop on mobile.
-          onMouseDown={(e) => {
-            e.preventDefault()
-            onPick(c)
-          }}
-          onMouseEnter={() => onHover(i)}
-          className={`flex w-full items-baseline gap-2 rounded-lg px-2.5 py-1.5 text-left ${i === active ? 'bg-bg' : ''}`}
-        >
-          <span className='shrink-0 font-mono text-[13px] text-text-primary'>/{c.name}</span>
-          {c.argumentHint && <span className='max-w-[40%] shrink-0 truncate font-mono text-[11px] text-text-muted'>{c.argumentHint}</span>}
-          <span className='min-w-0 flex-1 truncate text-[12px] text-text-muted'>{c.description}</span>
-          {c.builtin && <span className='shrink-0 text-[10px] uppercase tracking-wide text-text-muted/70'>Claude Code</span>}
-        </button>
+        <Fragment key={`${c.builtin ? 'b' : 's'}:${c.name}`}>
+          {/* A heading where the kind changes: what you wrote vs what ships with the CLI. */}
+          {(i === 0 || items[i - 1].builtin !== c.builtin) && (
+            <div
+              data-testid={c.builtin ? 'slash-group-builtin' : 'slash-group-skills'}
+              className={`flex items-center gap-1.5 px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wide ${i === 0 ? 'pt-1.5' : 'mt-1 border-t border-border pt-2'} ${c.builtin ? 'text-text-muted' : 'text-accent'}`}
+            >
+              {c.builtin ? <Terminal size={11} /> : <Sparkles size={11} />}
+              {c.builtin ? 'Claude Code' : 'Skills'}
+            </div>
+          )}
+          <button
+            type='button'
+            role='option'
+            aria-selected={i === active}
+            data-index={i}
+            data-kind={c.builtin ? 'builtin' : 'skill'}
+            // Not a click: the textarea would blur first and the keyboard drop on mobile.
+            onMouseDown={(e) => {
+              e.preventDefault()
+              onPick(c)
+            }}
+            onMouseEnter={() => onHover(i)}
+            className={`flex w-full items-baseline gap-2 rounded-lg px-2.5 py-1.5 text-left ${i === active ? 'bg-bg' : ''}`}
+          >
+            <span className={`shrink-0 font-mono text-[13px] ${c.builtin ? 'text-text-secondary' : 'text-accent'}`}>/{c.name}</span>
+            {c.argumentHint && <span className='max-w-[40%] shrink-0 truncate font-mono text-[11px] text-text-muted'>{c.argumentHint}</span>}
+            <span className='min-w-0 flex-1 truncate text-[12px] text-text-muted'>{c.description}</span>
+          </button>
+        </Fragment>
       ))}
     </div>
   )

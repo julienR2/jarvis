@@ -22,7 +22,11 @@ test.describe('chat rendering', () => {
     // The instance's skills and the CLI's own commands, one list for every model.
     await expect(menu.getByRole('option')).toHaveCount(4)
     await expect(menu.getByRole('option', { name: /\/gmail/ })).toBeVisible()
-    await expect(menu.getByRole('option', { name: /\/compact/ })).toContainText('Claude Code')
+    // Two groups, told apart at a glance: skills first, then the CLI's own.
+    await expect(menu.getByTestId('slash-group-skills')).toHaveText('Skills')
+    await expect(menu.getByTestId('slash-group-builtin')).toHaveText('Claude Code')
+    await expect(menu.getByRole('option', { name: /\/compact/ })).toHaveAttribute('data-kind', 'builtin')
+    await expect(menu.getByRole('option').first()).toHaveAttribute('data-kind', 'skill')
     await input.fill('/co')
     await expect(menu.getByRole('option')).toHaveCount(2)
     await expect(menu.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
