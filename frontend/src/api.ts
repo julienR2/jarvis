@@ -87,6 +87,8 @@ export const api = {
   getBrowserStatus: () => request<{ enabled: boolean }>('GET', '/browser-status'),
   // Server-fed so switching provider changes the picker without a rebuild.
   getModels: () => request<ModelCatalogue>('GET', '/models'),
+  /** What the composer's `/` menu offers — one list whatever the model. */
+  getCommands: () => request<{ commands: SlashCommand[] }>('GET', '/commands'),
   getConnection: () => request<ConnectionStatus>('GET', '/auth/connection'),
   setConnection: (body: { mode: 'anthropic' | 'gateway'; baseUrl: string; credential: string }) =>
     request<{ ok: boolean; busy: string[] }>('POST', '/auth/connection', body),
@@ -622,6 +624,15 @@ export interface AskOption {
   description?: string
 }
 
+export interface SlashCommand {
+  name: string
+  description: string
+  /** e.g. `<file>`; empty when the command takes nothing. */
+  argumentHint: string
+  /** Claude Code's own, as opposed to one of this instance's skills. */
+  builtin: boolean
+}
+
 export interface AskQuestion {
   question: string
   header?: string
@@ -638,11 +649,21 @@ export function pendingQuestionOf(conv: Pick<Conversation, 'pending_question'> |
   }
 }
 
+/**
+ * An option that only means "let me type something": the model adds one now
+ * and then. The composer is already that — whatever is typed answers — so a
+ * chip for it would only select the word "Other" as the answer.
+ */
+const CATCH_ALL = /^(other|something else|autre( chose)?|custom( answer)?|(type|write) (my|your) own( answer)?)\s*(\(.*\))?[.…:!?]*$/i
+
 /** The questions of an AskUserQuestion prompt; empty for a tool approval. */
 export function questionsOf(q: PendingQuestion): AskQuestion[] {
   if (q.tool_name !== 'AskUserQuestion') return []
   const list = (q.input as { questions?: unknown }).questions
-  return Array.isArray(list) ? (list as AskQuestion[]).filter((x) => x && typeof x.question === 'string') : []
+  if (!Array.isArray(list)) return []
+  return (list as AskQuestion[])
+    .filter((x) => x && typeof x.question === 'string')
+    .map((x) => ({ ...x, options: (x.options ?? []).filter((o) => !CATCH_ALL.test(String(o?.label ?? '').trim())) }))
 }
 
 /** One line saying what is being waited on — the row summary outside the chat. */

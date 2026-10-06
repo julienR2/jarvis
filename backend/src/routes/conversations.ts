@@ -1243,8 +1243,17 @@ export async function answerQuestion(
     answer = { behavior: 'allow' }
     said = 'Approved.'
   } else if (body.behavior === 'deny') {
-    answer = { behavior: 'deny', message: body.message?.trim() || undefined }
-    said = body.message?.trim() ? `Denied: ${body.message.trim()}` : 'Denied.'
+    // With words, a denial is a reply — what was typed in the composer while
+    // the approval was up, as the CLI's own "No, and tell Claude what to do
+    // differently". The model reads it as the tool's error, so it is framed
+    // as the person speaking; the transcript keeps it as they wrote it.
+    const reply = body.message?.trim() ?? ''
+    const refs = attachmentRefs(body.attachments ?? [])
+    answer = {
+      behavior: 'deny',
+      message: reply || refs ? `The user declined this and replied:\n${reply}${refs}` : undefined,
+    }
+    said = reply || (refs ? '' : 'Denied.')
   } else {
     return { answered: false, error: 'Approve or deny it.' }
   }

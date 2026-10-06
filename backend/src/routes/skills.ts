@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { config } from '../config.js'
+import { listCommands } from '../engine.js'
 
 /** Where the CLI reads skills from: one directory per skill, a SKILL.md in each. */
 const SKILLS_DIR = join(config.claudeConfigDir, 'skills')
@@ -86,4 +87,13 @@ export async function skillRoutes(app: FastifyInstance) {
     writeFileSync(file, raw.endsWith('\n') ? raw : `${raw}\n`)
     return { ok: true }
   })
+}
+
+/**
+ * GET /api/commands — what the composer's `/` menu offers: this instance's
+ * skills and the CLI's own commands worth running from a chat, as the engine's
+ * CLI reports them. One list for every model: they all run the same CLI.
+ */
+export async function commandRoutes(app: FastifyInstance) {
+  app.get('/api/commands', { onRequest: [app.authenticate] }, async () => ({ commands: await listCommands() }))
 }

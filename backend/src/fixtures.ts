@@ -428,6 +428,9 @@ export function seedFixtures(): void {
           options: [
             { label: 'Two days', description: 'Saturday and Sunday' },
             { label: 'Long weekend', description: 'Friday to Monday' },
+            // The catch-all the model adds now and then: the composer is
+            // already the free-form answer, so the chip is not drawn.
+            { label: 'Other (please specify)', description: 'Something else' },
           ],
         }],
       },

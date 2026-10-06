@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion, Reply, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
+import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion, Reply, ChevronLeft, ArrowRight, Loader2 } from 'lucide-react'
 import AudioButton from './AudioButton'
 import AnswerCard, { OptionList, hasOptions } from './AnswerCard'
 import ModelSelector from './ModelSelector'
+import { SlashMenu, useSlashMenu } from './SlashMenu'
 import { api, questionsOf, type Attachment, type Effort, type PendingQuestion, type ReplyTo } from '../api'
 import type { OutgoingUpload } from '../lib/outbox'
 
@@ -36,10 +37,11 @@ interface Props {
   /** Replaces the default prompt. */
   placeholder?: string
   /**
-   * The question Jarvis is waiting on, when there is one: drawn on top of the
-   * input, whose text then answers it (see ChatView.sendMessage). With options
-   * on offer the input dims until touched, so the buttons read as the first
-   * way to answer and typing as the other.
+   * What Jarvis is waiting on, when anything: drawn on top of the input, whose
+   * text then answers it (see answerFromComposer) — a question's free-form
+   * answer, or an approval's "no, do this instead". With options on offer the
+   * input dims until touched, so they read as the first way to answer and
+   * typing as the other.
    */
   question?: PendingQuestion
   /** Tighter chrome for embedding — e.g. a Today card. Drops outer padding,
@@ -85,11 +87,32 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
   const current = questions[Math.min(step, questions.length - 1)]
   const lastStep = !multi || step >= questions.length - 1
 
-  function goToStep(i: number) {
+  // Moving keeps what the input holds as this question's answer, and brings
+  // back what the next one had, if it was answered before.
+  function goToStep(i: number, value = input) {
     if (!current || i < 0 || i >= questions.length) return
-    setAnswers((a) => ({ ...a, [current.question]: input.trim() }))
+    setAnswers((a) => ({ ...a, [current.question]: value.trim() }))
     setInput(answers[questions[i].question] ?? '')
     setStep(i)
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }
+
+  // An option picked sets the input's value: pick and type are one field, so
+  // Send, dictation and attach work the same either way. One of several
+  // questions moves straight on — the pick IS the answer to it, as the CLI's
+  // own picker does. A multi-select toggles its label in a comma list instead.
+  function pickOption(label: string) {
+    const typed = input.trim()
+    if (current?.multiSelect) {
+      const picked = typed ? typed.split(', ') : []
+      setInput((picked.includes(label) ? picked.filter((l) => l !== label) : [...picked, label]).join(', '))
+    } else if (typed === label) {
+      setInput('') // tapping the chosen one again clears it
+    } else if (!lastStep) {
+      return goToStep(step + 1, label)
+    } else {
+      setInput(label)
+    }
     setTimeout(() => textareaRef.current?.focus(), 0)
   }
 
@@ -181,6 +204,7 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (slash.onKeyDown(e)) return
     const isMobile = navigator.maxTouchPoints > 0
     if (e.key === 'Enter' && !e.shiftKey && !isMobile) {
       e.preventDefault()
@@ -244,15 +268,24 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
   // and the composer's own Send confirms it. While nothing is picked or typed
   // the input dims, so the options read as the first way to answer.
   const asksQuestion = questions.length > 0
+  // A tool call waiting for a yes: typing is the other way to answer it.
+  const approval = !!question && !asksQuestion
   const dimInput = asksQuestion && hasOptions(question!) && !input.trim() && !hasFiles && !audioActive
   const effectivePlaceholder =
-    placeholder ?? (asksQuestion ? (hasOptions(question!) ? 'Or type your own answer…' : 'Your answer…') : 'How can I help you today?')
+    asksQuestion ? (hasOptions(question!) ? 'Or type your own answer…' : 'Your answer…')
+    : approval ? 'Or tell Jarvis what to do instead…'
+    : placeholder ?? 'How can I help you today?'
+  // Commands start a message; an answer to what Jarvis asked is not one.
+  const slash = useSlashMenu(input, !question, (v) => {
+    setInput(v)
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  })
   // Mic shows when no text typed, OR when files are attached (even with text).
   // Send stays available while Claude works: the message is steered into the
   // running turn (Stop shows to its left in that case).
   const showMic = !audioActive && !transcribing && (!input.trim() || hasFiles)
-  // Before the last of several questions, Next (in the card, or Enter) moves on.
-  const showSend = !audioActive && !transcribing && hasContent && (!hasFiles || allUploaded || !!onSendNow) && lastStep
+  // Before the last of several questions, the same button (and Enter) moves on.
+  const showSend = !audioActive && !transcribing && hasContent && (!hasFiles || allUploaded || !!onSendNow)
   const showCancel = isProcessing && !audioActive
 
   return (
@@ -263,53 +296,39 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
       onDragLeave={() => setDragOver(false)}
     >
       <div className={compact ? '' : 'max-w-3xl mx-auto'}>
-        <div className={`bg-surface border rounded-2xl shadow-sm transition-colors ${dragOver ? 'border-accent bg-accent/5' : question ? 'border-warning/50 focus-within:border-warning' : 'border-border focus-within:border-text-muted'}`}>
+        <div className={`relative bg-surface border rounded-2xl shadow-sm transition-colors ${dragOver ? 'border-accent bg-accent/5' : question ? 'border-warning/50 focus-within:border-warning' : 'border-border focus-within:border-text-muted'}`}>
+          {slash.open && (
+            <SlashMenu items={slash.items} active={slash.active} onHover={slash.setActive} onPick={slash.pick} />
+          )}
           {asksQuestion && question && (
             <div className='border-b border-warning/30 bg-warning/5 px-4 py-2.5 rounded-t-2xl animate-fade-in' data-testid='answer-card' data-request-id={question.request_id}>
               <div className='mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-warning/80'>
                 <MessageCircleQuestion size={11} /> Jarvis asks
                 {multi && (
-                  <span data-testid='question-step' className='ml-auto font-medium normal-case tracking-normal text-text-muted'>
-                    {current.header ? `${current.header} · ` : ''}{step + 1} of {questions.length}
+                  <span className='ml-auto flex items-center gap-1 font-medium normal-case tracking-normal text-text-muted'>
+                    {step > 0 && (
+                      <button
+                        type='button'
+                        onClick={() => goToStep(step - 1)}
+                        aria-label='Previous question'
+                        title='Previous question'
+                        className='rounded p-0.5 transition-colors hover:text-text-primary'
+                      >
+                        <ChevronLeft size={12} />
+                      </button>
+                    )}
+                    <span data-testid='question-step'>
+                      {current.header ? `${current.header} · ` : ''}{step + 1} of {questions.length}
+                    </span>
                   </span>
                 )}
               </div>
               <OptionList
                 questions={[current]}
-                selectedOf={() => (input.trim() ? [input.trim()] : [])}
-                onPick={(_q, label) => {
-                  // Setting it as the input value is the whole trick: pick and
-                  // type are the same field, so Send, dictation and attach all
-                  // work unchanged. Tapping the chosen one again clears it.
-                  setInput(input.trim() === label ? '' : label)
-                  setTimeout(() => textareaRef.current?.focus(), 0)
-                }}
+                selectedOf={(q) => (!input.trim() ? [] : q.multiSelect ? input.trim().split(', ') : [input.trim()])}
+                onPick={(_q, label) => pickOption(label)}
                 disabled={audioActive}
               />
-              {multi && (
-                <div className='mt-2 flex items-center gap-2 text-[12px]'>
-                  {step > 0 && (
-                    <button
-                      type='button'
-                      onClick={() => goToStep(step - 1)}
-                      className='inline-flex items-center gap-0.5 text-text-muted transition-colors hover:text-text-primary'
-                    >
-                      <ChevronLeft size={13} /> Previous
-                    </button>
-                  )}
-                  {!lastStep && (
-                    <button
-                      type='button'
-                      disabled={!input.trim() || audioActive}
-                      onClick={() => goToStep(step + 1)}
-                      title={input.trim() ? 'Next question' : 'Pick or type an answer first'}
-                      className='ml-auto inline-flex items-center gap-0.5 rounded-lg bg-warning px-2.5 py-1 font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40'
-                    >
-                      Next <ChevronRight size={13} />
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
           )}
           {question && !asksQuestion && conversationId && (
@@ -418,7 +437,7 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
               </button>
               {/* Not while answering: an answer continues the turn that asked,
                   on whatever it runs on — it is not a new message. */}
-              {model && !asksQuestion && onModelChange && onEffortChange && (
+              {model && !question && onModelChange && onEffortChange && (
                 <ModelSelector model={model} effort={effort} onModelChange={onModelChange} onEffortChange={onEffortChange} subtle />
               )}
             </div>
@@ -453,10 +472,10 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
               {showSend && (
                 <button
                   onClick={handleSend}
-                  className={`p-2 rounded-xl text-white disabled:opacity-30 transition-colors ${asksQuestion ? 'bg-warning hover:opacity-90' : 'bg-accent hover:bg-accent-hover'}`}
-                  title={asksQuestion ? 'Answer' : 'Send'}
+                  className={`p-2 rounded-xl text-white disabled:opacity-30 transition-colors ${question ? 'bg-warning hover:opacity-90' : 'bg-accent hover:bg-accent-hover'}`}
+                  title={!lastStep ? 'Next' : asksQuestion ? 'Answer' : approval ? 'Reply instead' : 'Send'}
                 >
-                  <Send size={16} />
+                  {lastStep ? <Send size={16} /> : <ArrowRight size={16} />}
                 </button>
               )}
             </div>

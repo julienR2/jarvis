@@ -13,6 +13,7 @@ import {
   recycleIdleSessions,
   type SessionEvent,
 } from './sessions.js'
+import { listCommands } from './commands.js'
 
 const PORT = parseInt(process.env.PORT || '3010')
 
@@ -274,6 +275,9 @@ app.post('/restart', async () => {
 // config (a provider switch). Busy sessions finish their turn on
 // the old config and are reported back.
 app.post('/recycle', async () => recycleIdleSessions())
+
+// GET /commands — the slash commands a chat can run (see commands.ts).
+app.get('/commands', async () => ({ commands: await listCommands() }))
 
 // Health check
 app.get('/health', async () => ({ ok: true }))

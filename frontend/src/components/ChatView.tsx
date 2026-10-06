@@ -9,7 +9,6 @@ import { Earth, Loader2, ArrowDown, EyeOff, FileText, Hash } from 'lucide-react'
 import {
   api,
   pendingQuestionOf,
-  questionsOf,
   type Message,
   type Attachment,
   type Conversation,
@@ -154,9 +153,10 @@ export default function ChatView({
   const hasApp = !!conv?.app_path && !embedded
   // The turn is parked on this until it is answered — the card at the bottom.
   const pending = useMemo(() => pendingQuestionOf(conv), [conv?.pending_question])
-  // While a question (not an approval) is open, the composer answers it: what
-  // is typed or dictated is the free-form option, files included.
-  const composerAnswers = !!pending && questionsOf(pending).length > 0
+  // While anything is open the composer answers it, never queues behind it: for
+  // a question what is typed or dictated is the free-form option, files
+  // included; for an approval it is a reply instead of a yes.
+  const composerAnswers = !!pending
 
   // Share link for the conversation's app: a token scoped to this app alone,
   // rotatable, and carrying none of the account rights the session JWT does.
@@ -550,7 +550,6 @@ export default function ChatView({
   function sendMessage(text: string, attachments: Attachment[] = [], answers?: Record<string, string>) {
     if (!conversationId) return
 
-    // An empty send is allowed here: it confirms the options picked in the strip.
     if (composerAnswers && pending) {
       void answerFromComposer(conversationId, pending, text.trim(), attachments, answers)
       return

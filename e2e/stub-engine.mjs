@@ -26,6 +26,15 @@ const ROUTES = [
   // Nothing to fork from: the thread starts fresh, as it would on a real
   // engine whose transcript is gone.
   [/^\/fork$/, { error: 'no such session' }, 404],
+  // A few of each kind, for the composer's `/` menu.
+  [/^\/commands$/, {
+    commands: [
+      { name: 'gmail', description: 'Read, search, and send Gmail emails.', argumentHint: '', builtin: false },
+      { name: 'todo', description: "Manage the user's personal todo lists.", argumentHint: '', builtin: false },
+      { name: 'compact', description: 'Free up context by summarizing the conversation so far', argumentHint: '<optional custom summarization instructions>', builtin: true },
+      { name: 'context', description: 'Show current context usage', argumentHint: '', builtin: true },
+    ],
+  }, 200],
 ]
 
 // Whisper, too (the backend's WHISPER_URL points here): every recording says

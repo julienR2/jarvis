@@ -333,6 +333,29 @@ export async function recycleSessions(): Promise<{ recycled: string[]; busy: str
   }
 }
 
+export interface SlashCommand {
+  name: string
+  description: string
+  argumentHint: string
+  builtin: boolean
+}
+
+/**
+ * The slash commands a chat can run — the same for every model, since every
+ * provider runs the same CLI. Empty when the engine cannot say: the `/` menu
+ * then shows nothing, and a typed command still goes through.
+ */
+export async function listCommands(): Promise<SlashCommand[]> {
+  try {
+    const res = await fetch(`${ENGINE_URL}/commands`, { headers: authHeader() })
+    if (!res.ok) return []
+    return ((await res.json()) as { commands?: SlashCommand[] }).commands ?? []
+  } catch (err) {
+    console.error('[engine client] commands failed:', err)
+    return []
+  }
+}
+
 export async function listBusyConversations(): Promise<string[]> {
   return (await engineStatus())?.busy ?? []
 }

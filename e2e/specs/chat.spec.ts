@@ -14,6 +14,31 @@ test.describe('chat rendering', () => {
     await expect(page.getByRole('link', { name: 'link' })).toHaveAttribute('href', 'https://example.com')
   })
 
+  test('slash commands: "/" opens the menu, typing filters it, a pick fills the input', async ({ page }) => {
+    await openConversation(page, 'Markdown showcase')
+    const input = page.getByPlaceholder('How can I help you today?')
+    const menu = page.getByTestId('slash-menu')
+    await input.fill('/')
+    // The instance's skills and the CLI's own commands, one list for every model.
+    await expect(menu.getByRole('option')).toHaveCount(4)
+    await expect(menu.getByRole('option', { name: /\/gmail/ })).toBeVisible()
+    await expect(menu.getByRole('option', { name: /\/compact/ })).toContainText('Claude Code')
+    await input.fill('/co')
+    await expect(menu.getByRole('option')).toHaveCount(2)
+    await expect(menu.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
+    await input.press('ArrowDown')
+    await input.press('Enter')
+    // Picked, not sent: the command's arguments go after it.
+    await expect(input).toHaveValue('/context ')
+    await expect(menu).toBeHidden()
+    // Escape closes it without touching the text.
+    await input.fill('/g')
+    await expect(menu).toBeVisible()
+    await input.press('Escape')
+    await expect(menu).toBeHidden()
+    await expect(input).toHaveValue('/g')
+  })
+
   test('activity: only the answer — no step line, no trail to unfold', async ({ page }) => {
     const opened = page.waitForResponse((r) => /\/api\/conversations\/[^/?]+(\?|$)/.test(r.url()) && r.request().method() === 'GET')
     await openConversation(page, 'Activity steps')

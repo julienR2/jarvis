@@ -38,7 +38,7 @@ export type SessionEvent = ClaudeEvent | { type: 'end' }
 // The CLI pinned in engine/package.json, not the one the SDK bundles — left
 // alone the SDK runs whichever of the two is newer, and the pin stops meaning
 // anything.
-const CLAUDE_BIN = (() => {
+export const CLAUDE_BIN = (() => {
   const require = createRequire(import.meta.url)
   const pkgPath = require.resolve('@anthropic-ai/claude-code/package.json')
   const bin = JSON.parse(readFileSync(pkgPath, 'utf8')).bin

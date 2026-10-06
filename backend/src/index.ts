@@ -29,7 +29,7 @@ import { appRoutes } from './routes/apps.js'
 import { internalRoutes } from './routes/internal.js'
 import { gitRoutes } from './routes/git.js'
 import { connectorRoutes } from './routes/connectors.js'
-import { skillRoutes } from './routes/skills.js'
+import { skillRoutes, commandRoutes } from './routes/skills.js'
 import { manifestRoutes } from './routes/manifest.js'
 import { sharedRoutes } from './routes/shared.js'
 import { browserRoutes } from './routes/browser.js'
@@ -203,6 +203,7 @@ await app.register(internalRoutes, { prefix: '/internal' })
 await app.register(gitRoutes, { prefix: '/api/git' })
 await app.register(connectorRoutes, { prefix: '/api/connectors' })
 await app.register(skillRoutes, { prefix: '/api/skills' })
+await app.register(commandRoutes)
 await app.register(manifestRoutes, { prefix: '/api' })
 await app.register(sharedRoutes, { prefix: '/api/shared' })
 await app.register(browserRoutes)

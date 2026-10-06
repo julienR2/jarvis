@@ -5,7 +5,8 @@ import { useChatStore } from '../stores/chatStore'
 
 /**
  * Jarvis is waiting on you, shown where there is no composer to fold into —
- * Today's run rows (`compact`), and the chat's approval strip.
+ * Today's run rows (`compact`), and the chat's approval strip (whose composer
+ * then carries a reply instead of a yes: see answerFromComposer).
  *
  * A question with options is answered here by picking then pressing Answer (no
  * input to type into). In the chat the question is drawn INTO the composer
@@ -90,11 +91,17 @@ export async function submitAnswer(
 }
 
 /**
- * The composer's Send while a question is open — the chat's whole answer path.
- * The input holds one answer, whether picked (a chip set the value) or typed;
- * for a lone question it is the whole answer. Several questions are stepped
- * through one at a time in the composer, which then hands over every answer
- * at once (`answers`); the text is only the last of them.
+ * The composer's Send while Jarvis waits on you — the chat's whole answer path:
+ * whatever is sent then answers what is open, never queues behind it.
+ *
+ * A question: the input holds one answer, whether picked (a chip set the value)
+ * or typed; for a lone question it is the whole answer. Several questions are
+ * stepped through one at a time in the composer, which then hands over every
+ * answer at once (`answers`); the text is only the last of them.
+ *
+ * An approval: what is typed is a reply instead of a yes — the CLI's own "No,
+ * and tell Claude what to do differently". The call is denied and the words go
+ * back to the model with it.
  */
 export async function answerFromComposer(
   conversationId: string,
@@ -104,7 +111,11 @@ export async function answerFromComposer(
   answers?: Record<string, string>,
 ): Promise<void> {
   const questions = questionsOf(question)
-  if (!questions.length || !text.trim()) return
+  if (!questions.length) {
+    if (!text.trim() && !attachments.length) return
+    return submitAnswer(conversationId, question, { behavior: 'deny', message: text.trim(), attachments })
+  }
+  if (!text.trim()) return
   await submitAnswer(conversationId, question, {
     answers: answers ?? { [questions[0].question]: text.trim() },
     attachments,
@@ -250,6 +261,9 @@ function Approval({
       {detail && !compact && (
         <pre className='max-h-40 overflow-auto rounded-lg bg-bg-alt px-3 py-2 text-[12px] leading-relaxed text-text-secondary'>{detail.slice(0, 2000)}</pre>
       )}
+      {!compact && (
+        <div className='text-[12px] text-text-muted'>Or type below to tell Jarvis what to do instead.</div>
+      )}
       <div className='flex flex-wrap items-center gap-1.5'>
         <button
           type='button'
@@ -262,7 +276,9 @@ function Approval({
         <button
           type='button'
           disabled={busy}
-          onClick={() => (denying ? onDecide('deny', reason) : setDenying(true))}
+          // In the chat the composer is where a reason goes (see
+          // answerFromComposer), so Deny there is final; Today has no composer.
+          onClick={() => (!compact || denying ? onDecide('deny', reason) : setDenying(true))}
           className='inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-[13px] text-text-secondary transition-colors hover:border-danger/50 hover:text-danger disabled:opacity-40'
         >
           <X size={13} /> Deny

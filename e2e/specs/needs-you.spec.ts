@@ -88,23 +88,25 @@ test.describe('needs you', () => {
     await expect(card.getByText('How long can you get away?')).toHaveCount(0)
     await expect(card.getByTestId('question-step')).toHaveText('Trip · 1 of 2')
     const composerInput = page.getByPlaceholder('Or type your own answer…')
-    const next = card.getByRole('button', { name: 'Next' })
-    await expect(next).toBeDisabled()
+    // No Next in the card: the composer's own button moves on, an arrow until
+    // the last question. Picking an option of a question that isn't the last
+    // answers it and moves on at once.
+    await expect(card.getByRole('button', { name: 'Next' })).toHaveCount(0)
     await card.getByRole('button', { name: 'City' }).click()
-    await expect(composerInput).toHaveValue('City')
-    // Not the last question yet: Next moves on, there is no Answer to press.
-    await expect(page.getByTitle('Answer', { exact: true })).toHaveCount(0)
-    await next.click()
     await expect(card.getByTestId('question-step')).toHaveText('Length · 2 of 2')
     await expect(card.getByText('How long can you get away?')).toBeVisible()
     await expect(composerInput).toHaveValue('')
-    await expect(card.getByRole('button', { name: 'Next' })).toHaveCount(0)
+    // The model's "Other" chip is dropped: typing is the other answer.
+    await expect(card.getByRole('button', { name: /Other/ })).toHaveCount(0)
     // A typed answer is as good as a pick.
     await composerInput.fill('Three days')
     // Back keeps both answers: the first comes back picked, the second waits.
-    await card.getByRole('button', { name: 'Previous' }).click()
+    await card.getByRole('button', { name: 'Previous question' }).click()
     await expect(card.getByRole('button', { name: 'City' })).toHaveAttribute('aria-pressed', 'true')
     await expect(composerInput).toHaveValue('City')
+    // Not the last question: Send is Next, and Enter does the same.
+    await expect(page.getByTitle('Next', { exact: true })).toBeVisible()
+    await expect(page.getByTitle('Answer', { exact: true })).toHaveCount(0)
     await composerInput.press('Enter')
     await expect(composerInput).toHaveValue('Three days')
     // The last question's Send answers them all at once. Intercepted: no engine
@@ -136,13 +138,15 @@ test.describe('needs you', () => {
     await expect(page.getByTestId('answer-card')).toHaveCount(1)
     const card = page.getByTestId('answer-card')
     await expect(card.getByText(/Approve Bash: Push the post/)).toBeVisible()
-    // An approval leaves the composer alone: typing there still talks to Jarvis.
-    await expect(page.getByPlaceholder('How can I help you today?')).toBeVisible()
     await expect(card.getByText('git push origin main')).toBeVisible()
-    await card.getByRole('button', { name: 'Deny' }).click()
-    const reason = card.getByPlaceholder(/Why not/)
-    await reason.fill('Not before the typo fix')
-    await reason.press('Enter')
+    // Typing while it waits answers it — a reply instead of a yes, as the CLI's
+    // "No, and tell Claude what to do differently" — never a message queued
+    // behind a turn that cannot read it. No model picker: it is not a new turn.
+    await expect(page.getByPlaceholder('How can I help you today?')).toBeHidden()
+    const composer = page.getByPlaceholder('Or tell Jarvis what to do instead…')
+    await composer.fill('Not before the typo fix')
+    await expect(page.getByTitle('Reply instead', { exact: true })).toBeVisible()
+    await composer.press('Enter')
     // No engine session holds this prompt on a throwaway instance: the backend
     // says so, drops the question and closes the run as lost.
     await expect(page.getByText(/no longer waiting for this/)).toBeVisible()
