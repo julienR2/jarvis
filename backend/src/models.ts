@@ -20,7 +20,7 @@ export const GATEWAY_DEFAULT_MODEL = 'google/gemini-3.8-flash'
 // They do scoped, disposable work, so a cheaper tier than the main loop is
 // fine. Applied via the CLAUDE_CODE_SUBAGENT_MODEL env var at spawn time;
 // agents whose definition pins an explicit model still win over this default.
-export const SUBAGENT_MODEL = 'claude-sonnet-5'
+export const SUBAGENT_MODEL = 'claude-sonnet-5-5'
 
 // Model for short housekeeping conversations — setting up or changing a
 // routine: a few questions and an API call, where a quick answer matters more
