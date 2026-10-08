@@ -46,7 +46,7 @@ const ANTHROPIC_MODELS: ModelOption[] = [
   { id: 'claude-fable-5-1', name: 'Fable 5.1', desc: 'Most capable, for long-running agents' },
   { id: 'claude-opus-5-5', name: 'Opus 5.5', desc: 'Most capable — long-running agentic coding & knowledge work' },
   { id: 'claude-sonnet-5-5', name: 'Sonnet 5.5', desc: 'Best mix of speed and intelligence' },
-  { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', desc: 'Fastest, near-frontier', effort: false },
+  { id: 'claude-haiku-5-5', name: 'Haiku 5.5', desc: 'Fastest, for high-volume quick tasks' },
 ]
 
 /** Below this a model cannot hold one Jarvis turn. See the filter below. */

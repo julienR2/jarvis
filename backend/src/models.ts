@@ -25,7 +25,7 @@ export const SUBAGENT_MODEL = 'claude-sonnet-5-5'
 // Model for short housekeeping conversations — setting up or changing a
 // routine: a few questions and an API call, where a quick answer matters more
 // than depth.
-export const FAST_MODEL = 'claude-haiku-4-5-20251001'
+export const FAST_MODEL = 'claude-haiku-5-5'
 
 // The same models reached through a gateway. A namespaced id routes to the
 // gateway (see the engine's providerEnv), so these are what the defaults have

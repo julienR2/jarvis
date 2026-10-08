@@ -8,7 +8,7 @@ export interface ModelOption {
   id: string
   name: string
   desc: string
-  /** Whether the model supports the effort parameter. Haiku does not. */
+  /** Whether the model supports the effort parameter. Haiku before 5 does not. */
   effort?: boolean
   /** Output modalities (text, image, audio) — gateway catalogues only. */
   outputs?: string[]
@@ -29,7 +29,7 @@ export const MODELS: ModelOption[] = [
   { id: 'claude-fable-5-1', name: 'Fable 5.1', desc: 'Most capable, for long-running agents' },
   { id: 'claude-opus-5-5', name: 'Opus 5.5', desc: 'Most capable — long-running agentic coding & knowledge work' },
   { id: 'claude-sonnet-5-5', name: 'Sonnet 5.5', desc: 'Best mix of speed and intelligence' },
-  { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', desc: 'Fastest, near-frontier', effort: false },
+  { id: 'claude-haiku-5-5', name: 'Haiku 5.5', desc: 'Fastest, for high-volume quick tasks' },
 ]
 
 // Fetched from the server, then read synchronously by the pickers (which live
@@ -202,9 +202,9 @@ export function EffortSwitch({
   )
 }
 
-/** Haiku uses classic extended thinking, not the effort parameter. */
+/** Haiku before 5 uses classic extended thinking, not the effort parameter. */
 export function modelSupportsEffort(id: string): boolean {
-  return getModels().find((m) => m.id === id)?.effort !== false && !/haiku/i.test(id)
+  return getModels().find((m) => m.id === id)?.effort !== false && !/haiku(?!-[5-9])/i.test(id)
 }
 
 export function modelName(id: string): string {

@@ -147,7 +147,7 @@ export interface Session {
 // span both 1M ids and the 200k 4.5-and-older ids that the picker no longer
 // offers but old conversations still carry in their `model` column.
 const MODEL_WINDOWS: [RegExp, number][] = [
-  [/^claude-(fable|mythos|opus|sonnet)-5$/i, 1_000_000],
+  [/^claude-(fable|mythos|opus|sonnet|haiku)-5(-\d+)?$/i, 1_000_000],
   [/^claude-(opus|sonnet)-4-[678]$/i, 1_000_000],
   [/^claude-haiku-4-5/i, 200_000],
 ]
@@ -238,11 +238,11 @@ export interface EnsureOptions {
 /**
  * The effort actually sent for a model. The backend sends 'high' when the
  * chat's "Think hard" switch is on, nothing otherwise — the model's own
- * default. Haiku uses classic extended thinking rather than adaptive effort and
- * errors if an effort is set, so it never gets one.
+ * default. Haiku before 5 uses classic extended thinking rather than adaptive
+ * effort and errors if an effort is set, so it never gets one.
  */
 function effortFor(model?: string, effort?: string): EffortLevel | undefined {
-  if (!effort || /haiku/i.test(model ?? '')) return undefined
+  if (!effort || /haiku(?!-[5-9])/i.test(model ?? '')) return undefined
   return effort as EffortLevel
 }
 
