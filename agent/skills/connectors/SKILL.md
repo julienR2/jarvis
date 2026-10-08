@@ -96,7 +96,7 @@ There is **no hardcoded connector catalog** — every connector is just a DB row
 
 - **Yes** when it has real surface to document — an auth flow, a query language,
   pagination, non-obvious endpoints, or a repeated idiom (gmail, github, linear,
-  slack, pocketbase, copyparty, elevenlabs, imagerouter).
+  slack, pocketbase, copyparty, elevenlabs).
 - **No** when it's plain REST with an obvious pattern, rarely used, or already
   covered by a domain skill that owns the whole workflow it belongs to. Those are
   reached via the inventory + read pattern above.
