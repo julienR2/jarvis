@@ -520,6 +520,19 @@ export default function ChatView({
     pinToBottom()
   }
 
+  // Opened by mistake, or to come back to: unread again from this answer, and
+  // back to Today, where it now waits. Stable, so the bubbles stay memoized.
+  const markUnread = useCallback(async (messageId: string) => {
+    if (!conversationId) return
+    try {
+      await useChatStore.getState().markUnreadFrom(conversationId, messageId)
+      navigate('/')
+    } catch {
+      window.__jarvisToast?.error("Couldn't mark it unread — try again.")
+    }
+  }, [conversationId, navigate])
+  const canMarkUnread = !shared && !embedded
+
   function dismissUnread() {
     if (!conversationId) return
     useChatStore.getState().dismissUnreadAnchor(conversationId)
@@ -867,6 +880,7 @@ export default function ChatView({
                             // being written, and it shows the step it is on.
                             live={isProcessing && item.msg.id === lastMessageId}
                             modelLabel={modelLabels.get(item.msg.id)}
+                            onMarkUnread={canMarkUnread ? markUnread : undefined}
                           />
                           {threadMarks([item.msg.id])}
                         </Fragment>

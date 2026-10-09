@@ -177,6 +177,9 @@ export const api = {
     request<Conversation>('POST', '/conversations/routine-setup', { conversation_id: opts.conversationId ?? null }),
   /** Mark read without opening — Today's ✓ on a chat's card. */
   markConversationRead: (id: string) => request<{ ok: boolean }>('POST', `/conversations/${id}/read`),
+  /** Unread again from this message on — it is back on Today. */
+  markConversationUnread: (id: string, messageId: string) =>
+    request<{ ok: boolean }>('POST', `/conversations/${id}/unread`, { message_id: messageId }),
   /** What a delete would touch besides the messages. */
   getConversationFootprint: (id: string) =>
     request<{ uploads: number; app: boolean; routines: number }>('GET', `/conversations/${id}/footprint`),

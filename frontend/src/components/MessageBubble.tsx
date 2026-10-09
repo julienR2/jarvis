@@ -3,7 +3,7 @@ import { API_BASE } from '../base'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { FileText, ChevronRight, Copy, Check } from 'lucide-react'
+import { FileText, ChevronRight, Copy, Check, Mail } from 'lucide-react'
 import { withMediaToken } from '../api'
 import type { Message, Attachment, ReplyTo } from '../api'
 import type { Components, ExtraProps } from 'react-markdown'
@@ -14,6 +14,8 @@ interface Props {
   live?: boolean
   /** Shown beside the time: the model that answered, when it just changed. */
   modelLabel?: string
+  /** Offered on a finished answer: unread again from here, back on Today. */
+  onMarkUnread?: (messageId: string) => void
 }
 
 function formatTime(ts: number): string {
@@ -34,6 +36,20 @@ function CopyButton({ getText }: { getText: () => string }) {
       title='Copy message'
     >
       {copied ? <Check size={10} /> : <Copy size={10} />}
+    </button>
+  )
+}
+
+function MarkUnreadButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className='inline-flex items-center opacity-0 group-hover:opacity-60 [@media(hover:none)]:opacity-40 hover:!opacity-100 transition-opacity'
+      title='Mark unread from here'
+      aria-label='Mark unread from here'
+      data-testid='mark-unread'
+    >
+      <Mail size={10} />
     </button>
   )
 }
@@ -248,7 +264,7 @@ export function liveStatus(msg: Message): { note: string | null; tool: string | 
   return { note: cycle.notes[cycle.notes.length - 1] ?? null, tool: cycle.tools[cycle.tools.length - 1] ?? null }
 }
 
-function ActivityBubble({ msg, live, modelLabel }: { msg: Message; live?: boolean; modelLabel?: string }) {
+function ActivityBubble({ msg, live, modelLabel, onMarkUnread }: Omit<Props, 'msg'> & { msg: Message }) {
   const groups = useMemo(
     () => buildGroups(parseActivityContent(msg.content).activityLines, msg.result),
     [msg.content, msg.result],
@@ -280,6 +296,7 @@ function ActivityBubble({ msg, live, modelLabel }: { msg: Message; live?: boolea
             {formatTime(msg.created_at)}
             {modelLabel && <span>· {modelLabel}</span>}
             <CopyButton getText={() => getAssistantCopyText(msg)} />
+            {onMarkUnread && msg.result != null && <MarkUnreadButton onClick={() => onMarkUnread(msg.id)} />}
           </div>
         )}
       </div>
@@ -295,7 +312,7 @@ function ActivityBubble({ msg, live, modelLabel }: { msg: Message; live?: boolea
  */
 export default memo(MessageBubble)
 
-function MessageBubble({ msg, live, modelLabel }: Props) {
+function MessageBubble({ msg, live, modelLabel, onMarkUnread }: Props) {
   const isUser = msg.role === 'user'
   // Above the early return — a hook must not sit on one side of a conditional
   // return, or the first message whose content grows into activity lines takes
@@ -308,7 +325,7 @@ function MessageBubble({ msg, live, modelLabel }: Props) {
 
   // Assistant message with [tool]/[chunk]/[note] lines → activity bubble
   if (!isUser && hasActivityLines(msg.content)) {
-    return <ActivityBubble msg={msg} live={live} modelLabel={modelLabel} />
+    return <ActivityBubble msg={msg} live={live} modelLabel={modelLabel} onMarkUnread={onMarkUnread} />
   }
 
   return (
@@ -361,6 +378,7 @@ function MessageBubble({ msg, live, modelLabel }: Props) {
             {formatTime(msg.created_at)}
             {!isUser && modelLabel && <span>· {modelLabel}</span>}
             <CopyButton getText={() => msg.content} />
+            {!isUser && onMarkUnread && msg.result != null && <MarkUnreadButton onClick={() => onMarkUnread(msg.id)} />}
           </div>
         )}
       </div>

@@ -118,6 +118,7 @@ interface ChatState {
   setShareMode: (convId: string, mode: Conversation['share_mode']) => void
   incrementUnread: (convId: string) => void
   markRead: (convId: string) => void
+  markUnreadFrom: (convId: string, messageId: string) => Promise<void>
   /** Drop the unread divider — the user is leaving the conversation. */
   clearUnreadAnchor: (convId: string) => void
   dismissUnreadAnchor: (convId: string) => void
@@ -654,6 +655,24 @@ export const useChatStore = create<ChatState>()(
       // The server's stamp, so the state holds across a reload and on other
       // devices. Best-effort: the local count is already right.
       api.markConversationRead(convId).catch(() => {})
+    },
+
+    async markUnreadFrom(convId, messageId) {
+      const msgs = get().messages[convId] ?? []
+      const i = msgs.findIndex((m) => m.id === messageId)
+      if (i < 0) return
+      // The server's own count, if it differs, comes with the next list load.
+      const count = Math.max(1, msgs.slice(i).filter((m) => isFinishedReply(m)).length)
+      set((s) => {
+        const c = s.conversations[convId]
+        if (c) {
+          c.unread_count = count
+          c.last_read_at = msgs[i].created_at - 1
+        }
+        // Not computed: the next visit draws the divider above this message.
+        delete s.unreadAnchor[convId]
+      })
+      await api.markConversationUnread(convId, messageId)
     },
 
     clearUnreadAnchor(convId) {

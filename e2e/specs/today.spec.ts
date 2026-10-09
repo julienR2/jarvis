@@ -6,8 +6,9 @@ import { test, expect, signIn } from '../helpers'
  * and one chat waiting on the person, the yearly cron's run failed with nothing
  * succeeding since (all "action"), "📣 Gallery sync" notified and unread,
  * "💬 Pasta water" merely unread (one exchange read, one new), "💬 Bike tyre
- * pressure" unread and consumed by the mark-read test. No other spec opens
- * those three, so their read state survives whatever order the workers run in.
+ * pressure" unread and consumed by the mark-read test, "💬 Sourdough starter"
+ * read until the mark-unread test reopens it. No other spec opens those four,
+ * so their read state survives whatever order the workers run in.
  */
 test.describe('today', () => {
   test.beforeEach(async ({ page }) => {
@@ -111,6 +112,24 @@ test.describe('today', () => {
     await page.reload()
     await expect(page.getByTestId('today-inbox')).toBeVisible()
     await expect(page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'Bike tyre pressure' })).toHaveCount(0)
+  })
+
+  test('mark unread from an answer: back to Today, the card shows from that answer on, and it stays that way', async ({ page }) => {
+    const rows = page.getByTestId('today-inbox').getByTestId('today-row')
+    await expect(rows.first()).toBeVisible()
+    await expect(rows.filter({ hasText: 'Sourdough starter' })).toHaveCount(0)
+    await page.getByRole('complementary').getByText('💬 Sourdough starter', { exact: true }).click()
+    const answer = page.locator('[data-message-id]').filter({ hasText: '1:1:1 by weight' })
+    await answer.hover()
+    await answer.getByRole('button', { name: 'Mark unread from here' }).click()
+    await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+    const card = rows.filter({ hasText: 'Sourdough starter' })
+    await expect(card).toHaveAttribute('data-reason', 'unread')
+    await expect(card.getByTestId('today-row-count')).toHaveText('1 message')
+    await expect(card.getByText('1:1:1 by weight')).toBeVisible()
+    // Leaving the chat closed its stream, which marks read — not after this.
+    await page.reload()
+    await expect(page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'Sourdough starter' })).toHaveCount(1)
   })
 
   test('a failed run: its error, a Retry, and Open app when the chat has one', async ({ page }) => {

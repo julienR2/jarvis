@@ -201,6 +201,11 @@ export function parsePageLimit(raw: string | undefined): number {
 // Track SSE clients per conversation for push notification decisions
 const sseClients = new Map<string, number>()
 
+// When a conversation was last marked unread (ms). Marking happens from inside
+// the chat, and leaving it closes the event stream, whose close handler marks
+// the chat read — so a stream opened before the mark must leave it alone.
+const markedUnreadAt = new Map<string, number>()
+
 // Track cancelled conversations to suppress error messages from SIGTERM
 const cancelledConversations = new Set<string>()
 
@@ -1636,6 +1641,20 @@ export async function conversationRoutes(app: FastifyInstance) {
     return { ok: true }
   })
 
+  // Mark unread from a message on: the read mark goes back to just before it,
+  // so it and every answer after it count again and the chat is back on Today.
+  app.post<{ Params: { id: string }; Body: { message_id?: string } }>('/:id/unread', auth, async (req, reply) => {
+    const msg = getDb()
+      .prepare('SELECT created_at FROM messages WHERE id = ? AND conversation_id = ?')
+      .get(req.body?.message_id ?? '', req.params.id) as { created_at: number } | undefined
+    if (!msg) return reply.code(404).send({ error: 'Not found' })
+    getDb()
+      .prepare('UPDATE conversations SET last_read_at = ? WHERE id = ?')
+      .run(msg.created_at - 1, req.params.id)
+    markedUnreadAt.set(req.params.id, Date.now())
+    return { ok: true }
+  })
+
   // GET /:id/footprint — what a delete would touch besides the messages, so the
   // dialog asks only about what exists.
   app.get<{ Params: { id: string } }>('/:id/footprint', auth, async (req, reply) => {
@@ -1792,6 +1811,8 @@ export async function conversationRoutes(app: FastifyInstance) {
         .get(id)
       if (!conv) return reply.code(404).send({ error: 'Not found' })
 
+      const openedAt = Date.now()
+
       // Set SSE headers — disable all buffering
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -1876,6 +1897,9 @@ export async function conversationRoutes(app: FastifyInstance) {
         // written: earlier turns the user did watch stay read, and the in-flight
         // one surfaces as unread once it lands.
         isRunning(id).then((running) => {
+          // Marked unread while this stream was open: leaving is not reading.
+          // Checked once isRunning answers, so a mark landing meanwhile counts.
+          if ((markedUnreadAt.get(id) ?? 0) >= openedAt) return
           if (!running) {
             getDb()
               .prepare(

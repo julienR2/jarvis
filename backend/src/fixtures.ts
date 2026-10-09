@@ -56,6 +56,8 @@ export function seedFixtures(): void {
     surfThread: '00000000-0000-4000-8000-000000000010',
     priceThread: '00000000-0000-4000-8000-000000000011',
     quietThread: '00000000-0000-4000-8000-000000000012',
+    // Read, then marked unread again by its spec: nothing else may rely on it.
+    reopen: '00000000-0000-4000-8000-000000000013',
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -243,6 +245,9 @@ export function seedFixtures(): void {
     answer(ID.inboxUnread, 'And how long for fresh tagliatelle?', 'Two to three minutes once it floats; taste one at two.', t(51))
     insConv.run(ID.inboxToRead, '💬 Bike tyre pressure', t(900), t(80), fixtures.id, null, null)
     answer(ID.inboxToRead, 'Gravel tyres, 40 mm, 75 kg rider — pressure?', 'Around 2.4 bar front and 2.6 rear; drop 0.2 on wet or loose ground.', t(81))
+    insConv.run(ID.reopen, '💬 Sourdough starter', t(1000), t(90), fixtures.id, null, null)
+    answer(ID.reopen, 'How often should I feed a starter?', 'Once a day at room temperature, once a week from the fridge.', t(200))
+    answer(ID.reopen, 'And the ratio?', '1:1:1 by weight — starter, flour, water.', t(91))
 
     // 3. Background run — a cron that ran isolated, its output stamped with the run.
     const bg = ID.brief
@@ -500,6 +505,7 @@ export function seedFixtures(): void {
     `UPDATE conversations SET last_read_at = updated_at + 1, notified_at = NULL
       WHERE id IN (?, ?, ?, ?, ?, ?, ?)`,
   ).run(ID.markdown, ID.activity, ID.app, ID.app2, ID.quoted, ID.unread, ID.scratch)
+  db.prepare('UPDATE conversations SET last_read_at = updated_at + 1, notified_at = NULL WHERE id = ?').run(ID.reopen)
   db.prepare('UPDATE conversations SET last_read_at = ? WHERE id = ?').run(t(240), ID.unread)
   db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = ? WHERE id = ?').run(t(120), t(61), ID.brief)
   // The inbox trio: notified (a push went out after it was last read), unread
