@@ -850,7 +850,7 @@ export default function ChatView({
                       ) : item.type === 'unread' ? (
                         <UnreadSeparator key={item.key} onDismiss={dismissUnread} />
                       ) : item.type === 'report' ? (
-                        <RunReportCard key={item.key} msg={item.msg} report={item.report} />
+                        <RunReportCard key={item.key} msg={item.msg} report={item.report} onMarkUnread={canMarkUnread ? markUnread : undefined} />
                       ) : item.type === 'reportStack' ? (
                         <RunReportStack key={item.key} entries={item.entries} />
                       ) : item.type === 'runBlock' ? (
@@ -869,6 +869,7 @@ export default function ChatView({
                             live={isProcessing && item.msgs.some((m) => m.id === lastMessageId)}
                             lastMessageId={lastMessageId}
                             inOwnThread={isThread}
+                            onMarkUnread={canMarkUnread ? markUnread : undefined}
                           />
                           {threadMarks(item.msgs.map((m) => m.id))}
                         </div>

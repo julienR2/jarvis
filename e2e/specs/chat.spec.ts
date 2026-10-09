@@ -75,6 +75,7 @@ test.describe('chat rendering', () => {
     await expect(block.locator('div').first().getByText(/\d{1,2}:\d{2}/)).toHaveCount(0)
     // The answer reads like any other; the routine's prompt is behind a click.
     await expect(block.getByText('Three todos due today')).toBeVisible()
+    await expect(block.getByRole('button', { name: 'Mark unread from here' })).toHaveCount(1)
     await expect(block.getByText('Write the morning brief.')).toBeHidden()
     await block.getByRole('button', { name: 'prompt' }).click()
     await expect(block.getByText('Write the morning brief.')).toBeVisible()

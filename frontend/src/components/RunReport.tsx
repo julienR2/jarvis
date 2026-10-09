@@ -17,7 +17,11 @@ const time = (at: number) => new Date(at * 1000).toLocaleTimeString([], { hour: 
  * came from, then what it had to say. The work itself stays in the thread,
  * one click away.
  */
-export function RunReportCard({ msg, report }: { msg: Message; report: Report }) {
+export function RunReportCard({ msg, report, onMarkUnread }: {
+  msg: Message
+  report: Report
+  onMarkUnread?: (messageId: string) => void
+}) {
   const navigate = useNavigate()
   const Icon = report.kind === 'webhook' ? Link2 : Clock
   const failed = report.status === 'error' || report.status === 'interrupted'
@@ -50,7 +54,7 @@ export function RunReportCard({ msg, report }: { msg: Message; report: Report })
           <span className='break-words'>{msg.result}</span>
         </div>
       ) : (
-        <MessageBubble msg={shown} live={false} />
+        <MessageBubble msg={shown} live={false} onMarkUnread={onMarkUnread} />
       )}
     </div>
   )

@@ -22,6 +22,7 @@ export default function RunBlock({
   live,
   lastMessageId,
   inOwnThread,
+  onMarkUnread,
 }: {
   run?: Run
   msgs: Message[]
@@ -34,6 +35,7 @@ export default function RunBlock({
    * state, when it is news, and the prompt.
    */
   inOwnThread?: boolean
+  onMarkUnread?: (messageId: string) => void
 }) {
   const navigate = useNavigate()
   const [showPrompt, setShowPrompt] = useState(false)
@@ -85,7 +87,7 @@ export default function RunBlock({
       )}
 
       {output.map((m) => (
-        <MessageBubble key={m.id} msg={m} live={live && m.id === lastMessageId} />
+        <MessageBubble key={m.id} msg={m} live={live && m.id === lastMessageId} onMarkUnread={onMarkUnread} />
       ))}
 
       {output.length === 0 && !running && !run?.error && (

@@ -29,6 +29,8 @@ test.describe('threads', () => {
     const report = page.getByTestId('run-report')
     await expect(report).toHaveCount(1)
     await expect(report).toContainText('Go now.')
+    // Like any answer, a report can be made unread again.
+    await expect(report.getByRole('button', { name: 'Mark unread from here' })).toHaveCount(1)
   })
 
   test('the Threads group lists the standalone thread with news — and only that', async ({ page }) => {
