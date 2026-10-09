@@ -14,7 +14,7 @@ interface Props {
   live?: boolean
   /** Shown beside the time: the model that answered, when it just changed. */
   modelLabel?: string
-  /** Offered on a finished answer: unread again from here, back on Today. */
+  /** Offered on a finished answer: unread again from here, so on Today. */
   onMarkUnread?: (messageId: string) => void
 }
 

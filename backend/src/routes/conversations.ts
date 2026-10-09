@@ -201,10 +201,13 @@ export function parsePageLimit(raw: string | undefined): number {
 // Track SSE clients per conversation for push notification decisions
 const sseClients = new Map<string, number>()
 
-// When a conversation was last marked unread (ms). Marking happens from inside
-// the chat, and leaving it closes the event stream, whose close handler marks
-// the chat read — so a stream opened before the mark must leave it alone.
-const markedUnreadAt = new Map<string, number>()
+// Chats marked unread, held that way until someone reads them on purpose:
+// landing on the chat or reloading it (POST /:id/read), or writing in it.
+// Marking happens from inside the chat, which stays open — so neither leaving
+// it (the event stream's close) nor the resync a reconnect does (GET /:id)
+// may mark it read meanwhile. In memory: a restart lets go of the hold, not of
+// the unread state itself.
+const heldUnread = new Set<string>()
 
 // Track cancelled conversations to suppress error messages from SIGTERM
 const cancelledConversations = new Set<string>()
@@ -418,6 +421,8 @@ export function processMessage(
       `[msg] emit message (user) ${userMsgId}: ${userContent.slice(0, 80)}`,
     )
     emitConversationEvent(conversationId, { type: 'message', message: userRow })
+    // Writing in a chat is reading it.
+    if (!options?.routine) heldUnread.delete(conversationId)
   }
 
   // The conversation remembers the last model a person picked, as where the
@@ -1534,14 +1539,17 @@ export async function conversationRoutes(app: FastifyInstance) {
         .get(req.params.id)
       if (!conv) return reply.code(404).send({ error: 'Not found' })
 
-      getDb()
-        .prepare(
-          'UPDATE conversations SET last_read_at = unixepoch() WHERE id = ?',
-        )
-        .run(req.params.id)
+      if (!heldUnread.has(req.params.id)) {
+        getDb()
+          .prepare(
+            'UPDATE conversations SET last_read_at = unixepoch() WHERE id = ?',
+          )
+          .run(req.params.id)
+      }
 
       const page = fetchMessagePage(req.params.id, parsePageLimit(req.query.limit))
-      return { ...(conv as object), ...page }
+      // Held unread: the count still stands, and the client keeps it.
+      return { ...(conv as object), ...page, unread_held: heldUnread.has(req.params.id) }
     },
   )
 
@@ -1633,7 +1641,9 @@ export async function conversationRoutes(app: FastifyInstance) {
 
   // Mark read without opening: Today's "mark as read" on a chat's card. The
   // same stamp opening the chat sets; the sidebar count follows on the client.
+  // Also what landing on a chat sends, so it is what ends an unread hold.
   app.post<{ Params: { id: string } }>('/:id/read', auth, async (req, reply) => {
+    heldUnread.delete(req.params.id)
     const r = getDb()
       .prepare('UPDATE conversations SET last_read_at = unixepoch() WHERE id = ?')
       .run(req.params.id)
@@ -1642,7 +1652,8 @@ export async function conversationRoutes(app: FastifyInstance) {
   })
 
   // Mark unread from a message on: the read mark goes back to just before it,
-  // so it and every answer after it count again and the chat is back on Today.
+  // so it and every answer after it count again and the chat is back on Today
+  // — and held there while the chat stays open (see heldUnread).
   app.post<{ Params: { id: string }; Body: { message_id?: string } }>('/:id/unread', auth, async (req, reply) => {
     const msg = getDb()
       .prepare('SELECT created_at FROM messages WHERE id = ? AND conversation_id = ?')
@@ -1651,7 +1662,7 @@ export async function conversationRoutes(app: FastifyInstance) {
     getDb()
       .prepare('UPDATE conversations SET last_read_at = ? WHERE id = ?')
       .run(msg.created_at - 1, req.params.id)
-    markedUnreadAt.set(req.params.id, Date.now())
+    heldUnread.add(req.params.id)
     return { ok: true }
   })
 
@@ -1811,8 +1822,6 @@ export async function conversationRoutes(app: FastifyInstance) {
         .get(id)
       if (!conv) return reply.code(404).send({ error: 'Not found' })
 
-      const openedAt = Date.now()
-
       // Set SSE headers — disable all buffering
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -1897,9 +1906,9 @@ export async function conversationRoutes(app: FastifyInstance) {
         // written: earlier turns the user did watch stay read, and the in-flight
         // one surfaces as unread once it lands.
         isRunning(id).then((running) => {
-          // Marked unread while this stream was open: leaving is not reading.
-          // Checked once isRunning answers, so a mark landing meanwhile counts.
-          if ((markedUnreadAt.get(id) ?? 0) >= openedAt) return
+          // Marked unread and not read since: leaving is not reading. Checked
+          // once isRunning answers, so a mark landing meanwhile counts.
+          if (heldUnread.has(id)) return
           if (!running) {
             getDb()
               .prepare(

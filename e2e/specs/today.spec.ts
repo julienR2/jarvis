@@ -7,7 +7,7 @@ import { test, expect, signIn } from '../helpers'
  * succeeding since (all "action"), "📣 Gallery sync" notified and unread,
  * "💬 Pasta water" merely unread (one exchange read, one new), "💬 Bike tyre
  * pressure" unread and consumed by the mark-read test, "💬 Sourdough starter"
- * read until the mark-unread test reopens it. No other spec opens those four,
+ * read, marked unread, then read again by the mark-unread test. No other spec opens those four,
  * so their read state survives whatever order the workers run in.
  */
 test.describe('today', () => {
@@ -114,22 +114,34 @@ test.describe('today', () => {
     await expect(page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'Bike tyre pressure' })).toHaveCount(0)
   })
 
-  test('mark unread from an answer: back to Today, the card shows from that answer on, and it stays that way', async ({ page }) => {
+  test('mark unread from an answer: the chat stays open, it is on Today after leaving, and opening it reads it', async ({ page }) => {
     const rows = page.getByTestId('today-inbox').getByTestId('today-row')
     await expect(rows.first()).toBeVisible()
     await expect(rows.filter({ hasText: 'Sourdough starter' })).toHaveCount(0)
-    await page.getByRole('complementary').getByText('💬 Sourdough starter', { exact: true }).click()
+    const sidebarRow = page.getByRole('complementary').getByText('💬 Sourdough starter', { exact: true })
+    await sidebarRow.click()
     const answer = page.locator('[data-message-id]').filter({ hasText: '1:1:1 by weight' })
     await answer.hover()
     await answer.getByRole('button', { name: 'Mark unread from here' }).click()
-    await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+    // Still here, the divider above the answer (the open chat has no badge).
+    await expect(page).toHaveURL(/\/c\//)
+    const divider = page.getByRole('button', { name: 'Unread messages' })
+    await expect(divider).toBeVisible()
+    const [d, a] = await Promise.all([divider.boundingBox(), answer.boundingBox()])
+    expect(d!.y).toBeLessThan(a!.y)
+    // Leaving closes the chat's stream, which marks read — not while held.
+    await page.goto('')
     const card = rows.filter({ hasText: 'Sourdough starter' })
     await expect(card).toHaveAttribute('data-reason', 'unread')
     await expect(card.getByTestId('today-row-count')).toHaveText('1 message')
     await expect(card.getByText('1:1:1 by weight')).toBeVisible()
-    // Leaving the chat closed its stream, which marks read — not after this.
-    await page.reload()
-    await expect(page.getByTestId('today-inbox').getByTestId('today-row').filter({ hasText: 'Sourdough starter' })).toHaveCount(1)
+    await expect(sidebarRow.locator('xpath=..').getByText('1', { exact: true })).toBeVisible()
+    // Opening it again is reading it.
+    await card.getByRole('button', { name: 'Open' }).click()
+    await expect(page).toHaveURL(/\/c\//)
+    await page.goto('')
+    await expect(rows.first()).toBeVisible()
+    await expect(rows.filter({ hasText: 'Sourdough starter' })).toHaveCount(0)
   })
 
   test('a failed run: its error, a Retry, and Open app when the chat has one', async ({ page }) => {

@@ -521,16 +521,16 @@ export default function ChatView({
   }
 
   // Opened by mistake, or to come back to: unread again from this answer, and
-  // back to Today, where it now waits. Stable, so the bubbles stay memoized.
+  // on Today until the chat is opened again — staying here doesn't read it.
+  // Stable, so the bubbles stay memoized.
   const markUnread = useCallback(async (messageId: string) => {
     if (!conversationId) return
     try {
       await useChatStore.getState().markUnreadFrom(conversationId, messageId)
-      navigate('/')
     } catch {
       window.__jarvisToast?.error("Couldn't mark it unread — try again.")
     }
-  }, [conversationId, navigate])
+  }, [conversationId])
   const canMarkUnread = !shared && !embedded
 
   function dismissUnread() {

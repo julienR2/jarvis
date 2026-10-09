@@ -715,7 +715,10 @@ export interface MessagePage {
   has_more: boolean
 }
 
-export interface ConversationWithMessages extends Conversation, MessagePage {}
+export interface ConversationWithMessages extends Conversation, MessagePage {
+  /** Marked unread from inside the chat: loading it did not mark it read. */
+  unread_held?: boolean
+}
 
 export interface Run {
   id: string

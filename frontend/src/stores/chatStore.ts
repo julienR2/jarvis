@@ -409,7 +409,8 @@ export const useChatStore = create<ChatState>()(
           // the *second* visit, when the server finally reported 0.
           //
           // So keep the number for the divider below, and store nothing.
-          s.conversations[id] = { ...meta, unread_count: 0 }
+          // Unless it was marked unread and is held so: then the count stands.
+          s.conversations[id] = { ...meta, unread_count: meta.unread_held ? meta.unread_count : 0 }
           if (!s.order.includes(id)) s.order.unshift(id)
           s.messages[id] = mergeMessages(s.messages[id] ?? [], messages)
           s.hasMore[id] = has_more
@@ -669,8 +670,8 @@ export const useChatStore = create<ChatState>()(
           c.unread_count = count
           c.last_read_at = msgs[i].created_at - 1
         }
-        // Not computed: the next visit draws the divider above this message.
-        delete s.unreadAnchor[convId]
+        // The divider, above this message — drawn now, as the chat stays open.
+        s.unreadAnchor[convId] = messageId
       })
       await api.markConversationUnread(convId, messageId)
     },
@@ -700,7 +701,7 @@ export const useChatStore = create<ChatState>()(
         // conversation on screen, and the server marked it read as it answered.
         // Writing its count back would badge the chat you are looking at, and
         // that badge would then appear the moment you navigated away.
-        s.conversations[full.id] = { ...meta, unread_count: 0 }
+        s.conversations[full.id] = { ...meta, unread_count: meta.unread_held ? meta.unread_count : 0 }
         if (!s.order.includes(full.id)) s.order.unshift(full.id)
         s.messages[full.id] = mergeMessages(s.messages[full.id] ?? [], messages)
         s.hasMore[full.id] = has_more
