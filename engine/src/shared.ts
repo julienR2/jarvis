@@ -119,8 +119,9 @@ export function providerConfig(): ProviderConfig {
 // One (withone.ai): managed connectors. While a key is set and One is switched
 // on in Customize › One, every session gets One's MCP server — three tools
 // (list connections, find actions, execute one) over every app connected in
-// the One account. The key goes to that server's env only, never to the
-// agent's own. Read fresh per spawn, like the provider config, so plugging or
+// the One account. The key goes to that server's env, not the agent's own
+// (though the agent, running as the same user, could still read secrets.json).
+// Read fresh per spawn, like the provider config, so plugging or
 // unplugging applies to the next session. See backend/src/one.ts.
 export function oneMcpServer(): { command: string; args: string[]; env: Record<string, string> } | null {
   try {

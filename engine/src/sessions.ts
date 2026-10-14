@@ -13,8 +13,9 @@
 // so any death is recoverable — the next message simply resumes.
 
 import { randomUUID } from 'crypto'
-import { existsSync, readFileSync } from 'fs'
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'fs'
 import { createRequire } from 'module'
+import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import {
   query,
@@ -416,9 +417,13 @@ function resumableUnder(sessionId: string, model?: string): boolean {
 
 /**
  * The `--mcp-config` value for a spawn: the agent's mcp.json as is, or — when
- * One is plugged in — that file's servers plus `one`, inlined as JSON (the CLI
- * takes either a path or a JSON string). Null when there is nothing to load.
+ * One is plugged in — that file's servers plus `one`, written to a 0600 file
+ * whose path is passed. Never inlined as JSON: the config carries the One key,
+ * and a command line is readable by every process in the container (`ps`).
+ * Null when there is nothing to load.
  */
+const ONE_MCP_CONFIG = join(tmpdir(), 'jarvis-mcp-one.json')
+
 function mcpConfigArg(path: string): string | null {
   const one = oneMcpServer()
   if (!one) return existsSync(path) ? path : null
@@ -428,7 +433,10 @@ function mcpConfigArg(path: string): string | null {
   } catch {
     // No mcp.json (or unreadable): One alone.
   }
-  return JSON.stringify({ mcpServers: { ...servers, one: { type: 'stdio', ...one } } })
+  // Rewritten per spawn so a changed key or mcp.json applies at once.
+  writeFileSync(ONE_MCP_CONFIG, JSON.stringify({ mcpServers: { ...servers, one: { type: 'stdio', ...one } } }), { mode: 0o600 })
+  chmodSync(ONE_MCP_CONFIG, 0o600)
+  return ONE_MCP_CONFIG
 }
 
 function startQuery(sess: Session, resumeSessionId: string | null): void {
