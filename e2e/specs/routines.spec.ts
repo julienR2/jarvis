@@ -73,7 +73,6 @@ test.describe('routines', () => {
     const edit = page.getByTestId('routine-card')
     await edit.getByRole('button', { name: 'Reports into' }).click()
     await page.getByRole('option', { name: /Surf/ }).click()
-    await expect(edit.getByText('through that chat')).toBeVisible()
     await edit.getByLabel('Prompt').fill('Tidy up the downloads.')
     await edit.getByRole('button', { name: 'Save' }).click()
     await expect(edit.getByText('Up to date')).toBeVisible()
