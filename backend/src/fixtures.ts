@@ -448,7 +448,7 @@ export function seedFixtures(): void {
     // and never had anything to say, so its thread is nowhere to be seen.
     const insThread = db.prepare(
       `INSERT INTO conversations (id, title, created_at, updated_at, kind, parent_id, surfaced_at, notify)
-       VALUES (?, ?, ?, ?, 'thread', ?, ?, 'auto')`,
+       VALUES (?, ?, ?, ?, 'thread', ?, ?, ?)`,
     )
     const runIn = (thread: string, cron: string, name: string, ago: number, result: string, quiet: boolean) => {
       const id = uuid()
@@ -465,7 +465,7 @@ export function seedFixtures(): void {
     insConv.run(ID.surf, '🏄 Surf', t(400), t(25), fixtures.id, null, null)
     insMsg.run(uuid(), ID.surf, 'user', 'Watch Guincho for me and tell me when it is worth going.', null, null, null, t(400))
     insMsg.run(uuid(), ID.surf, 'assistant', '[chunk:1] On it — surf-watch checks every hour.', null, null, 'On it — surf-watch checks every hour.', t(399))
-    insThread.run(ID.surfThread, 'surf-watch', t(399), t(25), ID.surf, null)
+    insThread.run(ID.surfThread, 'surf-watch', t(399), t(25), ID.surf, null, 'unsubscribe')
     db.prepare('INSERT INTO crons (id, name, schedule, prompt, conversation_id, thread_id, enabled, last_run) VALUES (?, ?, ?, ?, ?, ?, 0, ?)')
       .run(surfCronId, 'surf-watch', '0 * * * *', 'Check the Guincho forecast.', ID.surf, ID.surfThread, t(25))
     for (const ago of [205, 145, 85]) {
@@ -475,13 +475,13 @@ export function seedFixtures(): void {
     const goodText = '**Go now.** 1.6 m at 12 s, light offshore until 11h — the best window this week.'
     report(ID.surf, ID.surfThread, runIn(ID.surfThread, surfCronId, 'surf-watch', 25, goodText, false), 'surf-watch', 25, goodText, false)
 
-    insThread.run(ID.priceThread, 'price-watch', t(600), t(40), null, t(40))
+    insThread.run(ID.priceThread, 'price-watch', t(600), t(40), null, t(40), 'auto')
     db.prepare('INSERT INTO crons (id, name, schedule, prompt, thread_id, enabled, last_run) VALUES (?, ?, ?, ?, ?, 0, ?)')
       .run(priceCronId, 'price-watch', '0 9 * * *', 'Check the price of the Fuji X100.', ID.priceThread, t(40))
     runIn(ID.priceThread, priceCronId, 'price-watch', 1480, 'Still 1 699 € everywhere.', true)
     runIn(ID.priceThread, priceCronId, 'price-watch', 40, 'Dropped to **1 449 €** at Fnac — the lowest in six months.', false)
 
-    insThread.run(ID.quietThread, 'backup-check', t(700), t(70), null, null)
+    insThread.run(ID.quietThread, 'backup-check', t(700), t(70), null, null, 'auto')
     db.prepare('INSERT INTO crons (id, name, schedule, prompt, thread_id, enabled) VALUES (?, ?, ?, ?, ?, 0)')
       .run(backupCronId, 'backup-check', '0 3 * * *', 'Check last night\'s backup.', ID.quietThread)
     runIn(ID.quietThread, backupCronId, 'backup-check', 70, 'Backup fine — 2.1 GB, 4 min.', true)

@@ -5,7 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { api, type Conversation, type Effort } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { describeSchedule } from '../lib/runs'
-import { HOOK_NOTIFY, NOTIFY_OPTIONS, updateRoutine, webhookUrl, type Notify, type Routine, type RoutineKind } from '../lib/routines'
+import { updateRoutine, webhookUrl, type Routine, type RoutineKind } from '../lib/routines'
 import { buildSchedule, DAY_NAMES, FREQ_LABELS, parseSchedule, type Freq, type Schedule } from '../lib/schedule'
 import ModelSelector, { DEFAULT_EFFORT, useModelCatalogue } from './ModelSelector'
 import Popover from './Popover'
@@ -18,7 +18,6 @@ interface Draft {
   schedule: Schedule
   prompt: string
   conversation_id: string | null
-  notify: Notify
   model: string
   effort: Effort
 }
@@ -31,7 +30,6 @@ function draftFrom(routine: Routine | null, thread: Conversation, fallbackModel:
       schedule: parseSchedule(''),
       prompt: '',
       conversation_id: thread.parent_id ?? null,
-      notify: 'auto',
       model: fallbackModel,
       effort: DEFAULT_EFFORT,
     }
@@ -43,7 +41,6 @@ function draftFrom(routine: Routine | null, thread: Conversation, fallbackModel:
     schedule: parseSchedule(routine.kind === 'cron' ? routine.row.schedule : ''),
     prompt: r.prompt,
     conversation_id: r.conversation_id,
-    notify: thread.notify,
     model: r.model ?? fallbackModel,
     effort: r.effort ?? DEFAULT_EFFORT,
   }
@@ -51,7 +48,7 @@ function draftFrom(routine: Routine | null, thread: Conversation, fallbackModel:
 
 /** The fields a save would send, for telling whether anything changed. */
 function signature(d: Draft): string {
-  return JSON.stringify([d.name.trim(), d.kind === 'cron' ? buildSchedule(d.schedule) : '', d.prompt, d.conversation_id, d.notify, d.model, d.effort])
+  return JSON.stringify([d.name.trim(), d.kind === 'cron' ? buildSchedule(d.schedule) : '', d.prompt, d.conversation_id, d.model, d.effort])
 }
 
 /**
@@ -123,12 +120,13 @@ export function RoutineCard({
         conversation_id: draft.conversation_id,
       }
       if (isNew) {
-        if (draft.kind === 'cron') await api.createCron({ ...common, schedule: cronExpr, notify: draft.notify, thread_id: thread.id })
-        else await api.createWebhook({ ...common, notify: HOOK_NOTIFY[draft.notify], thread_id: thread.id })
+        if (draft.kind === 'cron') await api.createCron({ ...common, schedule: cronExpr, thread_id: thread.id })
+        else await api.createWebhook({ ...common, thread_id: thread.id })
       } else {
-        await updateRoutine(routine!, { ...common, ...(draft.kind === 'cron' ? { schedule: cronExpr } : {}), notify: draft.notify })
+        await updateRoutine(routine!, { ...common, ...(draft.kind === 'cron' ? { schedule: cronExpr } : {}) })
       }
       // The thread's name, notify mode and routine come back from the server.
+      // Notifications are the thread's own setting (its ⋯ menu), not the routine's.
       await useChatStore.getState().loadConversations()
       // The card leaves the transcript once the routine exists; say where it went.
       if (isNew) window.__jarvisToast?.info(`${draft.name.trim()} is set — ${draft.kind === 'cron' ? describeSchedule(cronExpr) : 'its link is on the card'}. The chip at the top opens it.`)
@@ -265,20 +263,6 @@ export function RoutineCard({
               searchable
             />
           </div>
-
-          <span className='text-text-muted'>Notifies</span>
-          {draft.conversation_id ? (
-            <span className='text-[12.5px] text-text-secondary'>through that chat</span>
-          ) : (
-            <div>
-              <Select
-                aria-label='Notifications'
-                value={draft.notify}
-                options={NOTIFY_OPTIONS.map(([v, label]) => ({ value: v, label }))}
-                onChange={(v: Notify) => set({ notify: v })}
-              />
-            </div>
-          )}
         </div>
 
         {/* What it is asked, drawn like the message it is: sent on every run. */}

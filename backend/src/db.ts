@@ -537,6 +537,17 @@ export function initDb(): void {
     console.log('[db] Whisper share button turned into a pinned webhook')
   }
 
+  // Once: a routine's thread attached to a chat never notifies on its own —
+  // the chat decides — so its mode is held at 'unsubscribe'. Threads attached
+  // to nothing keep whatever mode they had.
+  if ((db.pragma('user_version', { simple: true }) as number) < 4) {
+    db.prepare(
+      `UPDATE conversations SET notify = 'unsubscribe'
+        WHERE kind = 'thread' AND parent_id IS NOT NULL AND parent_message_id IS NULL`,
+    ).run()
+    db.pragma('user_version = 4')
+  }
+
   // Connectors — one row per connector holding its definition AND its values.
   // Unified from the former three-way split (hardcoded catalog + custom_connectors
   // definitions + connectors secrets). See connectors.ts.

@@ -37,7 +37,7 @@ import {
 import { config } from '../config.js'
 import { getConnectorValues } from '../connectors.js'
 import { topicContextFor } from '../topics.js'
-import { notifyTarget, routineRunPrompt, surfaceThread, threadContextPrompt, unseenReportsPrompt } from '../threads.js'
+import { detachThreadsOf, notifyTarget, routineRunPrompt, surfaceThread, threadContextPrompt, unseenReportsPrompt } from '../threads.js'
 import { SILENT_MARK, splitSilent } from '../runs.js'
 import type { ConvRow, MessageRow, EffortLevel, PendingQuestion } from '../types.js'
 import { userForApiKey } from '../api-keys.js'
@@ -1440,9 +1440,10 @@ export async function conversationRoutes(app: FastifyInstance) {
     getDb()
       .prepare(
         `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, kind, parent_id, surfaced_at)
-         VALUES (?, 'New routine', ?, 'default', unixepoch(), 'unsubscribe', 'thread', ?, unixepoch())`,
+         VALUES (?, 'New routine', ?, 'default', unixepoch(), ?, 'thread', ?, unixepoch())`,
       )
-      .run(id, fastModel(), parent?.id ?? null)
+      // Attached, it is silent — the chat it reports into decides.
+      .run(id, fastModel(), parent ? 'unsubscribe' : 'auto', parent?.id ?? null)
     return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id)
   })
 
@@ -1582,8 +1583,8 @@ export async function conversationRoutes(app: FastifyInstance) {
     const { title, notify } = body
 
     const target = getDb()
-      .prepare('SELECT kind FROM conversations WHERE id = ?')
-      .get(req.params.id) as Pick<ConvRow, 'kind'> | undefined
+      .prepare('SELECT kind, parent_id, parent_message_id FROM conversations WHERE id = ?')
+      .get(req.params.id) as Pick<ConvRow, 'kind' | 'parent_id' | 'parent_message_id'> | undefined
     if (!target) return reply.code(404).send({ error: 'Not found' })
 
     const sets: string[] = []
@@ -1597,8 +1598,12 @@ export async function conversationRoutes(app: FastifyInstance) {
       if (!['subscribe', 'unsubscribe', 'auto'].includes(notify)) {
         return reply.code(400).send({ error: 'notify must be subscribe, unsubscribe, or auto' })
       }
-      sets.push('notify = ?')
-      params.push(notify)
+      // A routine's thread attached to a chat stays silent: the chat decides.
+      const attached = target.kind === 'thread' && !!target.parent_id && !target.parent_message_id
+      if (!attached) {
+        sets.push('notify = ?')
+        params.push(notify)
+      }
     }
     if (body.surfaced !== undefined && target.kind === 'thread') {
       sets.push(body.surfaced ? 'surfaced_at = unixepoch()' : 'surfaced_at = NULL')
@@ -1712,6 +1717,7 @@ export async function conversationRoutes(app: FastifyInstance) {
         archiveUploadsDir(req.params.id)
       }
 
+      detachThreadsOf(req.params.id)
       getDb().prepare('DELETE FROM conversations WHERE id = ?').run(req.params.id)
       return { ok: true }
     },

@@ -803,8 +803,6 @@ export interface CronInput {
   effort?: Effort
   /** The chat the runs report into; null = the thread stands alone. */
   conversation_id?: string | null
-  /** The thread's notify mode, for when it stands alone. */
-  notify?: Conversation['notify']
   /** The draft thread it was set up in — it becomes the routine's home. */
   thread_id?: string
 }
@@ -841,7 +839,6 @@ export interface WebhookInput {
   effort?: Effort
   /** The chat the runs report into; null = the thread stands alone. */
   conversation_id?: string | null
-  notify?: 'auto' | 'never' | 'always'
   /** The draft thread it was set up in — it becomes the routine's home. */
   thread_id?: string
 }

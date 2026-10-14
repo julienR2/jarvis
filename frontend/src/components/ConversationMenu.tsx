@@ -75,26 +75,30 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
 
             {!compact && (
               <>
-                {/* Notify toggle */}
+                {/* Notify toggle — none when another conversation decides (a routine thread attached to a chat). */}
                 <div className='px-2 py-1.5'>
                   <span className='text-[11px] text-text-muted font-medium'>Notifications</span>
-                  <div className='flex gap-0.5 mt-1 bg-surface2 rounded-lg p-0.5'>
-                    {NOTIFY_OPTIONS.map(({ value, label, icon: Icon }) => (
-                      <button
-                        key={value}
-                        onClick={() => onNotifyChange?.(value)}
-                        className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[11px] rounded-md transition-colors ${
-                          notify === value
-                            ? 'bg-bg text-text-primary shadow-sm'
-                            : 'text-text-muted hover:text-text-primary'
-                        }`}
-                        title={`Notifications: ${label}`}
-                      >
-                        <Icon size={11} />
-                        {label}
-                      </button>
-                    ))}
-                  </div>
+                  {!onNotifyChange ? (
+                    <div className='mt-1 text-[11px] text-text-secondary'>Through the chat it reports into</div>
+                  ) : (
+                    <div className='flex gap-0.5 mt-1 bg-surface2 rounded-lg p-0.5'>
+                      {NOTIFY_OPTIONS.map(({ value, label, icon: Icon }) => (
+                        <button
+                          key={value}
+                          onClick={() => onNotifyChange?.(value)}
+                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[11px] rounded-md transition-colors ${
+                            notify === value
+                              ? 'bg-bg text-text-primary shadow-sm'
+                              : 'text-text-muted hover:text-text-primary'
+                          }`}
+                          title={`Notifications: ${label}`}
+                        >
+                          <Icon size={11} />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className='h-px bg-border my-1' />

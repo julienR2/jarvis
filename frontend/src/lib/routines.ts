@@ -1,4 +1,4 @@
-import { api, type Conversation, type Cron, type CronInput, type Webhook } from '../api'
+import { api, type Cron, type CronInput, type Webhook } from '../api'
 
 /**
  * A routine is a saved prompt Jarvis runs without you: on a schedule, or when
@@ -10,14 +10,6 @@ export type Routine =
   | { kind: 'webhook'; row: Webhook }
 
 export type RoutineKind = Routine['kind']
-
-export type Notify = Conversation['notify']
-export const NOTIFY_OPTIONS: [Notify, string][] = [
-  ['auto', 'Auto — when a run is worth it'],
-  ['subscribe', 'Always'],
-  ['unsubscribe', 'Never'],
-]
-export const HOOK_NOTIFY: Record<Notify, Webhook['notify']> = { auto: 'auto', subscribe: 'always', unsubscribe: 'never' }
 
 /** The public URL a webhook routine answers to. The token is the secret. */
 export function webhookUrl(token: string): string {
@@ -51,8 +43,8 @@ export async function routineOf(threadOf: string): Promise<Routine | null> {
   return row ? { kind: 'webhook', row } : null
 }
 
-export function updateRoutine(r: Routine, patch: Partial<CronInput & { notify: Notify }>): Promise<Cron | Webhook> {
+export function updateRoutine(r: Routine, patch: Partial<CronInput>): Promise<Cron | Webhook> {
   if (r.kind === 'cron') return api.updateCron(r.row.id, patch)
-  const { notify, schedule: _schedule, once: _once, ...rest } = patch
-  return api.updateWebhook(r.row.id, { ...rest, ...(notify ? { notify: HOOK_NOTIFY[notify] } : {}) })
+  const { schedule: _schedule, once: _once, ...rest } = patch
+  return api.updateWebhook(r.row.id, rest)
 }

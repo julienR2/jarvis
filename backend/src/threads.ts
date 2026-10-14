@@ -6,11 +6,13 @@
 // can open it and talk to it like any chat.
 //
 // A thread may be attached to a chat (`parent_id`). It then never notifies on
-// its own: each finished run leaves a report in the parent — the answer when
+// its own — its notify mode is held at 'unsubscribe' for as long as it is
+// attached: each finished run leaves a report in the parent — the answer when
 // there was something to say, a silent line when there was not — and the
 // parent's notify mode decides about the push. A thread attached to nothing
-// shows up in the sidebar's Threads group when a run had something worth
-// seeing, and stays there until it is dismissed.
+// starts on 'auto' (again, when it is detached) and shows up in the sidebar's
+// Threads group when a run had something worth seeing, and stays there until
+// it is dismissed.
 
 import { getDb, uuid } from './db.js'
 import { emitConversationEvent, emitGlobalEvent } from './sse.js'
@@ -45,8 +47,8 @@ export function ensureThread(
   const existing = getConv(entry.thread_id)
   if (existing && existing.kind === 'thread') {
     if (existing.parent_id !== parentId) {
-      getDb().prepare('UPDATE conversations SET parent_id = ? WHERE id = ?').run(parentId, existing.id)
-      existing.parent_id = parentId
+      syncThreadParent(existing.id, parentId)
+      return getConv(existing.id)!
     }
     return existing
   }
@@ -60,18 +62,36 @@ export function ensureThread(
       `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, kind, parent_id)
        VALUES (?, ?, NULL, 'default', unixepoch(), ?, 'thread', ?)`,
     )
-    .run(id, entry.name, notify, parentId)
+    .run(id, entry.name, parentId ? 'unsubscribe' : notify, parentId)
   getDb().prepare(`UPDATE ${table} SET thread_id = ? WHERE id = ?`).run(id, entry.id)
   entry.thread_id = id
   return getConv(id)!
 }
 
-/** Re-point a routine's thread at the chat it now reports into. */
+/**
+ * Re-point a routine's thread at the chat it now reports into. Attaching it
+ * silences it — the chat decides about pushes; detaching it puts it back on
+ * 'auto'. Only on an actual change, so a mode picked while detached survives.
+ */
 export function syncThreadParent(threadId: string | null, parentId: string | null): void {
   if (!threadId) return
   getDb()
-    .prepare(`UPDATE conversations SET parent_id = ? WHERE id = ? AND kind = 'thread'`)
-    .run(parentId, threadId)
+    .prepare(
+      `UPDATE conversations SET parent_id = ?, notify = ? WHERE id = ? AND kind = 'thread' AND parent_id IS NOT ?`,
+    )
+    .run(parentId, parentId ? 'unsubscribe' : 'auto', threadId, parentId)
+}
+
+/**
+ * A chat is about to go: the routine threads attached to it stand alone from
+ * now on (the foreign key nulls `parent_id`), so they go back to 'auto'.
+ */
+export function detachThreadsOf(parentId: string): void {
+  getDb()
+    .prepare(
+      `UPDATE conversations SET notify = 'auto' WHERE parent_id = ? AND kind = 'thread' AND parent_message_id IS NULL`,
+    )
+    .run(parentId)
 }
 
 /**
@@ -251,9 +271,12 @@ export function threadNotifyOf(v: unknown): ConvRow['notify'] {
   return v === 'never' ? 'unsubscribe' : v === 'always' ? 'subscribe' : 'auto'
 }
 
+/** Set a standalone thread's mode. An attached one stays silent: its chat decides. */
 export function setThreadNotify(threadId: string | null, notify: ConvRow['notify']): void {
   if (!threadId) return
-  getDb().prepare(`UPDATE conversations SET notify = ? WHERE id = ? AND kind = 'thread'`).run(notify, threadId)
+  getDb()
+    .prepare(`UPDATE conversations SET notify = ? WHERE id = ? AND kind = 'thread' AND parent_id IS NULL`)
+    .run(notify, threadId)
 }
 
 /**
