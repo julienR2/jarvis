@@ -86,6 +86,11 @@ export async function connectorRoutes(app: FastifyInstance) {
     if (method !== 'GET' && method !== 'HEAD') {
       const ct = req.headers['content-type'] as string | undefined
       if (ct) headers['Content-Type'] = ct
+      // CopyParty's PUT never overwrites: an existing path gets a sibling
+      // `<name>-<ts>-<rand>.<ext>` instead. `Replace: 1` is its opt-in to
+      // overwrite, so apps updating a file in place must be able to send it.
+      const replace = req.headers['replace'] as string | undefined
+      if (replace) headers['Replace'] = replace
       const body = req.body
       if (body !== undefined && body !== null) {
         if (typeof body === 'string') {
