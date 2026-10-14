@@ -31,6 +31,7 @@ import {
   internalSecret,
   providerEnv,
   isGatewayModel,
+  oneMcpServer,
 } from './shared.js'
 
 export type SessionEvent = ClaudeEvent | { type: 'end' }
@@ -413,9 +414,26 @@ function resumableUnder(sessionId: string, model?: string): boolean {
   return id.startsWith('msg_') !== isGatewayModel(model)
 }
 
+/**
+ * The `--mcp-config` value for a spawn: the agent's mcp.json as is, or — when
+ * One is plugged in — that file's servers plus `one`, inlined as JSON (the CLI
+ * takes either a path or a JSON string). Null when there is nothing to load.
+ */
+function mcpConfigArg(path: string): string | null {
+  const one = oneMcpServer()
+  if (!one) return existsSync(path) ? path : null
+  let servers: Record<string, unknown> = {}
+  try {
+    servers = JSON.parse(readFileSync(path, 'utf8')).mcpServers ?? {}
+  } catch {
+    // No mcp.json (or unreadable): One alone.
+  }
+  return JSON.stringify({ mcpServers: { ...servers, one: { type: 'stdio', ...one } } })
+}
+
 function startQuery(sess: Session, resumeSessionId: string | null): void {
   const BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill']
-  const MCP_TOOLS = ['mcp__playwright']
+  const MCP_TOOLS = ['mcp__playwright', 'mcp__one']
 
   // Drop a resume the current provider would reject (see resumableUnder). The
   // reassignment matters: the retry in onExit closes over this parameter, and
@@ -428,7 +446,7 @@ function startQuery(sess: Session, resumeSessionId: string | null): void {
     resumeSessionId = null
   }
 
-  const mcpConfig = `${process.env.CLAUDE_CONFIG_DIR || '/jarvis/agent'}/mcp.json`
+  const mcpConfig = mcpConfigArg(`${process.env.CLAUDE_CONFIG_DIR || '/jarvis/agent'}/mcp.json`)
 
   // Curate the child env. The agent runs arbitrary Bash and fetches untrusted web
   // pages, so it must not inherit secrets it never needs — a prompt-injected page
@@ -469,7 +487,7 @@ function startQuery(sess: Session, resumeSessionId: string | null): void {
       ...(sess.model ? { model: sess.model } : {}),
       ...(effortFor(sess.model, sess.effort) ? { effort: effortFor(sess.model, sess.effort) } : {}),
       ...(resumeSessionId ? { resume: resumeSessionId } : {}),
-      ...(existsSync(mcpConfig) ? { extraArgs: { 'mcp-config': mcpConfig } } : {}),
+      ...(mcpConfig ? { extraArgs: { 'mcp-config': mcpConfig } } : {}),
       env: {
         ...inheritedEnv,
         INTERNAL_SECRET: internalSecret() ?? inheritedEnv.INTERNAL_SECRET,

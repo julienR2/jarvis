@@ -58,6 +58,16 @@ test.describe('settings', () => {
     await expect(page.getByPlaceholder('https://…')).toHaveCount(0)
   })
 
+  test('customize › one, without a key', async ({ page }) => {
+    await page.goto('settings/customize?tab=connectors')
+    // No key yet: the Connectors tab offers to paste one in place.
+    await expect(page.getByText('Have a One key?')).toBeVisible()
+    await page.getByRole('tab', { name: 'One' }).click()
+    await expect(page).toHaveURL(/tab=one$/)
+    await expect(page.getByPlaceholder('sk_live_…')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
   test('customize › connectors and skills', async ({ page }) => {
     await page.goto('settings/customize?tab=connectors')
     await expect(page.getByText('Add connector')).toBeVisible()

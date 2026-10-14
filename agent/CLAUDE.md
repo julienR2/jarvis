@@ -134,6 +134,10 @@ A skill only tells you *which* connector id it needs — the mechanism lives in 
 It has the full reference: the shell loader, inventory, adding/editing, the proxy
 passthrough, and which mailbox maps to whom. (jq is not installed; use `python3`.)
 
+Apps can also be connected through **One** (Gmail, Calendar, Spotify, …): those
+appear in the same inventory with `source: "one"` and are used through the
+`mcp__one__*` tools, not credentials — the `connectors` skill explains how.
+
 ## File output (images, PDFs, etc.)
 
 When you generate or download a file the user should see, save it **under your own

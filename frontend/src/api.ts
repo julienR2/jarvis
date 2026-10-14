@@ -390,6 +390,15 @@ export const api = {
     request<ConnectorDetail>('PATCH', `/connectors/${id}`, def),
   deleteConnector: (id: string) => request<{ ok: boolean }>('DELETE', `/connectors/${id}`),
 
+  // One (withone.ai) — managed connectors
+  getOneStatus: () => request<OneStatus>('GET', '/one/status'),
+  setOneKey: (key: string) => request<{ ok: boolean }>('PUT', '/one/key', { key }),
+  clearOneKey: () => request<{ ok: boolean }>('DELETE', '/one/key'),
+  setOneEnabled: (enabled: boolean) => request<{ ok: boolean }>('PUT', '/one/enabled', { enabled }),
+  getOneConnections: () => request<OneConnection[]>('GET', '/one/connections'),
+  deleteOneConnection: (id: string) => request<{ ok: boolean }>('DELETE', `/one/connections/${encodeURIComponent(id)}`),
+  getOneCatalog: () => request<OnePlatform[]>('GET', '/one/catalog'),
+
   // Skills (read-only)
   getSkills: () => request<SkillSummary[]>('GET', '/skills'),
   getSkill: (name: string) => request<{ name: string; content: string; raw: string }>('GET', `/skills/${encodeURIComponent(name)}`),
@@ -932,6 +941,36 @@ export interface ConnectorInfo {
 // Detail view (for editing): fields include their values.
 export interface ConnectorDetail extends Omit<ConnectorInfo, 'fields'> {
   fields: ConnectorField[]
+}
+
+export interface OneStatus {
+  configured: boolean
+  enabled: boolean
+  keyHint: string | null
+  environment: 'test' | 'live' | null
+}
+
+export interface OneConnection {
+  id: string
+  key: string
+  platform: string
+  name: string
+  description: string
+  image: string
+  state: 'operational' | 'degraded' | 'failed' | 'unknown'
+  identity: string | null
+  tags: string[]
+}
+
+export interface OnePlatform {
+  platform: string
+  name: string
+  description: string
+  category: string
+  image: string
+  oauth: boolean
+  status: string
+  tools: number
 }
 
 export interface ConnectorInput {

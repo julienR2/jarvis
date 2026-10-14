@@ -9,6 +9,7 @@ import { join } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { processMessage, type Attachment } from './conversations.js'
 import { getAllConnectors, getConnector } from '../connectors.js'
+import { listOneConnections, oneActive } from '../one.js'
 import { archiveAppDir } from '../app-archive.js'
 import { schedule, rescheduleAll, fireCron } from '../crons.js'
 import { fireWebhook } from '../webhooks.js'
@@ -563,15 +564,37 @@ export async function internalRoutes(app: FastifyInstance) {
   // Skills fetch credentials on demand instead of reading injected env vars.
 
   // GET /connectors — inventory: every connector + its field labels, NO values.
+  // Connections made through One are listed too, as `source: 'one'`: they hold
+  // no values here — the agent acts on them through the `one` MCP server,
+  // passing `connectionKey`.
   app.get('/connectors', async (req, reply) => {
     if (!checkSecret(req, reply)) return
-    return getAllConnectors().map((c) => ({
+    const own = getAllConnectors().map((c) => ({
       id: c.id,
+      source: 'jarvis' as const,
       name: c.name,
       description: c.description,
       hasProxy: !!c.proxy,
       fields: c.fields.map(({ key, label }) => ({ key, label })),
     }))
+    if (!oneActive()) return own
+    // One being unreachable must not hide the connectors Jarvis holds itself.
+    const viaOne = await listOneConnections().catch((err) => {
+      console.error('[internal] One connections unavailable:', err)
+      return []
+    })
+    return [
+      ...own,
+      ...viaOne.map((c) => ({
+        id: `one:${c.id}`,
+        source: 'one' as const,
+        name: c.name,
+        description: c.identity ? `${c.description} (${c.identity})` : c.description,
+        platform: c.platform,
+        connectionKey: c.key,
+        state: c.state,
+      })),
+    ]
   })
 
   // GET /connectors/:id — one connector's field values, plus a flat `env`

@@ -2,18 +2,21 @@ import { useSearchParams } from 'react-router-dom'
 import ContentLayout from '../components/ContentLayout'
 import ConnectorsPanel from '../components/ConnectorsPage'
 import SkillsPanel from '../components/SkillsPanel'
+import OnePanel from '../components/OnePanel'
 import { ProviderConnections } from '../components/ConnectionPage'
 
 /**
  * Settings › Customize: what Jarvis thinks with and works with — the model
- * providers, the connectors it holds credentials for, the skills it knows.
+ * providers, the connectors it holds credentials for, the apps connected
+ * through One, the skills it knows.
  * The tab lives in the URL so a link can open the right one.
  */
-type Tab = 'models' | 'connectors' | 'skills'
+type Tab = 'models' | 'connectors' | 'one' | 'skills'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'models', label: 'Models' },
   { id: 'connectors', label: 'Connectors' },
+  { id: 'one', label: 'One' },
   { id: 'skills', label: 'Skills' },
 ]
 
@@ -47,6 +50,7 @@ export default function CustomizePage() {
         </div>
         {tab === 'models' && <ProviderConnections />}
         {tab === 'connectors' && <ConnectorsPanel />}
+        {tab === 'one' && <OnePanel />}
         {tab === 'skills' && <SkillsPanel />}
       </div>
     </ContentLayout>

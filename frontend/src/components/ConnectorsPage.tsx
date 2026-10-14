@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import Select from './Select'
 import {
   Mail,
@@ -22,7 +23,8 @@ import {
   Bot,
   type LucideIcon,
 } from 'lucide-react'
-import { api, type ConnectorInfo, type ConnectorDetail, type ConnectorInput } from '../api'
+import { api, type ConnectorInfo, type ConnectorDetail, type ConnectorInput, type OneStatus } from '../api'
+import { OneKeyForm } from './OnePanel'
 
 const ICON_MAP: Record<string, LucideIcon> = {
   Mail, Github: GitBranch, SquareKanban, Image, Database, MessageSquare,
@@ -76,6 +78,8 @@ export default function ConnectorsPanel() {
         set of named values Jarvis reads on demand.
       </p>
 
+      <OneHint />
+
       <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
         {connectors.map((c) => (
           <ConnectorCard
@@ -105,6 +109,47 @@ export default function ConnectorsPanel() {
           onClose={() => { setCreating(false); setEditing(null) }}
           onSaved={() => { setCreating(false); setEditing(null); load() }}
         />
+      )}
+    </div>
+  )
+}
+
+// ── One ───────────────────────────────────────────────────────────────────────
+
+/**
+ * Points at the One tab: with a key, that apps can be connected there; without
+ * one, offers to paste it right here instead of hand-writing a connector.
+ */
+function OneHint() {
+  const [status, setStatus] = useState<OneStatus | null>(null)
+  const [open, setOpen] = useState(false)
+  useEffect(() => { api.getOneStatus().then(setStatus, () => {}) }, [])
+  if (!status) return null
+
+  if (status.configured) {
+    return (
+      <p className='text-xs text-text-muted mb-4'>
+        Apps connected through One are in the{' '}
+        <Link to='?tab=one' className='text-accent hover:underline'>One tab</Link>.
+      </p>
+    )
+  }
+  return (
+    <div className='bg-surface border border-border rounded-xl px-4 py-3 mb-4'>
+      <div className='flex items-center gap-3'>
+        <p className='flex-1 text-xs text-text-muted'>
+          Have a One key? Connect Gmail, Calendar, Spotify and more by signing in, instead of copying credentials.
+        </p>
+        {!open && (
+          <button onClick={() => setOpen(true)} className='text-xs text-accent hover:text-accent-hover whitespace-nowrap'>
+            Add key
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className='mt-3'>
+          <OneKeyForm onSaved={() => api.getOneStatus().then(setStatus)} />
+        </div>
       )}
     </div>
   )
