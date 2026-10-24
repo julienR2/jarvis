@@ -1,4 +1,6 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { loginPath } from './api'
+import { useLaunchQueue } from './hooks/useLaunchQueue'
 import LoginPage from './pages/LoginPage'
 import OnboardingPage from './pages/OnboardingPage'
 import ChatPage from './pages/ChatPage'
@@ -6,10 +8,12 @@ import SharedChatPage from './pages/SharedChatPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('token')
-  return token ? <>{children}</> : <Navigate to="/login" replace />
+  const { pathname, search, hash } = useLocation()
+  return token ? <>{children}</> : <Navigate to={loginPath(pathname + search + hash)} replace />
 }
 
 export default function App() {
+  useLaunchQueue()
   return (
     <>
     <Routes>

@@ -21,9 +21,14 @@ const IGNORE_CONSOLE = [
   /Cross-Origin-Opener-Policy/,
 ]
 
+/** A conversation id no fixture uses — a deep link to a deleted chat. */
+export const MISSING_CONVERSATION = '00000000-0000-4000-8000-0000000000ff'
+
 // Responses that are part of a test's own script rather than a defect.
 const EXPECTED_RESPONSES: Array<{ status: number; path: RegExp }> = [
   { status: 401, path: /\/api\/auth\/login$/ }, // the wrong-password test
+  // The deep-link spec's chat that does not exist: every call about it 404s.
+  { status: 404, path: new RegExp(MISSING_CONVERSATION) },
 ]
 
 export const test = base.extend<{ consoleGuard: void }>({

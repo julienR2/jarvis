@@ -27,6 +27,32 @@ export function isSharedSession(): boolean {
   return shareToken !== null
 }
 
+/** A failed request, with the HTTP status that failed it. */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+  }
+}
+
+/**
+ * Where to send someone signed out: the login page, carrying the address they
+ * were on so signing in lands them back there. A deep link (/c/<id>) opened
+ * cold with no session used to sign in to Today instead of the chat it named.
+ * Only an in-app path is ever carried, and the login page checks it again —
+ * see `safeNext`.
+ */
+export function loginPath(from: string): string {
+  return from === '/' || from.startsWith('/login') ? '/login' : `/login?next=${encodeURIComponent(from)}`
+}
+
+/** The `next` a login page was given, if it is a path inside the app. */
+export function safeNext(next: string | null): string {
+  // `//host` and `/\host` are protocol-relative: off to another origin.
+  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return '/'
+  if (next.startsWith('/login')) return '/'
+  return next
+}
+
 function getToken(): string | null {
   return shareToken ?? localStorage.getItem('token')
 }
@@ -55,7 +81,9 @@ function handleUnauthorized() {
     window.__jarvisToast?.info('Your session expired — please sign in again.')
   }
   if (!onLogin) {
-    window.location.href = `${BASE_PATH}/login`
+    const { pathname, search, hash } = window.location
+    const here = pathname.slice(BASE_PATH.length) || '/'
+    window.location.href = `${BASE_PATH}${loginPath(here + search + hash)}`
   }
 }
 
@@ -70,7 +98,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error || res.statusText)
+    throw new ApiError(err.error || res.statusText, res.status)
   }
   return res.json()
 }

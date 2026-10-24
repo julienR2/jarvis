@@ -144,7 +144,7 @@ self.addEventListener('fetch', (event) => {
 
   // Navigation requests (HTML) — network-first so rebuilds are visible on refresh
   if (event.request.mode === 'navigate') {
-    event.respondWith(networkFirst(event.request))
+    event.respondWith(networkFirst(event.request, '/'))
     return
   }
 
@@ -170,7 +170,10 @@ async function cacheFirst(request) {
   }
 }
 
-async function networkFirst(request) {
+// `shell`: for page loads, the precached app shell to fall back on. Every
+// route is the same SPA, so a deep link (/c/<id>) opened offline for the first
+// time still boots the app instead of a blank 408.
+async function networkFirst(request, shell) {
   try {
     const response = await fetch(request)
     if (response.ok) {
@@ -179,7 +182,7 @@ async function networkFirst(request) {
     }
     return response
   } catch {
-    const cached = await caches.match(request)
+    const cached = (await caches.match(request)) || (shell && (await caches.match(shell)))
     return cached || new Response('', { status: 408 })
   }
 }

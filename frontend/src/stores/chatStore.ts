@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import {
   api,
+  ApiError,
   type Conversation,
   type ConversationWithMessages,
   type DeleteOptions,
@@ -42,6 +43,11 @@ interface ChatState {
   streaming: Record<string, string>
   listLoaded: boolean
   convsLoaded: Record<string, boolean>
+  /**
+   * Conversations the server says do not exist — a deep link to a deleted chat,
+   * or a mistyped id. Without it such a link sat on the loading skeleton forever.
+   */
+  convsMissing: Record<string, boolean>
   /**
    * Id of the first message the user hasn't read, per conversation — where the
    * "unread messages" divider goes.
@@ -217,6 +223,7 @@ export const useChatStore = create<ChatState>()(
     streaming: {},
     listLoaded: false,
     convsLoaded: {},
+    convsMissing: {},
     unreadAnchor: {},
     activeRuns: {},
     recentRuns: {},
@@ -415,6 +422,7 @@ export const useChatStore = create<ChatState>()(
           s.messages[id] = mergeMessages(s.messages[id] ?? [], messages)
           s.hasMore[id] = has_more
           s.convsLoaded[id] = true
+          delete s.convsMissing[id]
           // Place the divider from the count this response carried — the server
           // reads it just before marking the conversation read, so it is the
           // last moment it exists. Only when it hasn't been decided yet: this
@@ -425,7 +433,16 @@ export const useChatStore = create<ChatState>()(
           }
         })
       } catch (err) {
-        console.error('Failed to load conversation:', err)
+        // 404 is "no such chat"; 400/403 are what a malformed or foreign id
+        // gets from the share-aware guard. Anything else (offline, a 500) stays
+        // on the skeleton — the reconnect resync retries it.
+        if (err instanceof ApiError && [400, 403, 404].includes(err.status)) {
+          set((s) => {
+            s.convsMissing[id] = true
+          })
+        } else {
+          console.error('Failed to load conversation:', err)
+        }
       }
       // After endFetch, so re-applying can't feed the buffer being drained.
       for (const msg of endFetch(id, live)) get().upsertMessage(id, msg)

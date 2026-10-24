@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Sparkles } from 'lucide-react'
-import { api } from '../api'
+import { api, safeNext } from '../api'
 
 export default function LoginPage() {
   const [mode, setMode] = useState<'loading' | 'login' | 'setup'>('loading')
@@ -12,6 +12,9 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  // Where the sign-in was asked from — a deep link opened without a session.
+  const [searchParams] = useSearchParams()
+  const next = safeNext(searchParams.get('next'))
 
   useEffect(() => {
     api.getSetupStatus()
@@ -47,7 +50,7 @@ export default function LoginPage() {
           ? await api.setup(email, password, setupCode.trim())
           : await api.login(email, password)
       localStorage.setItem('token', token)
-      navigate('/')
+      navigate(next, { replace: true })
     } catch (err: any) {
       setError(err.message || (mode === 'setup' ? 'Setup failed' : 'Login failed'))
     } finally {

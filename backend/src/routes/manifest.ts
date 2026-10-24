@@ -9,8 +9,23 @@ export async function manifestRoutes(app: FastifyInstance) {
       name: 'Jarvis',
       short_name: 'Jarvis',
       description: 'AI assistant powered by Claude',
+      // `id` spelled out at what it already defaulted to (start_url), so the
+      // installed app keeps its identity if start_url ever changes. `scope`
+      // is the whole origin: /c/<id> — the link other apps open — has to be
+      // inside it for the installed app to capture it at all.
+      id: '/',
       start_url: '/',
+      scope: '/',
       display: 'standalone',
+      // Chromium (desktop, Android): a link into the app opens in the app,
+      // and reuses its open window rather than stacking new ones. Focused, not
+      // navigated: `navigate-existing` reloads the window from scratch, while
+      // `focus-existing` hands the URL to the page's launchQueue and the
+      // router switches chat in place (frontend/src/hooks/useLaunchQueue.ts).
+      // `auto` is for browsers that know neither. Safari and Firefox ignore
+      // both members. No custom URL scheme: https links are the contract.
+      launch_handler: { client_mode: ['focus-existing', 'auto'] },
+      handle_links: 'preferred',
       // No `orientation` member on purpose: any value (even 'any') locks the PWA
       // and overrides the device rotation lock. Omitting it lets Android decide —
       // rotation lock is respected, with the usual manual rotate button.

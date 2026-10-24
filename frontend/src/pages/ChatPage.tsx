@@ -3,7 +3,7 @@ import RoutinesPage from './RoutinesPage'
 import NewRoutinePage from './NewRoutinePage'
 import TopicPage from './TopicPage'
 import TodayPage from './TodayPage'
-import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
+import { Routes, Route, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
 import ResizeHandle from '../components/ResizeHandle'
 import { useIsDesktop } from '../hooks/useIsDesktop'
@@ -26,6 +26,28 @@ import { useGlobalEvents } from '../hooks/useGlobalEvents'
 import { loadModelCatalogue } from '../components/ModelSelector'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useSwipeToOpen } from '../hooks/useSwipeToOpen'
+
+// /c/:id — the address other apps open. A chat the server says does not exist
+// (deleted, or a mistyped link) gets a page saying so instead of the skeleton.
+function ChatRoute(props: React.ComponentProps<typeof ChatView>) {
+  const { id = '' } = useParams<{ id: string }>()
+  const missing = useChatStore((s) => !!s.convsMissing[id])
+  const navigate = useNavigate()
+  if (!missing) return <ChatView {...props} />
+  return (
+    <div className='flex flex-col h-full' data-testid='chat-not-found'>
+      <div className='shrink-0 flex items-center h-12 px-3 md:hidden'>
+        <SidebarToggle />
+      </div>
+      <div className='flex flex-1 items-center justify-center px-6 text-center text-sm text-text-muted'>
+        <span>
+          Conversation not found — it may have been deleted, or the link is wrong.{' '}
+          <button onClick={() => navigate('/')} className='underline hover:text-text-primary'>Back to Today</button>
+        </span>
+      </div>
+    </div>
+  )
+}
 
 export default function ChatPage() {
   const listLoaded = useChatStore((s) => s.listLoaded)
@@ -207,7 +229,7 @@ export default function ChatPage() {
             <Route
               path='/c/:id'
               element={
-                <ChatView
+                <ChatRoute
                   initialMessage={sharedMessage}
                   onInitialMessageConsumed={() => setSharedMessage(null)}
                   initialFiles={sharedFiles}
