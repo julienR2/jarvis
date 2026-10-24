@@ -28,6 +28,11 @@ docker compose --profile browser up -d
 and that `BROWSER_URL=http://chromium:3000` must be set in `.env`. New MCP servers
 connect at session start, so it becomes available in a **new conversation**.
 
+If the tools exist but fail to connect while the user can still see the browser
+in Settings → Browser, it isn't down: `browser-mcp` lost Chromium's network after
+Chromium restarted. Its watchdog restarts it within about a minute. Then the user
+needs a **new conversation**, because this session's connection to it is gone.
+
 ## Handing a challenge to the user
 
 1. Say precisely what is on screen and what to click.
