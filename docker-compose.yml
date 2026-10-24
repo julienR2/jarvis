@@ -200,7 +200,37 @@ services:
     user: '${UID:-1000}:${GID:-1000}'
     environment:
       HOME: /tmp
-    command: [ "--port", "8931", "--host", "0.0.0.0", "--allowed-hosts", "*", "--cdp-endpoint", "http://localhost:9222", "--output-dir", "/uploads" ]
+    # Sharing chromium's network namespace means joining the one it had when
+    # this container started. When chromium restarts on its own (crash, a
+    # `docker restart`, a host reboot in the wrong order) it gets a fresh
+    # namespace and this server is left in the dead one: still running, but
+    # unreachable from the engine and unable to reach DevTools — the agent
+    # reports the browser down while Settings → Browser works fine.
+    #
+    # Hence the watchdog: if DevTools stays unreachable for a minute, exit, and
+    # the restart policy starts this container again inside chromium's current
+    # namespace. The server arguments are the image's own entrypoint's plus ours.
+    entrypoint: [ "/usr/bin/tini", "-s", "--", "sh", "-c" ]
+    command:
+      - |
+        node /app/cli.js --headless --browser chromium --no-sandbox \
+          --port 8931 --host 0.0.0.0 --allowed-hosts '*' \
+          --cdp-endpoint http://localhost:9222 --output-dir /uploads &
+        server=$$!
+        misses=0
+        while sleep 10; do
+          kill -0 $$server 2>/dev/null || exit 1
+          if node -e 'fetch("http://localhost:9222/json/version").then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))'; then
+            misses=0
+          else
+            misses=$$((misses + 1))
+          fi
+          if [ $$misses -ge 6 ]; then
+            echo "[watchdog] Chromium DevTools unreachable for 60s, restarting to rejoin its network"
+            kill $$server
+            exit 1
+          fi
+        done
     volumes:
       - ./agent/workspace/uploads:/uploads
     depends_on:
