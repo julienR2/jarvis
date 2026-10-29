@@ -122,19 +122,19 @@ test.describe('chat rendering', () => {
     await expect(page.getByTestId('routine-card').locator('visible=true').first().getByLabel('Prompt')).toHaveValue('Write the morning brief.')
   })
 
-  test('the title bar names the routines of the chat: pause, run, edit, stop — no page needed', async ({ page }) => {
+  test('the ⋯ menu lists the routines of the chat: when they run, paused or not, one click to each', async ({ page }) => {
     await openConversation(page, 'Morning brief')
-    // No clock icon, no runs pill: one control, opening to the routines that post here.
-    const pill = page.getByRole('main').getByTestId('routines-pill').locator('visible=true').first()
-    await pill.click()
-    const pop = page.getByTestId('routines-popover')
-    const row = pop.getByTestId('routines-popover-row').filter({ hasText: 'morning-brief' })
+    // Nothing about routines in the title bar while nothing runs: they live in the menu.
+    await expect(page.getByRole('main').getByTestId('runs-pill')).toHaveCount(0)
+    await page.getByRole('main').getByTitle('Conversation options').locator('visible=true').first().click()
+    const list = page.getByTestId('chat-routines')
+    const row = list.getByTestId('chat-routines-row').filter({ hasText: 'morning-brief' })
     await expect(row).toHaveCount(1)
     await expect(row.getByText('daily at 05:30')).toBeVisible()
     await expect(row.getByRole('switch', { name: 'Resume morning-brief' })).toHaveAttribute('aria-checked', 'false')
-    await expect(row.getByTitle('Run now')).toBeVisible()
-    await expect(pop.getByRole('button', { name: 'New routine here' })).toBeVisible()
-    await row.getByTitle('Edit this routine').click()
+    await expect(list.getByRole('button', { name: 'New routine here' })).toBeVisible()
+    await expect(list.getByRole('button', { name: 'Open in Routines' })).toBeVisible()
+    await row.getByTitle('Open this routine').click()
     await expect(page).toHaveURL(/\?routine=open/)
     await expect(page.getByTestId('routine-card').locator('visible=true').first().getByLabel('Prompt')).toHaveValue('Write the morning brief.')
   })

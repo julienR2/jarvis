@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, ChevronRight, Clock, Link2, Hash } from 'lucide-react'
+import { AlertCircle, ChevronRight, Hash, MessageCircleQuestion, Repeat } from 'lucide-react'
 import type { Message } from '../api'
 import type { RunReport as Report } from '../lib/transcript'
 import MessageBubble from './MessageBubble'
@@ -23,7 +23,6 @@ export function RunReportCard({ msg, report, onMarkUnread }: {
   onMarkUnread?: (messageId: string) => void
 }) {
   const navigate = useNavigate()
-  const Icon = report.kind === 'webhook' ? Link2 : Clock
   const failed = report.status === 'error' || report.status === 'interrupted'
   // A report is stored as a bare result (no steps of its own): drawn as prose.
   const shown = useMemo(() => ({ ...msg, content: msg.result ?? '' }), [msg])
@@ -31,9 +30,14 @@ export function RunReportCard({ msg, report, onMarkUnread }: {
     <div className='my-3 animate-fade-in' data-testid='run-report'>
       <div className='mb-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-text-muted'>
         <span className='inline-flex items-center gap-1 rounded-full bg-surface2 px-2 py-px font-medium text-text-secondary'>
-          <Icon size={10} />
+          <Repeat size={10} />
           {report.source_name}
         </span>
+        {report.status === 'needs_you' && (
+          <span className='inline-flex items-center gap-1 text-accent'>
+            <MessageCircleQuestion size={10} /> asked you
+          </span>
+        )}
         {failed && (
           <span className='inline-flex items-center gap-1 text-danger'>
             <AlertCircle size={10} /> {report.status === 'error' ? 'failed' : 'interrupted'}
@@ -80,7 +84,7 @@ export function RunReportStack({ entries }: { entries: { msg: Message; report: R
         className='inline-flex items-center gap-1.5 text-[11px] text-text-muted transition-colors hover:text-text-secondary'
       >
         {entries.length > 1 && <ChevronRight size={10} className={`transition-transform ${open ? 'rotate-90' : ''}`} />}
-        {entries.length === 1 && <Clock size={10} />}
+        {entries.length === 1 && <Repeat size={10} />}
         <span>{label}</span>
         <span className='text-text-muted/70'>· {entries.length > 1 ? 'last ' : ''}{time(last.msg.created_at)}</span>
       </button>

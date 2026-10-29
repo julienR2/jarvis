@@ -1,17 +1,18 @@
 import { useState, useRef, forwardRef, useImperativeHandle } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Repeat, Pencil, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2 } from 'lucide-react'
+import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Pencil, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2 } from 'lucide-react'
 import Popover from './Popover'
 import ShareDialog from './ShareDialog'
 import DeleteConversationDialog from './DeleteConversationDialog'
+import ChatRoutines from './ChatRoutines'
 import type { DeleteOptions } from '../api'
 
 type NotifyMode = 'subscribe' | 'unsubscribe' | 'auto'
 
-const NOTIFY_OPTIONS: { value: NotifyMode; label: string; icon: typeof Bell }[] = [
-  { value: 'subscribe', label: 'Always', icon: Bell },
-  { value: 'unsubscribe', label: 'Never', icon: BellOff },
-  { value: 'auto', label: 'Auto', icon: BellRing },
+// Every mode shows new answers as unread; they differ on the push.
+const NOTIFY_OPTIONS: { value: NotifyMode; label: string; icon: typeof Bell; hint: string }[] = [
+  { value: 'subscribe', label: 'Always', icon: Bell, hint: 'Unread badge and a push for every answer' },
+  { value: 'unsubscribe', label: 'No push', icon: BellOff, hint: 'Unread badge only' },
+  { value: 'auto', label: 'Auto', icon: BellRing, hint: 'Jarvis decides per answer: quiet, badge, or push' },
 ]
 
 interface Props {
@@ -20,8 +21,6 @@ interface Props {
   notify?: NotifyMode
   onNotifyChange?: (mode: NotifyMode) => void
   conversationId?: string
-  hasCron?: boolean
-  hasWebhook?: boolean
   /** Opens the parent's section picker — the menu itself stays dumb, like onRename. */
   onMove?: () => void
   onRefreshApp?: () => void
@@ -40,14 +39,13 @@ export interface ConversationMenuHandle {
 const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
   function ConversationMenu({
     onDelete, onRename,
-    notify = 'subscribe', onNotifyChange,
-    conversationId, hasCron, hasWebhook,
+    notify = 'auto', onNotifyChange,
+    conversationId,
     onMove,
     onRefreshApp, appUrl, onRotateAppToken,
     triggerClassName = '',
     compact = false,
   }, ref) {
-    const navigate = useNavigate()
     const [open, setOpen] = useState(false)
     const [sharing, setSharing] = useState(false)
     const [deleting, setDeleting] = useState(false)
@@ -68,7 +66,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
           <MoreHorizontal size={14} />
         </button>
 
-        <Popover anchor={btnRef} open={open} onClose={() => setOpen(false)} className='min-w-[150px] bg-surface border border-border rounded-xl shadow-md/5 p-1'>
+        <Popover anchor={btnRef} open={open} onClose={() => setOpen(false)} className={`${compact ? 'min-w-[150px]' : 'w-72 max-w-[calc(100vw-16px)]'} bg-surface border border-border rounded-xl shadow-md/5 p-1`}>
           {/* The panel is portalled, but React events still bubble to the row
               that rendered it — a click here must not also open the chat. */}
           <div onClick={(e) => e.stopPropagation()}>
@@ -99,16 +97,19 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                       ))}
                     </div>
                   )}
+                  {onNotifyChange && (
+                    <div className='mt-1 text-[10.5px] text-text-muted'>
+                      {NOTIFY_OPTIONS.find((o) => o.value === notify)?.hint}
+                    </div>
+                  )}
                 </div>
 
-                <div className='h-px bg-border my-1' />
-                <button
-                  onClick={() => { setOpen(false); navigate(`/routines?conversation_id=${conversationId}`) }}
-                  className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
-                >
-                  <Repeat size={14} />
-                  Routines{(hasCron || hasWebhook) ? '' : ' (none yet)'}
-                </button>
+                {conversationId && (
+                  <>
+                    <div className='h-px bg-border my-1' />
+                    <ChatRoutines conversationId={conversationId} onNavigate={() => setOpen(false)} />
+                  </>
+                )}
 
                 <div className='h-px bg-border my-1' />
               </>

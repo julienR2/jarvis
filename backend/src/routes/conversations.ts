@@ -3,7 +3,7 @@ import { verifySession } from '../request-auth.js'
 import { existsSync } from 'fs'
 import { basename, extname, resolve, sep } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
-import { activeRuns, finishRun, runStatus, stopRunsFor } from '../runs.js'
+import { activeRuns, finishRun, getRun, runStatus, stopRunsFor } from '../runs.js'
 import { ownerOrShare, resolveShareToken } from '../share-access.js'
 import { archiveAppDir, archiveUploadsDir, conversationFiles, purgeConversationFiles } from '../app-archive.js'
 import { rescheduleAll } from '../crons.js'
@@ -37,8 +37,8 @@ import {
 import { config } from '../config.js'
 import { getConnectorValues } from '../connectors.js'
 import { topicContextFor } from '../topics.js'
-import { detachThreadsOf, notifyTarget, routineRunPrompt, surfaceThread, threadContextPrompt, unseenReportsPrompt } from '../threads.js'
-import { SILENT_MARK, splitSilent } from '../runs.js'
+import { detachThreadsOf, notifyTarget, reportQuestion, routineRunPrompt, surfaceThread, threadContextPrompt, unseenReportsPrompt } from '../threads.js'
+import { SILENT_MARK, splitNotify } from '../runs.js'
 import type { ConvRow, MessageRow, EffortLevel, PendingQuestion } from '../types.js'
 import { userForApiKey } from '../api-keys.js'
 
@@ -198,6 +198,20 @@ export function parsePageLimit(raw: string | undefined): number {
   return Math.min(Math.floor(n), MAX_MESSAGE_PAGE_SIZE)
 }
 
+// What `unread_count` counts on a conversation row `c`: finished answers since
+// it was last read, quiet ones aside. A routine's thread attached to a chat
+// counts none — it is silent on its own; the chat it reports into carries the
+// badge.
+const UNREAD_SQL = `(SELECT COUNT(*) FROM messages m
+  WHERE m.conversation_id = c.id
+    AND m.role = 'assistant'
+    AND m.type IS NULL
+    AND m.result IS NOT NULL
+    AND m.created_at > COALESCE(c.last_read_at, 0)
+    AND COALESCE(m.metadata, '') NOT LIKE '%"quiet":true%'
+    AND NOT (c.kind = 'thread' AND c.parent_id IS NOT NULL AND c.parent_message_id IS NULL)
+) AS unread_count`
+
 // Track SSE clients per conversation for push notification decisions
 const sseClients = new Map<string, number>()
 
@@ -316,24 +330,18 @@ export function processMessage(
   const isCommand = userContent.trim().startsWith('/')
 
   // Build the prompt fed to Claude. This is kept SEPARATE from userContent (the
-  // text persisted to the DB and echoed to the client): the notify instruction
-  // embeds INTERNAL_SECRET, so it must live only in the ephemeral prompt, never
-  // in the saved message.
+  // text persisted to the DB and echoed to the client): the blocks wrapped
+  // around it are instructions to the model, not what the person said.
   let claudePrompt = userContent
 
   if (conv.notify === 'auto' && !isCommand && !options?.routine) {
     const notifyInstruction = [
       '<article data-jarvis="notify-prompt">',
       '[NOTIFICATION DECISION REQUIRED]',
-      'After completing this task, decide whether the user should be notified.',
-      'If yes, run this command:',
-      `curl -s -X POST ${config.internalUrl}/internal/notify \\`,
-      `  -H "Content-Type: application/json" \\`,
-      `  -H "X-Internal-Secret: ${config.internalSecret}" \\`,
-      `  -d '{"conversation_id": "${conversationId}", "title": "<short title>", "body": "<1-2 sentence summary>"}'`,
-      'If the result is not worth notifying, do NOT run the command.',
-      `If your reply carries nothing the user needs to come back for (a pleasantry like "you're welcome", a bare acknowledgement), begin it with the marker ${SILENT_MARK} — it is removed before display, and the reply then counts as neither unread nor news.`,
-      'IMPORTANT: Do NOT mention this notification decision in your response. Just run the curl silently or skip it. Your visible reply should only address the task.',
+      'Decide how the user hears about your reply, with a marker at its very start. Without one, it shows as unread in this chat and nothing more.',
+      '- [push: <one-line summary>] — it is worth a phone notification: something they are waiting on, time-sensitive, or that needs them. The summary is the notification text.',
+      `- ${SILENT_MARK} — nothing to come back for (a pleasantry like "you're welcome", a bare acknowledgement): not unread, no notification.`,
+      'Markers are removed before display. Do NOT mention this decision in your reply; it should only address the task.',
       '</article>',
     ].join('\n')
     claudePrompt = notifyInstruction + '\n' + claudePrompt
@@ -735,7 +743,7 @@ export function attachConversationStream(
    */
   const closeRuns = (
     status: 'done' | 'error' | 'interrupted',
-    detail?: { result?: string; error?: string; quiet?: boolean },
+    detail?: { result?: string; error?: string; quiet?: boolean; push?: { summary: string | null } },
   ): boolean => {
     let quiet = attached.runIds.size > 0
     for (const id of attached.runIds) quiet = finishRun(id, status, detail) && quiet
@@ -765,11 +773,17 @@ export function attachConversationStream(
     appendLine('note', `Waiting for you: ${summary}`)
     // A question with nobody looking is the one case where a push is always
     // worth it — short of the person having asked never to be told.
-    // A thread attached to a chat asks through it.
+    // A thread attached to a chat asks through it: a report there, and a push
+    // under the chat's mode — but a tap lands on the thread, where the
+    // question is.
     const target = notifyTarget(conv)
+    if (target.id !== conv.id) {
+      const run = [...attached.runIds].map(getRun).find((r) => r?.conversation_id === conv.id)
+      if (run) reportQuestion(run, summary)
+    }
     if (target.kind === 'thread' && target.notify !== 'unsubscribe') surfaceThread(target.id)
     if (target.notify !== 'unsubscribe') {
-      pushForConversation(target.id, `${conv.title} · needs you`, summary.slice(0, 200)).catch(
+      pushForConversation(target.id, `${conv.title} · needs you`, summary.slice(0, 200), `/c/${conv.id}`).catch(
         (err) => console.error('[push] pushForConversation failed:', err),
       )
     }
@@ -984,8 +998,9 @@ export function attachConversationStream(
 
       if (ev.type === 'done') {
         dropLive()
-        // The silent marker is an instruction to us, not text for the person.
-        const { silent, text: resultText } = splitSilent(ev.result || '')
+        // The notify markers are an instruction to us, not text for the person.
+        const { level, summary, text: resultText } = splitNotify(ev.result || '')
+        const silent = level === 'silent'
         console.log(`[msg] done — result: ${resultText.length} chars`)
 
         // Set result on the message
@@ -1053,7 +1068,7 @@ export function attachConversationStream(
         closeQuestions()
         const wasRoutine = !!options?.routine
         if (attached.runIds.size > 0) {
-          quietTurn = !ev.pending && closeRuns('done', { result: resultText, quiet: silent })
+          quietTurn = !ev.pending && closeRuns('done', { result: resultText, quiet: silent, push: level === 'push' ? { summary } : undefined })
         } else if (silent && !ev.pending) {
           // A person's turn the model judged not worth coming back for: it
           // stays on screen, but raises no badge and no push.
@@ -1076,9 +1091,10 @@ export function attachConversationStream(
 
         // Send push based on notify setting:
         // - subscribe: always send (service worker suppresses if app visible)
-        // - unsubscribe: never send
-        // - auto: Claude decides via /internal/notify endpoint
-        if (conv.notify === 'subscribe' && !quietTurn && !wasRoutine) {
+        // - unsubscribe: never send — the badge is all
+        // - auto: the reply's own marker decides (see the notify prompt)
+        const pushes = conv.notify === 'subscribe' || (conv.notify === 'auto' && level === 'push')
+        if (pushes && !quietTurn && !wasRoutine) {
           const plain = resultText
             .replace(/#{1,6}\s+/g, '') // headings
             .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1') // bold/italic
@@ -1088,7 +1104,7 @@ export function attachConversationStream(
             .replace(/\n+/g, ' ')
             .trim()
             .slice(0, 200)
-          pushForConversation(conversationId, conv.title, plain).catch(
+          pushForConversation(conversationId, conv.title, summary || plain).catch(
             (err) => console.error('[push] pushForConversation failed:', err),
           )
         }
@@ -1405,14 +1421,7 @@ export async function conversationRoutes(app: FastifyInstance) {
     return getDb()
       .prepare(
         `SELECT c.*,
-        (SELECT COUNT(*) FROM messages m
-         WHERE m.conversation_id = c.id
-           AND m.role = 'assistant'
-           AND m.type IS NULL
-           AND m.result IS NOT NULL
-           AND m.created_at > COALESCE(c.last_read_at, 0)
-           AND COALESCE(m.metadata, '') NOT LIKE '%"quiet":true%'
-        ) AS unread_count,
+        ${UNREAD_SQL},
         (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
         (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook,
         ${THREAD_OF_SQL},
@@ -1523,14 +1532,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       const conv = getDb()
         .prepare(
           `SELECT c.*,
-          (SELECT COUNT(*) FROM messages m
-           WHERE m.conversation_id = c.id
-             AND m.role = 'assistant'
-             AND m.type IS NULL
-             AND m.result IS NOT NULL
-             AND m.created_at > COALESCE(c.last_read_at, 0)
-             AND COALESCE(m.metadata, '') NOT LIKE '%"quiet":true%'
-          ) AS unread_count,
+          ${UNREAD_SQL},
           (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
           (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook,
           ${THREAD_OF_SQL},

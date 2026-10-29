@@ -65,11 +65,12 @@ export function sendPushToAll(title: string, body: string, url?: string): Promis
 /**
  * A push about one conversation. Stamps `notified_at` first: Today reads it to
  * rank a chat that was worth a notification above one with plain unread
- * answers — and it must be set even if no device takes the push.
+ * answers — and it must be set even if no device takes the push. `url` is
+ * where a tap lands, when that is not the chat itself (a thread's question).
  */
-export function pushForConversation(conversationId: string, title: string, body: string): Promise<number> {
+export function pushForConversation(conversationId: string, title: string, body: string, url = `/c/${conversationId}`): Promise<number> {
   getDb().prepare('UPDATE conversations SET notified_at = unixepoch() WHERE id = ?').run(conversationId)
-  return sendPushToAll(title, body, `/c/${conversationId}`)
+  return sendPushToAll(title, body, url)
 }
 
 // There used to be a "dismiss" push here: reading a chat on one device sent a

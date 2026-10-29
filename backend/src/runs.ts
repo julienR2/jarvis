@@ -28,7 +28,7 @@ export function runSessionKey(run: RunRow): string {
   return run.run_key ?? run.conversation_id
 }
 
-function getRun(id: string): RunRow | undefined {
+export function getRun(id: string): RunRow | undefined {
   return getDb().prepare('SELECT * FROM runs WHERE id = ?').get(id) as RunRow | undefined
 }
 
@@ -87,7 +87,7 @@ export function startRun(opts: {
 export function finishRun(
   id: string,
   status: Exclude<RunStatus, 'running' | 'needs_you'>,
-  detail?: { result?: string; error?: string; quiet?: boolean },
+  detail?: { result?: string; error?: string; quiet?: boolean; push?: { summary: string | null } },
 ): boolean {
   const run = getRun(id)
   if (!run || !isActive(run.status)) return false
@@ -100,7 +100,7 @@ export function finishRun(
     .run(status, detail?.result ?? null, detail?.error ?? null, quiet, id)
   if (quiet) markQuietMessages(id)
   emitRuns(run.conversation_id)
-  reportRun(getRun(id)!, quiet === 1)
+  reportRun(getRun(id)!, quiet === 1, detail?.push ?? null)
   return quiet === 1
 }
 
@@ -147,6 +147,27 @@ export function splitSilent(text: string): { silent: boolean; text: string } {
   const silent = /(^|\n)[ \t]*\[quiet\]/i.test(text)
   if (!silent) return { silent, text }
   return { silent, text: text.replace(/(^|\n)([ \t]*)\[quiet\][ \t]*/gi, '$1$2').trim() }
+}
+
+/**
+ * How a reply asks to be heard: `[quiet]` — nothing to come back for, no
+ * badge, no push; `[push: <one line>]` — worth a notification now, that line
+ * its text (the summary is optional); no marker — a badge, nothing more.
+ * Only Auto asks for a marker; the chat's mode decides what it is worth.
+ */
+export type NotifyLevel = 'silent' | 'badge' | 'push'
+
+const PUSH_RE = /(^|\n)([ \t]*)\[push(?::[ \t]*([^\]\n]*))?\][ \t]*/gi
+
+/** A reply's notify level and push summary, and its text without the markers. */
+export function splitNotify(raw: string): { level: NotifyLevel; summary: string | null; text: string } {
+  const { silent, text: unquiet } = splitSilent(raw)
+  const match = new RegExp(PUSH_RE.source, 'i').exec(unquiet)
+  const text = match ? unquiet.replace(PUSH_RE, '$1$2').trim() : unquiet
+  // Both markers is a confused answer; the quieter one wins.
+  if (silent) return { level: 'silent', summary: null, text }
+  if (match) return { level: 'push', summary: match[3]?.trim() || null, text }
+  return { level: 'badge', summary: null, text }
 }
 
 const QUIET_OPENERS = /^(?:\[quiet\]|ras\b|rien à signaler|nothing to report|no news|⏭️)/iu

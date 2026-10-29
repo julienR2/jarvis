@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, ChevronRight, Clock, Link2, MessageSquare } from 'lucide-react'
+import { ChevronDown, ChevronRight, MessageSquare, Repeat } from 'lucide-react'
 import { api, describePending, pendingQuestionOf, questionsOf, type Conversation, type Message, type RunListItem } from '../api'
 import AnswerCard, { answerFromComposer } from './AnswerCard'
 import ChatInput from './ChatInput'
@@ -51,7 +51,7 @@ export default function NeedsYouCard({
   const shown = showTrail ? thisExchange : trail.slice(-1)
   const moreCount = thisExchange.length - 1
 
-  const Icon = run?.kind === 'webhook' ? Link2 : run?.kind === 'cron' ? Clock : MessageSquare
+  const Icon = run ? Repeat : MessageSquare
   const hint = pending ? describePending(pending) : ''
 
   async function answer(text: string, attachments: Parameters<typeof answerFromComposer>[3], answers?: Record<string, string>) {

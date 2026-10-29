@@ -2,10 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Plus,
-  Clock,
   Repeat,
   AppWindow,
-  Link2,
   Earth,
   ChevronUp,
   ChevronDown,
@@ -327,8 +325,8 @@ function SectionGroup({
   const renameSection = useChatStore((s) => s.renameSection)
   const deleteSection = useChatStore((s) => s.deleteSection)
   const moveSection = useChatStore((s) => s.moveSection)
+  const createConversation = useChatStore((s) => s.createConversation)
   const [renaming, setRenaming] = useState(false)
-  const navigate = useNavigate()
 
   const unread = convs.reduce((n, c) => n + (c.unread_count || 0), 0)
   // Collapsed groups still show the open conversation, so navigating into one
@@ -375,7 +373,10 @@ function SectionGroup({
           <SectionMenu
             canMoveUp={canMoveUp}
             canMoveDown={canMoveDown}
-            onRoutines={() => navigate(`/routines?section_id=${section.id}`)}
+            onNewChat={async () => {
+              const conv = await createConversation(undefined, section.id)
+              onNav(`/c/${conv.id}`)
+            }}
             onRename={() => setRenaming(true)}
             onMoveUp={() => moveSection(section.id, -1)}
             onMoveDown={() => moveSection(section.id, 1)}
@@ -486,7 +487,7 @@ function ThreadsGroup({
 function SectionMenu({
   canMoveUp,
   canMoveDown,
-  onRoutines,
+  onNewChat,
   onRename,
   onMoveUp,
   onMoveDown,
@@ -494,7 +495,7 @@ function SectionMenu({
 }: {
   canMoveUp: boolean
   canMoveDown: boolean
-  onRoutines: () => void
+  onNewChat: () => void
   onRename: () => void
   onMoveUp: () => void
   onMoveDown: () => void
@@ -521,11 +522,11 @@ function SectionMenu({
       </button>
       <Popover anchor={btnRef} open={open} onClose={() => setOpen(false)} className='min-w-[150px] bg-surface border border-border rounded-xl shadow-md/5 p-1'>
           <MenuButton
-            icon={<Repeat size={14} />}
-            label='Routines'
+            icon={<Plus size={14} />}
+            label='New chat'
             onClick={() => {
               setOpen(false)
-              onRoutines()
+              onNewChat()
             }}
           />
           <MenuButton
@@ -666,22 +667,13 @@ function ConvItem({
               <AppWindow size={11} className='text-text-muted' />
             </span>
           )}
-          {!!conv.has_cron && (
+          {!!(conv.has_cron || conv.has_webhook) && (
             <span
-              title='Cron'
+              title='Routines'
               className='hover:text-accent transition-colors cursor-pointer'
               onClick={(e) => { e.stopPropagation(); navigate(`/routines?conversation_id=${conv.id}`) }}
             >
-              <Clock size={11} className='text-text-muted hover:text-accent' />
-            </span>
-          )}
-          {!!conv.has_webhook && (
-            <span
-              title='Webhook'
-              className='hover:text-accent transition-colors cursor-pointer'
-              onClick={(e) => { e.stopPropagation(); navigate(`/routines?conversation_id=${conv.id}`) }}
-            >
-              <Link2 size={11} className='text-text-muted hover:text-accent' />
+              <Repeat size={11} className='text-text-muted hover:text-accent' />
             </span>
           )}
           {!!conv.share_mode && (

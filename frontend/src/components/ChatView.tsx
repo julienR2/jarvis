@@ -25,7 +25,7 @@ import AppPreview from './AppPreview'
 import ResizeHandle from './ResizeHandle'
 import { useIsDesktop } from '../hooks/useIsDesktop'
 import { ContentTitle } from './ContentLayout'
-import RoutinesPill from './RoutinesPill'
+import RunsPill from './RunsPill'
 import RunBlock from './RunBlock'
 import { RunReportCard, RunReportStack } from './RunReport'
 import { confirmThreadMove, THREAD_GROUP } from '../lib/threads'
@@ -178,7 +178,7 @@ export default function ChatView({
     hasApp && appShareToken
       ? `${API_BASE}/apps/${conv!.app_path!.replace(/^apps\//, '')}/index.html?token=${appShareToken}`
       : undefined
-  const notify: Conversation['notify'] = conv?.notify ?? 'subscribe'
+  const notify: Conversation['notify'] = conv?.notify ?? 'auto'
   // `null` on the row means "the instance default", which depends on the
   // configured providers and which one is marked default — so it has to come
   // from the catalogue, not the compiled-in fallback. Using the constant here
@@ -209,8 +209,6 @@ export default function ChatView({
   const isThread = conv?.kind === 'thread'
   // A routine's thread attached to a chat does not notify on its own: the chat decides.
   const notifiesThroughParent = isThread && !!conv?.parent_id && !conv?.parent_message_id
-  const hasCron = !!conv?.has_cron || !!conv?.thread_of?.startsWith('cron:')
-  const hasWebhook = !!conv?.has_webhook || !!conv?.thread_of?.startsWith('webhook:')
   const shareMode = conv?.share_mode ?? null
   const sectionId = conv?.section_id ?? null
   const contextTokens = conv?.context_tokens ?? null
@@ -733,10 +731,10 @@ export default function ChatView({
           <ContentTitle
             action={conversationId && !shared ? (
               <span className='flex items-center gap-2'>
-                {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <RoutinesPill conversationId={conversationId} hasRoutines={hasCron || hasWebhook} />}
+                {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <RunsPill conversationId={conversationId} />}
                 <ShareIcon shareMode={shareMode} />
                 <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={notifiesThroughParent ? undefined : handleNotifyChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
+                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={notifiesThroughParent ? undefined : handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
               </span>
             ) : undefined}
           >
@@ -775,10 +773,10 @@ export default function ChatView({
               <ContentTitle
                 action={conversationId && !shared ? (
                   <span className='flex items-center gap-2'>
-                    {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <RoutinesPill conversationId={conversationId} hasRoutines={hasCron || hasWebhook} />}
+                    {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <RunsPill conversationId={conversationId} />}
                     <ShareIcon shareMode={shareMode} />
                     <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-                        <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={notifiesThroughParent ? undefined : handleNotifyChange} conversationId={conversationId} hasCron={hasCron} hasWebhook={hasWebhook} onMove={() => setMoving(true)} />
+                        <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={notifiesThroughParent ? undefined : handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} />
                   </span>
                 ) : undefined}
               >
