@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, ChevronRight, Clock, Link2, Loader2, MessageCircleQuestion, Settings2, Square } from 'lucide-react'
+import { AlertCircle, ChevronRight, Loader2, MessageCircleQuestion, Repeat, Settings2, Square } from 'lucide-react'
 import type { Message, Run } from '../api'
 import MessageBubble from './MessageBubble'
 
@@ -42,7 +42,6 @@ export default function RunBlock({
   const prompt = msgs.find((m) => m.role === 'user')
   const output = msgs.filter((m) => m !== prompt)
   const running = run?.status === 'running' || (live && !run)
-  const Icon = run?.kind === 'webhook' ? Link2 : Clock
 
   const newsworthy = running || (!!run && run.status !== 'done')
   const header = !inOwnThread || newsworthy || !!prompt
@@ -52,7 +51,7 @@ export default function RunBlock({
       <div className='mb-3 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-text-muted'>
         {!inOwnThread && (
           <span className='inline-flex items-center gap-1 rounded-full bg-surface2 px-2 py-px font-medium text-text-secondary'>
-            <Icon size={10} />
+            <Repeat size={10} />
             {run?.source_name ?? 'automation'}
           </span>
         )}

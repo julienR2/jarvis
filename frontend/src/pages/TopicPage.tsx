@@ -64,8 +64,7 @@ export default function TopicPage() {
     if (!section || creating) return
     setCreating(true)
     try {
-      const conv = await useChatStore.getState().createConversation()
-      await useChatStore.getState().patchConversation(conv.id, { section_id: section.id })
+      const conv = await useChatStore.getState().createConversation(undefined, section.id)
       navigate(`/c/${conv.id}`)
     } finally {
       setCreating(false)
@@ -116,7 +115,6 @@ export default function TopicPage() {
             </button>
             <Popover anchor={menuRef} open={menu} onClose={() => setMenu(false)} className='min-w-[160px] rounded-xl border border-border bg-surface p-1 shadow-md/5'>
                 <MenuItem icon={<Pencil size={14} />} label='Rename' onClick={() => { setMenu(false); setRenaming(true) }} />
-                <MenuItem icon={<Repeat size={14} />} label='Routines' onClick={() => { setMenu(false); navigate(`/routines?section_id=${section.id}`) }} />
                 <MenuItem
                   icon={<Trash2 size={14} />}
                   label='Delete topic'

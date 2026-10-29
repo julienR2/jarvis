@@ -75,7 +75,7 @@ interface ChatState {
 
   // ── List actions ─────────────────────────────────────────────────────────
   loadConversations: () => Promise<void>
-  createConversation: (title?: string) => Promise<Conversation>
+  createConversation: (title?: string, sectionId?: string | null) => Promise<Conversation>
   deleteConversation: (id: string, opts?: DeleteOptions) => Promise<void>
   /** Drop conversations the server already removed. */
   forgetConversations: (ids: string[]) => void
@@ -248,8 +248,8 @@ export const useChatStore = create<ChatState>()(
       }
     },
 
-    async createConversation(title) {
-      const conv = await api.createConversation(title)
+    async createConversation(title, sectionId) {
+      const conv = await api.createConversation(title, sectionId)
       set((s) => {
         s.conversations[conv.id] = conv
         s.order.unshift(conv.id)

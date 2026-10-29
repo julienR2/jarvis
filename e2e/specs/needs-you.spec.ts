@@ -125,10 +125,10 @@ test.describe('needs you', () => {
 
   test('the chat title bar shows the parked run and offers Stop', async ({ page }) => {
     await openConversation(page, 'Reply to Marta')
-    const pill = page.getByRole('main').getByTestId('routines-pill').locator('visible=true').first()
+    const pill = page.getByRole('main').getByTestId('runs-pill').locator('visible=true').first()
     await expect(pill).toContainText('1 running')
     await pill.click()
-    const pop = page.getByTestId('routines-popover')
+    const pop = page.getByTestId('runs-popover')
     await expect(pop.getByText('waiting for you')).toBeVisible()
     await expect(pop.getByRole('button', { name: /Stop/ })).toBeVisible()
   })

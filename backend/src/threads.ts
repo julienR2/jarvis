@@ -5,14 +5,18 @@
 // the whole history of what the routine did reads in one place, and the person
 // can open it and talk to it like any chat.
 //
-// A thread may be attached to a chat (`parent_id`). It then never notifies on
-// its own — its notify mode is held at 'unsubscribe' for as long as it is
-// attached: each finished run leaves a report in the parent — the answer when
-// there was something to say, a silent line when there was not — and the
-// parent's notify mode decides about the push. A thread attached to nothing
-// starts on 'auto' (again, when it is detached) and shows up in the sidebar's
-// Threads group when a run had something worth seeing, and stays there until
-// it is dismissed.
+// A thread may be attached to a chat (`parent_id`). It is then silent on its
+// own — no push, no unread count — and its notify mode is held at
+// 'unsubscribe' for as long as it is attached: each finished run leaves a
+// report in the parent — the answer when there was something to say, a silent
+// line when there was not — and the parent's notify mode decides about the
+// push. A thread attached to nothing starts on 'auto' (again, when it is
+// detached) and shows up in the sidebar's Threads group, with a badge, when a
+// run had something worth seeing, and stays there until it is dismissed.
+//
+// Either way the mode that decides reads the same: Always pushes whatever was
+// worth a badge, No push (unsubscribe) never pushes, and Auto pushes what the
+// run marked [push] — and failures, which the person has to know about.
 
 import { getDb, uuid } from './db.js'
 import { emitConversationEvent, emitGlobalEvent } from './sse.js'
@@ -119,7 +123,9 @@ export function routineRunPrompt(
     `This is a run of the routine "${name}" (${kind === 'cron' ? 'on a schedule' : 'triggered by a webhook'}), not a message typed by the user.`,
     ...attached,
     'The user only hears about it when it matters. If there is nothing worth their attention — nothing new, nothing to do, every check fine —',
-    'begin your final answer with the marker [quiet] followed by a one-line summary. Otherwise answer normally and lead with what matters.',
+    'begin your final answer with the marker [quiet] followed by a one-line summary. Otherwise answer normally and lead with what matters:',
+    'it shows as unread, without a phone notification. When it is worth interrupting them for — time-sensitive, or something they must act on —',
+    'begin your final answer with [push: <one-line summary>] instead; that line becomes the notification.',
     'Errors and questions always reach the user; do not mark those [quiet].',
     '</article>',
   ].join('\n')
@@ -148,10 +154,12 @@ const plain = (text: string) =>
 /**
  * A run in a thread closed: tell whoever should hear about it.
  *
- * `worthy` is the whole decision — an error, a run cut short, or a done with
- * something to say. Stopped runs are the person's own doing and say nothing.
+ * `worthy` decides whether it is heard at all — an error, a run cut short, or
+ * a done with something to say. Stopped runs are the person's own doing and
+ * say nothing. `push` is the run asking for a notification (its [push]
+ * marker); the deciding chat's mode says whether it gets one.
  */
-export function reportRun(run: RunRow, quiet: boolean): void {
+export function reportRun(run: RunRow, quiet: boolean, push: { summary: string | null } | null = null): void {
   const thread = getConv(run.conversation_id)
   if (!thread || thread.kind !== 'thread') return
   const failed = run.status === 'error' || run.status === 'interrupted'
@@ -160,50 +168,73 @@ export function reportRun(run: RunRow, quiet: boolean): void {
   const text = failed
     ? run.error || 'The run failed.'
     : (run.result ?? '').trim() || 'Done.'
+  const pushes = (mode: ConvRow['notify']) =>
+    mode === 'subscribe' || (mode === 'auto' && (failed || !!push))
+  const pushText = push?.summary || plain(text)
 
   const parent = getConv(thread.parent_id)
   if (parent) {
-    const report: RunReport = {
-      run_id: run.id,
-      thread_id: thread.id,
-      source_name: run.source_name,
-      kind: run.kind,
-      status: run.status,
-    }
-    const meta: Record<string, unknown> = { report }
-    if (!worthy) meta.quiet = true
-    const id = uuid()
-    getDb()
-      .prepare(
-        `INSERT INTO messages (id, conversation_id, role, content, result, metadata)
-         VALUES (?, ?, 'assistant', '', ?, ?)`,
-      )
-      .run(id, parent.id, text, JSON.stringify(meta))
-    const row = getDb()
-      .prepare('SELECT *, rowid AS seq FROM messages WHERE id = ?')
-      .get(id) as MessageRow
-    emitConversationEvent(parent.id, { type: 'message', message: row })
-    // A silent report is a line in the transcript, not activity: it does not
-    // move the chat up the sidebar, count as unread, or ring anything.
+    postReport(parent, thread, run, text, !worthy)
     if (!worthy) return
-    getDb().prepare('UPDATE conversations SET updated_at = unixepoch() WHERE id = ?').run(parent.id)
-    emitGlobalEvent({ type: 'new_message', conversation_id: parent.id })
-    // Auto counts a routine's worthy report as worth a push: the routine was
-    // already told to stay quiet when it had nothing.
-    if (parent.notify !== 'unsubscribe') {
-      pushForConversation(parent.id, `${parent.title} · ${run.source_name}`, plain(text)).catch((err) =>
+    if (pushes(parent.notify)) {
+      pushForConversation(parent.id, `${parent.title} · ${run.source_name}`, pushText).catch((err) =>
         console.error('[push] report push failed:', err),
       )
     }
     return
   }
 
-  if (!worthy || thread.notify === 'unsubscribe') return
+  if (!worthy) return
   surfaceThread(thread.id)
   emitGlobalEvent({ type: 'new_message', conversation_id: thread.id })
-  pushForConversation(thread.id, thread.title, plain(text)).catch((err) =>
+  if (!pushes(thread.notify)) return
+  pushForConversation(thread.id, thread.title, pushText).catch((err) =>
     console.error('[push] thread push failed:', err),
   )
+}
+
+/**
+ * Leave a run's report in the chat its thread is attached to. A quiet one is
+ * a line in the transcript, not activity: it does not move the chat up the
+ * sidebar, count as unread, or ring anything.
+ */
+function postReport(parent: ConvRow, thread: ConvRow, run: RunRow, text: string, quiet: boolean): void {
+  const report: RunReport = {
+    run_id: run.id,
+    thread_id: thread.id,
+    source_name: run.source_name,
+    kind: run.kind,
+    status: run.status,
+  }
+  const meta: Record<string, unknown> = { report }
+  if (quiet) meta.quiet = true
+  const id = uuid()
+  getDb()
+    .prepare(
+      `INSERT INTO messages (id, conversation_id, role, content, result, metadata)
+       VALUES (?, ?, 'assistant', '', ?, ?)`,
+    )
+    .run(id, parent.id, text, JSON.stringify(meta))
+  const row = getDb()
+    .prepare('SELECT *, rowid AS seq FROM messages WHERE id = ?')
+    .get(id) as MessageRow
+  emitConversationEvent(parent.id, { type: 'message', message: row })
+  if (quiet) return
+  getDb().prepare('UPDATE conversations SET updated_at = unixepoch() WHERE id = ?').run(parent.id)
+  emitGlobalEvent({ type: 'new_message', conversation_id: parent.id })
+}
+
+/**
+ * A run in a thread attached to a chat stopped on a question. The question
+ * waits in the thread, which counts no unread of its own — so the chat gets a
+ * report saying so, unread there and one click from the thread. The push is
+ * the caller's (it goes out for questions outside runs too).
+ */
+export function reportQuestion(run: RunRow, summary: string): void {
+  const thread = getConv(run.conversation_id)
+  const parent = getConv(thread?.parent_id)
+  if (!thread || !parent || thread.parent_message_id) return
+  postReport(parent, thread, { ...run, status: 'needs_you' }, `Waiting for you: ${summary}`, false)
 }
 
 /** List a thread in the sidebar's Threads group (again). */
