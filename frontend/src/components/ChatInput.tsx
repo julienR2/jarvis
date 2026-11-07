@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion, Reply, ChevronLeft, ArrowRight, Loader2 } from 'lucide-react'
 import AudioButton from './AudioButton'
 import AnswerCard, { OptionList, hasOptions } from './AnswerCard'
@@ -6,14 +6,12 @@ import ModelSelector from './ModelSelector'
 import { SlashMenu, useSlashMenu } from './SlashMenu'
 import { api, questionsOf, type Attachment, type Effort, type PendingQuestion, type ReplyTo } from '../api'
 import type { OutgoingUpload } from '../lib/outbox'
+import { drafts, revoke, useDraft, type DraftFile } from '../lib/drafts'
 
-export interface PendingFile {
-  file: File
-  preview?: string  // data URL for images
-  uploading: boolean
-  uploaded?: Attachment
-  error?: string
-  upload: Promise<Attachment>
+/** What the composer held when a voice message was sent: it goes along. */
+export interface VoiceExtras {
+  text: string
+  files: DraftFile[]
 }
 
 interface Props {
@@ -27,10 +25,17 @@ interface Props {
   /** A voice message sent from elsewhere is being transcribed for this chat:
    *  the composer shows it as if dictated here. */
   transcribing?: boolean
-  onSendAudio: (blob: Blob) => Promise<void>
+  /** The voice message and whatever else was in the composer — typed text,
+   *  attachments (uploads possibly still running) — which the draft gives up
+   *  for it. A rejection hands them back to the draft. */
+  onSendAudio: (blob: Blob, extras: VoiceExtras) => Promise<void>
   onCancel: () => void
   isProcessing: boolean
   conversationId?: string
+  /** Whose draft this composer edits (lib/drafts). Defaults to the chat's
+   *  id, so a chat and its Today card share one; with neither, the draft
+   *  lasts as long as the composer. */
+  draftKey?: string
   autoFocus?: boolean
   /** Focus the input each time this changes to a new truthy value. */
   focusKey?: unknown
@@ -62,14 +67,22 @@ interface Props {
   onEffortChange?: (effort: Effort) => void
 }
 
-export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio, onCancel, isProcessing, conversationId, autoFocus, focusKey, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange }: Props) {
-  const [input, setInput] = useState(initialText || '')
+export default function ChatInput({ onSend, onSendNow, transcribing: transcribingElsewhere, onSendAudio, onCancel, isProcessing, conversationId, draftKey, autoFocus, focusKey, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange }: Props) {
+  const [ownKey] = useState(() => `tmp:${Math.random().toString(36).slice(2)}`)
+  const key = draftKey ?? conversationId ?? ownKey
+  // Text, files and transcriptions are the chat's, not the composer's: they
+  // stay with it when another chat is opened, and what finishes meanwhile
+  // lands there.
+  const draft = useDraft(key)
+  const input = draft.text
+  const files = draft.files
+  const setInput = (text: string) => drafts.setText(key, text)
+  const transcribing = !!transcribingElsewhere || draft.transcribing > 0
   // A fresh quote is an invitation to type under it.
   useEffect(() => {
     if (quote) textareaRef.current?.focus()
   }, [quote])
   const [audioActive, setAudioActive] = useState(false)
-  const [files, setFiles] = useState<PendingFile[]>([])
   const [dragOver, setDragOver] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -127,19 +140,23 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
     if (focusKey) setTimeout(() => textareaRef.current?.focus(), 50)
   }, [focusKey])
 
-  // Handle initial text from share intent
+  // Text handed over (a share, "Edit in chat") joins a draft already there
+  // rather than wiping it — once: it is not added again if already in.
   useEffect(() => {
-    if (initialText) {
-      setInput(initialText)
-      // Auto-resize textarea for pre-filled text
-      setTimeout(() => {
-        if (textareaRef.current) {
-          textareaRef.current.style.height = 'auto'
-          textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`
-        }
-      }, 0)
-    }
+    if (!initialText) return
+    const current = drafts.get(key).text
+    if (!current.trim()) setInput(initialText)
+    else if (!current.includes(initialText)) setInput(`${current}\n${initialText}`)
   }, [initialText])
+
+  // The box fits what it holds, up to a cap — typed, dictated, or a draft
+  // come back to.
+  useLayoutEffect(() => {
+    const t = textareaRef.current
+    if (!t) return
+    t.style.height = 'auto'
+    t.style.height = `${Math.min(t.scrollHeight, 200)}px`
+  }, [input])
 
   // Handle initial files from share intent
   useEffect(() => {
@@ -150,29 +167,7 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
   }, [initialFiles])
 
   function addFiles(newFiles: File[]) {
-    // Each file is found again by its upload, not its index: one removed
-    // meanwhile shifts the others.
-    const pending: PendingFile[] = newFiles.map(file => {
-      const upload = api.uploadFile(file, conversationId)
-      upload.then(
-        (attachment) => setFiles(prev => prev.map(f => f.upload === upload ? { ...f, uploading: false, uploaded: attachment } : f)),
-        (err: Error) => setFiles(prev => prev.map(f => f.upload === upload ? { ...f, uploading: false, error: err.message } : f)),
-      )
-      const p: PendingFile = { file, uploading: true, upload }
-      if (file.type.startsWith('image/')) {
-        p.preview = URL.createObjectURL(file)
-      }
-      return p
-    })
-    setFiles(prev => [...prev, ...pending])
-  }
-
-  function removeFile(index: number) {
-    setFiles(prev => {
-      const f = prev[index]
-      if (f.preview) URL.revokeObjectURL(f.preview)
-      return prev.filter((_, i) => i !== index)
-    })
+    drafts.addFiles(key, newFiles, conversationId)
   }
 
   function handleSend() {
@@ -188,19 +183,14 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
       const sending = files.filter(f => !f.error)
       if (!input.trim() && sending.length === 0) return
       onSendNow(input, sending)
-      setFiles([])
-      setInput('')
-      if (textareaRef.current) textareaRef.current.style.height = 'auto'
+      // The previews of what is sent are the caller's now.
+      revoke(drafts.take(key).files.filter(f => f.error))
       return
     } else {
       if (!input.trim() && attachments.length === 0) return
       onSend(input, attachments)
     }
-    // Clean up previews
-    files.forEach(f => { if (f.preview) URL.revokeObjectURL(f.preview) })
-    setFiles([])
-    setInput('')
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
+    revoke(drafts.take(key).files)
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -212,24 +202,28 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
     }
   }
 
-  async function handleTranscript(blob: Blob) {
-    await onSendAudio(blob)
+  // Both are bound to this chat's draft when the recording stops: a
+  // transcription still running when another chat is opened finishes into
+  // this one, never into the composer on screen.
+  async function handleVoice(blob: Blob) {
+    const k = key
+    const taken = drafts.take(k)
+    try {
+      await drafts.track(k, onSendAudio(blob, taken))
+      revoke(taken.files)
+    } catch (err) {
+      drafts.restore(k, taken)
+      window.__jarvisToast?.error("Couldn't send the voice message — what you had attached is back in the box.")
+      throw err
+    }
   }
 
   async function handleTranscribeOnly(blob: Blob) {
-    const res = await api.transcribeAudio(blob)
-    if (!res?.transcript) return
-    setInput(prev => {
-      const prefix = prev.length > 0 && !prev.endsWith(' ') ? ' ' : ''
-      return prev + prefix + res.transcript
-    })
+    const k = key
+    const res = await drafts.track(k, api.transcribeAudio(blob))
+    if (!res?.transcript?.trim()) return
+    drafts.appendText(k, res.transcript.trim())
     setTimeout(() => textareaRef.current?.focus(), 0)
-  }
-
-  function handleInput(e: React.FormEvent<HTMLTextAreaElement>) {
-    const t = e.currentTarget
-    t.style.height = 'auto'
-    t.style.height = `${Math.min(t.scrollHeight, 200)}px`
   }
 
   function handlePaste(e: React.ClipboardEvent) {
@@ -261,7 +255,7 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
 
   const hasFiles = files.length > 0
   const allUploaded = files.every(f => f.uploaded || f.error)
-  const hasContent = !!input.trim() || files.some(f => f.uploaded || (onSendNow && f.uploading))
+  const hasContent = !!input.trim() || files.some(f => f.uploaded || (onSendNow && !f.error))
 
   // A question Jarvis asked (not a tool approval): its options are drawn on the
   // input, and picking one sets the input's value — the input IS the answer,
@@ -354,20 +348,20 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
           {/* File previews */}
           {hasFiles && (
             <div className="flex flex-wrap gap-2 px-4 pt-3">
-              {files.map((f, i) => (
-                <div key={i} className="relative group">
+              {files.map((f) => (
+                <div key={f.key} className="relative group" title={f.name}>
                   {f.preview ? (
                     <div className="w-16 h-16 rounded-lg overflow-hidden border border-border">
-                      <img src={f.preview} alt={f.file.name} className="w-full h-full object-cover" />
+                      <img src={f.preview} alt={f.name} className="w-full h-full object-cover" />
                     </div>
                   ) : (
                     <div className="w-16 h-16 rounded-lg border border-border bg-bg flex flex-col items-center justify-center gap-1 px-1">
                       <FileText size={16} className="text-text-muted shrink-0" />
-                      <span className="text-[9px] text-text-muted truncate w-full text-center">{f.file.name.split('.').pop()}</span>
+                      <span className="text-[9px] text-text-muted truncate w-full text-center">{f.name.split('.').pop()}</span>
                     </div>
                   )}
                   {/* Upload state overlay */}
-                  {f.uploading && (
+                  {!f.uploaded && !f.error && (
                     <div className="absolute inset-0 bg-black/40 rounded-lg flex items-center justify-center">
                       <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     </div>
@@ -379,7 +373,7 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
                   )}
                   {/* Remove button */}
                   <button
-                    onClick={() => removeFile(i)}
+                    onClick={() => drafts.removeFile(key, f.key)}
                     className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-surface border border-border rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                   >
                     <X size={10} className="text-text-muted" />
@@ -396,7 +390,6 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              onInput={handleInput}
               onPaste={handlePaste}
               onFocus={() => setTimeout(() => textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
               placeholder={effectivePlaceholder}
@@ -452,7 +445,7 @@ export default function ChatInput({ onSend, onSendNow, transcribing, onSendAudio
               {/* AudioButton always mounted to preserve state; visible when idle mic or actively recording */}
               <div className={showMic || audioActive ? '' : 'hidden'}>
                 <AudioButton
-                  onAudioReady={multi ? handleTranscribeOnly : handleTranscript}
+                  onAudioReady={multi ? handleTranscribeOnly : handleVoice}
                   onTranscribeReady={handleTranscribeOnly}
                   onActiveChange={setAudioActive}
                 />

@@ -5,7 +5,7 @@ import { basename, extname, resolve, sep } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { activeRuns, finishRun, getRun, runStatus, stopRunsFor } from '../runs.js'
 import { ownerOrShare, resolveShareToken } from '../share-access.js'
-import { archiveAppDir, archiveUploadsDir, conversationFiles, purgeConversationFiles } from '../app-archive.js'
+import { appAcceptsShares, archiveAppDir, archiveUploadsDir, conversationFiles, purgeConversationFiles } from '../app-archive.js'
 import { rescheduleAll } from '../crons.js'
 import { ensureAppToken, rotateAppToken, generateShareToken } from '../app-tokens.js'
 import { UPLOADS_DIR } from './uploads.js'
@@ -1780,6 +1780,17 @@ export async function conversationRoutes(app: FastifyInstance) {
     return { token }
   })
 
+  // GET /:id/app-share — whether the chat's app takes what is shared to it.
+  // The share picker asks before opening it: one that doesn't gets the share
+  // in the chat's composer instead.
+  app.get<{ Params: { id: string } }>('/:id/app-share', auth, async (req, reply) => {
+    const conv = getDb()
+      .prepare('SELECT app_path FROM conversations WHERE id = ?')
+      .get(req.params.id) as Pick<ConvRow, 'app_path'> | undefined
+    if (!conv) return reply.code(404).send({ error: 'Not found' })
+    return { accepts: !!conv.app_path && appAcceptsShares(req.params.id, conv.app_path) }
+  })
+
   // POST /:id/app-token/rotate — invalidate every link already handed out.
   app.post<{ Params: { id: string } }>(
     '/:id/app-token/rotate',
@@ -1988,20 +1999,9 @@ export async function conversationRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'Empty message' })
       }
 
-      // A quote must point at a message of this very conversation and stay a
-      // passage, not a pasted document.
-      let replyTo: ReplyTo | undefined
-      if (reply_to) {
-        const { message_id, text } = reply_to
-        if (typeof message_id !== 'string' || typeof text !== 'string' || !text.trim()) {
-          return reply.code(400).send({ error: 'reply_to needs message_id and text' })
-        }
-        const owned = getDb()
-          .prepare('SELECT 1 FROM messages WHERE id = ? AND conversation_id = ?')
-          .get(message_id, id)
-        if (!owned) return reply.code(400).send({ error: 'reply_to.message_id is not in this conversation' })
-        replyTo = { message_id, text: text.trim().slice(0, 2000) }
-      }
+      const quoted = checkReplyTo(id, reply_to)
+      if (typeof quoted === 'string') return reply.code(400).send({ error: quoted })
+      const replyTo = quoted
 
       // No busy check: a message sent while Claude works is steered into the
       // running turn (or queued) by the CLI — that's a feature now.
@@ -2020,6 +2020,21 @@ export async function conversationRoutes(app: FastifyInstance) {
       return { id: userMsgId, message: getMessageRow(userMsgId!) }
     },
   )
+
+  // A quote must point at a message of this very conversation and stay a
+  // passage, not a pasted document. A string is what is wrong with it.
+  function checkReplyTo(conversationId: string, raw: { message_id?: unknown; text?: unknown } | undefined): ReplyTo | undefined | string {
+    if (!raw) return undefined
+    const { message_id, text } = raw
+    if (typeof message_id !== 'string' || typeof text !== 'string' || !text.trim()) {
+      return 'reply_to needs message_id and text'
+    }
+    const owned = getDb()
+      .prepare('SELECT 1 FROM messages WHERE id = ? AND conversation_id = ?')
+      .get(message_id, conversationId)
+    if (!owned) return 'reply_to.message_id is not in this conversation'
+    return { message_id, text: text.trim().slice(0, 2000) }
+  }
 
   // ── Answer a question / approve a tool call ────────────────────────────────
 
@@ -2118,6 +2133,29 @@ export async function conversationRoutes(app: FastifyInstance) {
       const file = await req.file()
       if (!file) return reply.code(400).send({ error: 'No audio file' })
 
+      // What else was in the composer comes as fields ahead of the file: text
+      // typed before speaking, the attachments, the quote. Only fields sent
+      // before the file are parsed by now — the client puts them first.
+      const field = (name: string): string | undefined => {
+        const f = file.fields[name]
+        const one = Array.isArray(f) ? f[0] : f
+        return one && one.type === 'field' && typeof one.value === 'string' ? one.value : undefined
+      }
+      let attachments: Attachment[] = []
+      let rawReplyTo: { message_id?: unknown; text?: unknown } | undefined
+      try {
+        const a = field('attachments')
+        if (a) attachments = JSON.parse(a)
+        const r = field('reply_to')
+        if (r) rawReplyTo = JSON.parse(r)
+      } catch {
+        return reply.code(400).send({ error: 'attachments and reply_to must be JSON' })
+      }
+      if (!Array.isArray(attachments)) return reply.code(400).send({ error: 'attachments must be a list' })
+      const quoted = checkReplyTo(id, rawReplyTo)
+      if (typeof quoted === 'string') return reply.code(400).send({ error: quoted })
+      const typed = field('text')?.trim() ?? ''
+
       // Read the full upload while the client is connected. Once we hold the
       // buffer, transcription + message creation happen server-side, so the
       // client can navigate away or close the app without losing the message.
@@ -2129,8 +2167,10 @@ export async function conversationRoutes(app: FastifyInstance) {
       // doesn't stop the handler — the message is still posted.
       try {
         const transcript = await transcribeAudioBuffer(buffer)
-        const userMsgId = processMessage(id, conv, transcript, [], {
+        const content = typed ? `${typed}\n\n${transcript}` : transcript
+        const userMsgId = processMessage(id, conv, content, attachments, {
           transcribed: true,
+          replyTo: quoted,
           ...messageModel(req, conv, req.query.model, req.query.effort),
         })
         return { message: getMessageRow(userMsgId!) }

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { api, type Attachment, type Effort } from '../api'
 import { useChatStore } from '../stores/chatStore'
+import { revoke, settleUploads, type DraftFile } from './drafts'
 
 /**
  * A chat started from Today opens the moment Send is pressed — before the
@@ -33,15 +34,11 @@ function put(id: string, entry: Outgoing | null) {
 }
 
 /** A file picked in the composer, its upload possibly still running. */
-export interface OutgoingUpload {
-  file: File
-  preview?: string
-  uploaded?: Attachment
-  upload: Promise<Attachment>
-}
+export type OutgoingUpload = Pick<DraftFile, 'name' | 'preview' | 'uploaded' | 'upload'>
 
+/** A voice message takes along what was typed and attached with it. */
 type What =
-  | { kind: 'voice'; audio: Blob }
+  | { kind: 'voice'; audio: Blob; text: string; files: OutgoingUpload[] }
   | { kind: 'message'; text: string; files: OutgoingUpload[] }
 
 /**
@@ -57,7 +54,7 @@ export async function startChat(what: What, model: string, effort: Effort): Prom
     put(id, {
       kind: 'message',
       text: what.text,
-      files: what.files.map((f) => ({ name: f.file.name, preview: f.preview, uploading: !f.uploaded })),
+      files: what.files.map((f) => ({ name: f.name, preview: f.preview, uploading: !f.uploaded })),
     })
   }
   void deliver(id, what, model, effort)
@@ -67,8 +64,12 @@ export async function startChat(what: What, model: string, effort: Effort): Prom
 async function deliver(id: string, what: What, model: string, effort: Effort) {
   try {
     if (what.kind === 'voice') {
+      const attachments = await settleUploads(what.files)
+      if (attachments.length < what.files.length) window.__jarvisToast?.error("A file couldn't be uploaded — sent without it.")
       // A failed transcription is reported inside the chat by the server.
-      const { message } = await api.sendAudio(id, what.audio, model, effort).catch(() => ({ message: null }))
+      const { message } = await api
+        .sendAudio(id, what.audio, { model, effort, text: what.text, attachments })
+        .catch(() => ({ message: null }))
       if (message) useChatStore.getState().upsertMessage(id, message)
     } else {
       const attachments: Attachment[] = []
@@ -94,6 +95,6 @@ async function deliver(id: string, what: What, model: string, effort: Effort) {
     window.__jarvisToast?.error("Couldn't send the message — try again.")
   } finally {
     put(id, null)
-    if (what.kind === 'message') for (const f of what.files) if (f.preview) URL.revokeObjectURL(f.preview)
+    revoke(what.files)
   }
 }

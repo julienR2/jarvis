@@ -26,6 +26,7 @@ import {
   Hash,
 } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
+import { hasDraft, useDrafts } from '../lib/drafts'
 import { reloadApp } from '../lib/reload'
 import { useNotifications } from '../hooks/useNotifications'
 import { useLongPress } from '../hooks/useLongPress'
@@ -617,6 +618,9 @@ function ConvItem({
   const menuRef = useRef<ConversationMenuHandle>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const unread = conv.unread_count > 0 && !active
+  // Something typed or attached here and left unsent — shown, as in Slack,
+  // on the chats you are not in.
+  const drafted = useDrafts((s) => hasDraft(s[conv.id])) && !active
   const [renaming, setRenaming] = useState(false)
   const [moving, setMoving] = useState(false)
 
@@ -662,6 +666,11 @@ function ConvItem({
           {conv.title}
         </span>
         <span className='flex items-center gap-2 shrink-0'>
+          {drafted && (
+            <span title='Draft' data-testid='draft-marker'>
+              <Pencil size={11} className='text-accent' />
+            </span>
+          )}
           {!!conv.app_path && (
             <span title='App'>
               <AppWindow size={11} className='text-text-muted' />

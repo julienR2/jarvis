@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Mic, Send, Loader2, X, Type } from 'lucide-react'
+import { Mic, Send, X, Type } from 'lucide-react'
 
 interface Props {
   onAudioReady: (blob: Blob) => Promise<void>
@@ -8,7 +8,14 @@ interface Props {
   disabled?: boolean
 }
 
-type State = 'idle' | 'recording' | 'processing'
+type State = 'idle' | 'recording'
+
+/**
+ * Records, then hands the audio over and is ready again at once: the
+ * transcription that follows belongs to the chat it was recorded for, and the
+ * composer shows it from the draft (lib/drafts) — still there after leaving
+ * the chat and coming back, which state in here could not be.
+ */
 
 export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveChange, disabled }: Props) {
   const [state, setState] = useState<State>('idle')
@@ -31,7 +38,18 @@ export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveC
     onActiveChange?.(state !== 'idle')
   }, [state, onActiveChange])
 
-  useEffect(() => () => cleanup(), [])
+  const onTranscribeRef = useRef(onTranscribeReady)
+  onTranscribeRef.current = onTranscribeReady
+  // Unmounted mid-recording — another chat opened: the words are kept, as
+  // text in the draft of the chat they were spoken for, not sent and not lost.
+  useEffect(() => () => {
+    if (stateRef.current === 'recording' && onTranscribeRef.current) {
+      modeRef.current = 'transcribe'
+      doStop()
+    } else {
+      cleanup()
+    }
+  }, [])
 
   async function start() {
     if (stateRef.current !== 'idle' || disabled) return
@@ -59,24 +77,18 @@ export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveC
 
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
         chunksRef.current = []
-
-        if (blob.size > 0) {
-          updateState('processing')
-          try {
-            const mode = modeRef.current
-            modeRef.current = 'send'
-            if (mode === 'transcribe' && onTranscribeReady) {
-              await onTranscribeReady(blob)
-            } else {
-              await onAudioReady(blob)
-            }
-          } catch (err) {
-            console.error('Audio processing failed:', err)
-          } finally {
-            updateState('idle')
+        const mode = modeRef.current
+        modeRef.current = 'send'
+        updateState('idle')
+        if (blob.size === 0) return
+        try {
+          if (mode === 'transcribe' && onTranscribeReady) {
+            await onTranscribeReady(blob)
+          } else {
+            await onAudioReady(blob)
           }
-        } else {
-          updateState('idle')
+        } catch (err) {
+          console.error('Audio processing failed:', err)
         }
       }
 
@@ -148,15 +160,6 @@ export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveC
 
   function fmt(s: number) {
     return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`
-  }
-
-  if (state === 'processing') {
-    return (
-      <div className="flex items-center gap-2 text-text-muted h-8">
-        <Loader2 size={16} className="animate-spin" />
-        <span className="text-xs">Transcribing…</span>
-      </div>
-    )
   }
 
   if (state === 'recording') {

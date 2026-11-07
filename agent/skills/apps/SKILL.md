@@ -68,6 +68,8 @@ Examples of what an app can do with shared data:
 
 When the user shares content and picks an app from the share picker, the app opens and receives the data automatically via `postMessage`. The app should handle the intent and give visual feedback (e.g. a toast, highlight the new item).
 
+Jarvis decides by looking for the string `jarvis:share-intent` in the app's code (`.html`/`.js`/`.ts` files). An app without it never gets the share: the user lands in the app's chat with the content in the composer instead. So keep that string literally in the source — don't build it from parts.
+
 ## Calling the Jarvis API from an app
 
 An app that needs a connector (CopyParty, a self-hosted service, anything with a

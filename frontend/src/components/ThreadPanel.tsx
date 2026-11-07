@@ -5,6 +5,7 @@ import { api, type Attachment, type Effort, type ReplyTo } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { useIsDesktop } from '../hooks/useIsDesktop'
 import ChatInput from './ChatInput'
+import { settleUploads, spoken } from '../lib/drafts'
 import ChatView from './ChatView'
 import { DEFAULT_EFFORT, useModelCatalogue } from './ModelSelector'
 
@@ -117,9 +118,10 @@ function NewThread({ parentId, quote, onOpened }: { parentId: string; quote: Rep
       </div>
       <ChatInput
         onSend={send}
-        onSendAudio={async (blob) => {
-          const { transcript } = await api.transcribeAudio(blob)
-          if (transcript.trim()) await send(transcript.trim(), [])
+        onSendAudio={async (blob, { text, files }) => {
+          const [{ transcript }, attachments] = await Promise.all([api.transcribeAudio(blob), settleUploads(files)])
+          const words = spoken(text, transcript)
+          if (words || attachments.length) await send(words, attachments)
         }}
         onCancel={() => {}}
         isProcessing={sending}
