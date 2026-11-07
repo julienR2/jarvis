@@ -266,6 +266,94 @@ test.describe('chat rendering', () => {
     await expect(frame.getByTestId('fixture-app')).toBeVisible()
   })
 
+  test('app pane: Chat and App toggle each pane on desktop, and each chat keeps its own choice', async ({ page }) => {
+    await openConversation(page, 'Fixture app')
+    const main = page.getByRole('main')
+    const app = page.locator('iframe[title="App preview"]')
+    const composer = page.getByPlaceholder('How can I help you today?')
+    await expect(app).toBeVisible()
+    await expect(composer).toBeVisible()
+
+    // Both on by default; switching one off leaves the other alone…
+    await main.getByRole('button', { name: 'Chat', exact: true }).click()
+    await expect(composer).toBeHidden()
+    await expect(app).toBeVisible()
+    // …and the last pane standing can't be switched off.
+    await main.getByRole('button', { name: 'App', exact: true }).click()
+    await expect(app).toBeVisible()
+
+    // Another app chat is untouched, and coming back finds the app alone.
+    await openConversation(page, 'Second app')
+    await expect(composer).toBeVisible()
+    await expect(app).toBeVisible()
+    await openConversation(page, 'Fixture app')
+    await expect(composer).toBeHidden()
+    await expect(app).toBeVisible()
+
+    // Leave the instance as found.
+    await main.getByRole('button', { name: 'Chat', exact: true }).click()
+    await expect(composer).toBeVisible()
+  })
+
+  test('app pane: on a phone a swipe right on the app opens the sidebar — unless the app can scroll that way', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('c/00000000-0000-4000-8000-000000000004')
+    const frame = (await page.locator('iframe[title="App preview"]').contentFrame())!
+    await expect(frame.getByTestId('fixture-app')).toBeVisible()
+    const sidebar = page.getByRole('complementary').getByText('New chat')
+    await expect(sidebar).not.toBeInViewport()
+
+    // A finger dragged across the frame, as the browser would report it there.
+    const swipe = (selector: string) => frame.locator(selector).evaluate(async (target) => {
+      const touch = (x: number) => [new Touch({ identifier: 1, target, clientX: x, clientY: 400 })]
+      const fire = (type: string, x: number) => target.dispatchEvent(new TouchEvent(type, {
+        bubbles: true, cancelable: true, touches: type === 'touchend' ? [] : touch(x), changedTouches: touch(x),
+      }))
+      fire('touchstart', 60)
+      for (let x = 90; x <= 330; x += 40) {
+        fire('touchmove', x)
+        await new Promise((r) => setTimeout(r, 16))
+      }
+      fire('touchend', 330)
+    })
+
+    // A scroller of the app's own, scrolled in a bit: the swipe is the app's.
+    await frame.locator('body').evaluate((body) => {
+      const sc = document.createElement('div')
+      sc.id = 'scroller'
+      sc.style.cssText = 'position:fixed;inset:0;overflow-x:auto'
+      sc.innerHTML = '<div style="width:2000px;height:100%"></div>'
+      body.append(sc)
+      sc.scrollLeft = 200
+    })
+    await swipe('#scroller')
+    await page.waitForTimeout(400)
+    await expect(sidebar).not.toBeInViewport()
+
+    // Nothing of the app's to scroll: the swipe opens the sidebar.
+    await frame.locator('#scroller').evaluate((sc) => sc.remove())
+    await swipe('main')
+    await expect(sidebar).toBeInViewport()
+  })
+
+  test('app pane: on a phone it opens on the app, and a chat switched to Chat stays there', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    const app = page.locator('iframe[title="App preview"]')
+    const composer = page.getByPlaceholder('How can I help you today?')
+    await page.goto('c/00000000-0000-4000-8000-000000000004')
+    await expect(app).toBeVisible()
+    await expect(composer).toBeHidden()
+    await page.getByRole('button', { name: 'Chat', exact: true }).click()
+    await expect(composer).toBeVisible()
+    await expect(app).toBeHidden()
+
+    await page.goto('c/00000000-0000-4000-8000-000000000008')
+    await expect(app).toBeVisible()
+    await page.goto('c/00000000-0000-4000-8000-000000000004')
+    await expect(composer).toBeVisible()
+    await expect(app).toBeHidden()
+  })
+
   test('voice message: "Transcribing…" lasts as long as the transcription, and my bubble lands as it ends', async ({ page }) => {
     // A chat of its own: the message sent here must not show up in the fixtures.
     const res = await page.request.post('api/conversations', {
