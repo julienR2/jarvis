@@ -39,6 +39,7 @@ import { dropQuietRuns, groupMessagesByDay, isFinishedReply } from '../lib/trans
 import { answerFromComposer } from './AnswerCard'
 import { useOutbox, type Outgoing } from '../lib/outbox'
 import { settleUploads, spoken } from '../lib/drafts'
+import { readPaneView, savePaneView, type PaneView } from '../lib/paneView'
 
 /** Shared so the jump button can find the divider without threading a ref
  *  through the day-grouping list. */
@@ -220,8 +221,21 @@ export default function ChatView({
   const lastMessageId = messages[messages.length - 1]?.id
 
   const { appRefreshKey, bumpApp } = useChatEvents(conversationId)
-  const [showPreview, setShowPreview] = useState(true)
   const isDesktop = useIsDesktop()
+  // What this chat opens on: what it was last left showing on this device
+  // (unset, the default) — unless something was just shared into its
+  // composer, which then needs to be seen. That is for this visit only, so it
+  // isn't saved as the choice.
+  const openingView = (): PaneView | undefined => {
+    const saved = conversationId ? readPaneView(conversationId) : undefined
+    const shared = !!(initialMessage || initialFiles?.length)
+    return shared && saved !== 'chat' ? (isDesktop ? 'both' : 'chat') : saved
+  }
+  const [pane, setPane] = useState(() => ({ id: conversationId, view: openingView() }))
+  // Switched in the same render as the chat, not an effect later: a render
+  // with the previous chat's panes would mount this one's composer hidden.
+  if (pane.id !== conversationId) setPane({ id: conversationId, view: openingView() })
+  const paneView = pane.id === conversationId ? pane.view : openingView()
   // Stored as a percentage, not pixels: the split should hold its proportions
   // when the window is resized, which a pixel width does not.
   const [appPct, setAppPct] = useState(readAppPct)
@@ -256,12 +270,6 @@ export default function ChatView({
   const seenRef = useRef(0)
   // The conversation whose unread divider has been scrolled to on open.
   const positionedRef = useRef<string | null>(null)
-
-  // A chat with an app opens on the app — unless something was just shared
-  // into its composer, which is then what needs to be seen.
-  useEffect(() => {
-    setShowPreview(!(initialMessage || initialFiles?.length))
-  }, [conversationId])
 
   // Consume initial message once passed to input
   const initialConsumedRef = useRef(false)
@@ -354,6 +362,20 @@ export default function ChatView({
   }
   // Beside the chat: an open thread takes the app's place while it is open.
   const sidePane: 'thread' | 'app' | null = threadPanel ? 'thread' : hasApp ? 'app' : null
+  // Mobile has room for one pane: "both" (the desktop default) shows the app.
+  const view: PaneView = paneView ?? (isDesktop ? 'both' : 'app')
+  const appShown = sidePane === 'app' && view !== 'chat'
+  const chatShown = sidePane !== 'app' || (isDesktop ? view !== 'app' : view === 'chat')
+
+  // Desktop: each button adds or removes its pane, but one always stays.
+  // Mobile: they pick the one pane shown.
+  function togglePane(pane: 'chat' | 'app') {
+    const shown = pane === 'chat' ? chatShown : appShown
+    const other = pane === 'chat' ? appShown : chatShown
+    const next: PaneView = !isDesktop ? pane : !shown ? 'both' : other ? (pane === 'chat' ? 'app' : 'chat') : pane
+    setPane({ id: conversationId, view: next })
+    if (conversationId) savePaneView(conversationId, next)
+  }
   // The threads started from each message, for the marks under them.
   const childThreads = useChatStore(useShallow((s) =>
     s.order.map((id) => s.conversations[id]).filter((c) => !!c && c.parent_id === conversationId && !!c.parent_message_id),
@@ -685,6 +707,44 @@ export default function ChatView({
     hideTimerRef.current = setTimeout(() => setShowFloating(false), 1200)
   }
 
+  const paneToggle = (
+    <span className='flex bg-surface2 rounded-lg p-0.5 shrink-0'>
+      {(['chat', 'app'] as const).map((pane) => {
+        const on = pane === 'chat' ? chatShown : appShown
+        return (
+          <button
+            key={pane}
+            onClick={() => togglePane(pane)}
+            aria-pressed={on}
+            className={`px-3 py-1 text-xs rounded-md transition-colors ${on ? 'bg-bg text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}
+          >
+            {pane === 'chat' ? 'Chat' : 'App'}
+          </button>
+        )
+      })}
+    </span>
+  )
+
+  const desktopTitle = (
+    <ContentTitle
+      action={conversationId && !shared ? (
+        <span className='flex items-center gap-2'>
+          {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <RunsPill conversationId={conversationId} />}
+          <ShareIcon shareMode={shareMode} />
+          <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
+          <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={notifiesThroughParent ? undefined : handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} />
+        </span>
+      ) : undefined}
+    >
+      {sidePane === 'app' ? (
+        <span className='flex items-center gap-3'>
+          <span className='truncate flex-1'>{title}</span>
+          {paneToggle}
+        </span>
+      ) : title}
+    </ContentTitle>
+  )
+
   return (
     <>
     {renaming && createPortal(
@@ -748,22 +808,7 @@ export default function ChatView({
           >
             <span className='flex items-center gap-3'>
               <span className='truncate flex-1'>{title}</span>
-              {hasApp && (
-                <span className='flex bg-surface2 rounded-lg p-0.5 shrink-0'>
-                  <button
-                    onClick={() => setShowPreview(false)}
-                    className={`px-3 py-1 text-xs rounded-md transition-colors ${!showPreview ? 'bg-bg text-text-primary shadow-sm' : 'text-text-muted'}`}
-                  >
-                    Chat
-                  </button>
-                  <button
-                    onClick={() => setShowPreview(true)}
-                    className={`px-3 py-1 text-xs rounded-md transition-colors ${showPreview ? 'bg-bg text-text-primary shadow-sm' : 'text-text-muted'}`}
-                  >
-                    Preview
-                  </button>
-                </span>
-              )}
+              {hasApp && paneToggle}
             </span>
           </ContentTitle>
         </div>
@@ -773,25 +818,15 @@ export default function ChatView({
       <div ref={splitRef} className='flex flex-1 min-h-0'>
         {/* Chat pane — takes whatever the app pane leaves on desktop */}
         <div
-          className={`flex flex-col h-full min-w-0 ${sidePane ? 'md:flex-1 md:border-r md:border-border' : 'w-full'} ${(sidePane === 'app' && showPreview) || sidePane === 'thread' ? 'hidden md:flex' : 'flex w-full'}`}
+          className={`flex flex-col h-full min-w-0 ${
+            sidePane === 'thread' ? 'hidden md:flex md:flex-1 md:border-r md:border-border'
+              : !chatShown ? 'hidden'
+              : appShown ? 'flex flex-1 border-r border-border'
+              : 'flex w-full'
+          }`}
         >
           {/* Desktop title — inside chat pane so preview gets full height */}
-          {title && !embedded && (
-            <div className='hidden md:block'>
-              <ContentTitle
-                action={conversationId && !shared ? (
-                  <span className='flex items-center gap-2'>
-                    {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <RunsPill conversationId={conversationId} />}
-                    <ShareIcon shareMode={shareMode} />
-                    <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-                        <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={notifiesThroughParent ? undefined : handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} />
-                  </span>
-                ) : undefined}
-              >
-                {title}
-              </ContentTitle>
-            </div>
-          )}
+          {title && !embedded && <div className='hidden md:block'>{desktopTitle}</div>}
 
 
           {/* Messages */}
@@ -937,7 +972,7 @@ export default function ChatView({
         </div>
 
         {/* Side pane: a thread, when one is open — else the app */}
-        {sidePane && isDesktop && (
+        {isDesktop && (sidePane === 'thread' || (appShown && chatShown)) && (
           <ResizeHandle
             label={sidePane === 'thread' ? 'Resize thread panel' : 'Resize app panel'}
             onStart={() => {
@@ -966,12 +1001,15 @@ export default function ChatView({
         )}
 
         {sidePane === 'app' && (
+          // Hidden rather than unmounted, so the app keeps its state while away.
           <div
-            className={`${showPreview ? 'flex' : 'hidden md:flex'} flex-col h-full min-w-0 ${showPreview ? 'w-full' : ''} ${isDesktop ? 'shrink-0' : ''}`}
-            // Desktop only: on mobile this pane replaces the chat full-width,
-            // so a share of a split it isn't part of would just break it.
-            style={isDesktop ? { width: `${appPct}%` } : undefined}
+            className={`${appShown ? 'flex' : 'hidden'} flex-col h-full min-w-0 ${chatShown ? 'shrink-0' : 'flex-1'}`}
+            // Only beside the chat: alone, it takes the full width, so a share
+            // of a split it isn't part of would just break it.
+            style={chatShown ? { width: `${appPct}%` } : undefined}
           >
+            {/* The app alone on desktop: the title comes along, toggle included */}
+            {isDesktop && !chatShown && title && desktopTitle}
             <AppPreview
               appSlug={conv!.app_path!.replace(/^apps\//, '')}
               appToken={appShareToken}

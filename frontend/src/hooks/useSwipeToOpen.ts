@@ -12,15 +12,38 @@ interface Options {
 // sidebar drag inside that band leaves it half-open when the system steals the gesture.
 const EDGE_SLOP = 20
 
+/** Whether a scroller under the finger can still move the way a swipe goes. */
+type CanScroll = (dx: number) => boolean
+
+/**
+ * What an app's frame forwards of a touch (see backend/src/app-swipe-bridge.ts).
+ * Touches inside an iframe never reach this document, so without it a swipe
+ * that starts on an app could not open the sidebar.
+ */
+interface FrameSwipe {
+  type: 'jarvis:swipe'
+  phase: 'start' | 'move' | 'end' | 'cancel' | 'yield'
+  x: number
+  y: number
+  /** The app handles horizontal touches itself (touch-action without pan-x). */
+  owned?: boolean
+  canLeft?: boolean
+  canRight?: boolean
+}
+
 /**
  * Handles swipe-to-open / swipe-to-close for a sidebar.
  * Drives sidebar position and overlay opacity imperatively via DOM refs — no React
  * re-renders during the drag. Only re-renders once on snap (when sidebarOpen flips).
+ *
+ * A swipe that starts inside an app's frame arrives as messages from it and
+ * goes through the same steps, the app keeping first claim on the gesture: a
+ * scroller of its own that can still move, or a touch it handles itself.
  */
 export function useSwipeToOpen({ onOpen, onClose, isOpen, sidebarWidth }: Options) {
   const isDraggingRef = useRef(false)
   const touchInScrollableRef = useRef(false)   // gesture ceded to a child scroller
-  const scrollTargetRef = useRef<HTMLElement | null>(null) // nearest h-scrollable ancestor
+  const canScrollRef = useRef<CanScroll | null>(null) // the scroller under the finger, if any
   const startXRef = useRef(0)
   const startYRef = useRef(0)
   const startTimeRef = useRef(0)
@@ -46,7 +69,10 @@ export function useSwipeToOpen({ onOpen, onClose, isOpen, sidebarWidth }: Option
       overlayRef.current.style.opacity = String((x / sidebarWidth) * 0.6)
   }
 
-  const onTouchStart = useCallback((e: React.TouchEvent) => {
+  // The steps of a gesture, in viewport coordinates: fed by this document's
+  // touches and by an app frame's alike. Plain functions reading refs, so the
+  // frame's message listener can hold them without re-subscribing.
+  function begin(x: number, y: number, canScroll: CanScroll | null, ceded = false) {
     // Cancel any in-progress snap animation
     if (snapTimerRef.current) {
       clearTimeout(snapTimerRef.current)
@@ -55,58 +81,58 @@ export function useSwipeToOpen({ onOpen, onClose, isOpen, sidebarWidth }: Option
       if (overlayRef.current) overlayRef.current.style.transition = ''
     }
 
-    const t = e.touches[0]
-    startXRef.current = t.clientX
-    startYRef.current = t.clientY
+    startXRef.current = x
+    startYRef.current = y
     startTimeRef.current = Date.now()
     isDraggingRef.current = false
     currentXRef.current = isOpenRef.current ? sidebarWidth : 0
     // Read actual width so our pixel offset matches translateX(-100%) exactly
     elemWidthRef.current = sidebarRef.current?.offsetWidth ?? sidebarWidth
+    touchInScrollableRef.current = ceded
+    canScrollRef.current = canScroll
+  }
 
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
     // Find the nearest ancestor that is a genuine horizontal scroll container
     // with content to scroll (a code block or table). It must be checked against
     // computed overflow-x — an element that merely clips or lets content overflow
     // (overflow-x: hidden/clip/visible) also reports scrollWidth > clientWidth but
     // does NOT scroll, so it must not steal the swipe.
-    touchInScrollableRef.current = false
-    scrollTargetRef.current = null
+    let scroller: HTMLElement | null = null
     let el = e.target as HTMLElement | null
     while (el && el !== containerRef.current) {
       if (el.scrollWidth > el.clientWidth + 1) {
         const ox = getComputedStyle(el).overflowX
-        if (ox === 'auto' || ox === 'scroll') { scrollTargetRef.current = el; break }
+        if (ox === 'auto' || ox === 'scroll') { scroller = el; break }
       }
       el = el.parentElement
     }
-  }, [sidebarWidth])
+    // Swipe right (dx>0) reveals left content → needs scrollLeft > 0;
+    // swipe left (dx<0) reveals right content → needs room before the right edge.
+    const sc = scroller
+    begin(e.touches[0].clientX, e.touches[0].clientY, sc && ((dx) =>
+      dx > 0 ? sc.scrollLeft > 1 : sc.scrollLeft < sc.scrollWidth - sc.clientWidth - 1))
+  }, [sidebarWidth]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const onTouchMove = useCallback((e: React.TouchEvent) => {
-    if (touchInScrollableRef.current) return
+  /** Returns whether the sidebar is being dragged. */
+  function move(x: number, y: number): boolean {
+    if (touchInScrollableRef.current) return false
 
-    const t = e.touches[0]
-    const dx = t.clientX - startXRef.current
-    const dy = t.clientY - startYRef.current
+    const dx = x - startXRef.current
+    const dy = y - startYRef.current
 
     if (!isDraggingRef.current) {
-      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
-      if (Math.abs(dy) >= Math.abs(dx)) return
-      if (isOpenRef.current && dx > 0) return
-      if (!isOpenRef.current && dx < 0) return
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return false
+      if (Math.abs(dy) >= Math.abs(dx)) return false
+      if (isOpenRef.current && dx > 0) return false
+      if (!isOpenRef.current && dx < 0) return false
       // Don't engage if the swipe started inside the system back-gesture band
-      if (!isOpenRef.current && startXRef.current < EDGE_SLOP) return
+      if (!isOpenRef.current && startXRef.current < EDGE_SLOP) return false
 
       // If a horizontal scroll container is under the finger and can still scroll
       // in the swipe direction, let it scroll instead of moving the sidebar.
-      // Swipe right (dx>0) reveals left content → needs scrollLeft > 0;
-      // swipe left (dx<0) reveals right content → needs room before the right edge.
       // At the edge in that direction, the gesture falls through to the sidebar.
-      const sc = scrollTargetRef.current
-      if (sc) {
-        const maxLeft = sc.scrollWidth - sc.clientWidth
-        const canScroll = dx > 0 ? sc.scrollLeft > 1 : sc.scrollLeft < maxLeft - 1
-        if (canScroll) { touchInScrollableRef.current = true; return }
-      }
+      if (canScrollRef.current?.(dx)) { touchInScrollableRef.current = true; return false }
 
       isDraggingRef.current = true
       // Freeze transitions — we drive position directly
@@ -122,9 +148,14 @@ export function useSwipeToOpen({ onOpen, onClose, isOpen, sidebarWidth }: Option
     currentXRef.current = clamped
     setSidebarX(clamped)
     setOverlayOpacity(clamped)
+    return true
+  }
+
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    move(e.touches[0].clientX, e.touches[0].clientY)
   }, [sidebarWidth]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const onTouchEnd = useCallback(() => {
+  function end() {
     if (!isDraggingRef.current) return
     isDraggingRef.current = false
 
@@ -162,11 +193,13 @@ export function useSwipeToOpen({ onOpen, onClose, isOpen, sidebarWidth }: Option
       if (sidebarRef.current) { sidebarRef.current.style.translate = ''; sidebarRef.current.style.transition = '' }
       if (overlayRef.current) overlayRef.current.style.transition = ''
     }, 210)
-  }, [onOpen, onClose, sidebarWidth]) // eslint-disable-line react-hooks/exhaustive-deps
+  }
+
+  const onTouchEnd = useCallback(end, [onOpen, onClose, sidebarWidth]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fired when the system steals the gesture (e.g. iOS back-swipe). Snap back to
   // the committed state and clear inline styles so the sidebar isn't left half-open.
-  const onTouchCancel = useCallback(() => {
+  function cancel() {
     if (!isDraggingRef.current) return
     isDraggingRef.current = false
 
@@ -188,7 +221,56 @@ export function useSwipeToOpen({ onOpen, onClose, isOpen, sidebarWidth }: Option
       if (sidebarRef.current) { sidebarRef.current.style.translate = ''; sidebarRef.current.style.transition = '' }
       if (overlayRef.current) overlayRef.current.style.transition = ''
     }, 210)
-  }, [sidebarWidth]) // eslint-disable-line react-hooks/exhaustive-deps
+  }
+
+  const onTouchCancel = useCallback(cancel, [sidebarWidth]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The latest steps, for the frame listener below (end() closes over onOpen).
+  const stepsRef = useRef({ begin, move, end, cancel })
+  stepsRef.current = { begin, move, end, cancel }
+
+  // A swipe inside an app's frame, forwarded by the bridge the backend puts in
+  // every app page. Only frames inside this layout count, and their touch
+  // points are in the frame's own coordinates.
+  useEffect(() => {
+    let claimed = false
+    function onMessage(e: MessageEvent) {
+      const d = e.data as FrameSwipe | null
+      if (d?.type !== 'jarvis:swipe') return
+      const frame = Array.from(containerRef.current?.querySelectorAll('iframe') ?? [])
+        .find((f) => f.contentWindow === e.source)
+      if (!frame) return
+      const r = frame.getBoundingClientRect()
+      const x = r.left + d.x
+      const y = r.top + d.y
+      const steps = stepsRef.current
+      switch (d.phase) {
+        case 'start':
+          claimed = false
+          steps.begin(x, y, (dx) => !!(dx > 0 ? d.canLeft : d.canRight), !!d.owned)
+          break
+        case 'move':
+          // Once the sidebar has it, the frame stops scrolling along with it.
+          if (steps.move(x, y) && !claimed) {
+            claimed = true
+            ;(e.source as Window).postMessage({ type: 'jarvis:swipe-claim' }, '*')
+          }
+          break
+        // The app took the touch for itself before the sidebar engaged.
+        case 'yield':
+          if (!isDraggingRef.current) touchInScrollableRef.current = true
+          break
+        case 'end':
+          steps.end()
+          break
+        case 'cancel':
+          steps.cancel()
+          break
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
 
   // Non-passive touchmove to suppress scroll while swiping
   useEffect(() => {

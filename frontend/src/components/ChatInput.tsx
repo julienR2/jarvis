@@ -150,12 +150,13 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
   }, [initialText])
 
   // The box fits what it holds, up to a cap — typed, dictated, or a draft
-  // come back to.
+  // come back to. Hidden (its pane switched off) it measures nothing, and is
+  // left at its natural height rather than pinned to 0.
   useLayoutEffect(() => {
     const t = textareaRef.current
     if (!t) return
     t.style.height = 'auto'
-    t.style.height = `${Math.min(t.scrollHeight, 200)}px`
+    if (t.scrollHeight) t.style.height = `${Math.min(t.scrollHeight, 200)}px`
   }, [input])
 
   // Handle initial files from share intent

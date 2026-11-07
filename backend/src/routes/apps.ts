@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { join, extname, sep } from 'path'
-import { mkdirSync, createReadStream, statSync } from 'fs'
+import { mkdirSync, createReadStream, readFileSync, statSync } from 'fs'
 import { config } from '../config.js'
 import { conversationForAppToken } from '../app-tokens.js'
+import { withSwipeBridge } from '../app-swipe-bridge.js'
 
 const MIME: Record<string, string> = {
   '.html': 'text/html',
@@ -88,6 +89,8 @@ export async function appRoutes(app: FastifyInstance) {
 
     const mime = MIME[extname(fullPath).toLowerCase()] || 'application/octet-stream'
     reply.type(mime)
+    // Pages carry the bridge that lets a swipe on the app open the sidebar.
+    if (mime === 'text/html') return reply.send(withSwipeBridge(readFileSync(fullPath, 'utf8')))
     return reply.send(createReadStream(fullPath))
   })
 }
