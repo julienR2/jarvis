@@ -9,7 +9,8 @@ import {
   type RunListItem,
 } from '../api'
 import AnswerCard, { answerFromComposer } from './AnswerCard'
-import ChatInput from './ChatInput'
+import ChatInput, { type VoiceExtras } from './ChatInput'
+import { settleUploads, spoken } from '../lib/drafts'
 import MessageBubble from './MessageBubble'
 import RunBlock from './RunBlock'
 import { RunReportCard, RunReportStack } from './RunReport'
@@ -103,10 +104,11 @@ export default function InboxCard({
   async function answer(text: string, attachments: Parameters<typeof answerFromComposer>[3], answers?: Record<string, string>) {
     if (pending) await answerFromComposer(conversation.id, pending, text, attachments, answers)
   }
-  async function answerAudio(blob: Blob) {
+  async function answerAudio(blob: Blob, { text, files }: VoiceExtras) {
     if (!pending) return
-    const { transcript } = await api.transcribeAudio(blob)
-    if (transcript.trim()) await answerFromComposer(conversation.id, pending, transcript.trim(), [])
+    const [{ transcript }, attachments] = await Promise.all([api.transcribeAudio(blob), settleUploads(files)])
+    const words = spoken(text, transcript)
+    if (words || attachments.length) await answerFromComposer(conversation.id, pending, words, attachments)
   }
   // A plain reply: sent, and the chat counts as read — the answer coming back
   // brings the card back with it.
@@ -114,8 +116,8 @@ export default function InboxCard({
     await api.sendMessage(conversation.id, text, attachments.length ? attachments : undefined)
     useChatStore.getState().markRead(conversation.id)
   }
-  async function replyAudio(blob: Blob) {
-    await api.sendAudio(conversation.id, blob)
+  async function replyAudio(blob: Blob, { text, files }: VoiceExtras) {
+    await api.sendAudio(conversation.id, blob, { text, attachments: await settleUploads(files) })
     useChatStore.getState().markRead(conversation.id)
   }
   async function act(fn?: (run: RunListItem) => Promise<void>, run?: RunListItem) {

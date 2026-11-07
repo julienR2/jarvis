@@ -250,6 +250,9 @@ export const api = {
   // no account rights, unlike the session JWT these URLs used to embed.
   getAppToken: (conversationId: string) =>
     request<{ token: string }>('GET', `/conversations/${conversationId}/app-token`),
+  /** Whether the chat's app listens for shares (`jarvis:share-intent`). */
+  appAcceptsShares: (conversationId: string) =>
+    request<{ accepts: boolean }>('GET', `/conversations/${conversationId}/app-share`),
   rotateAppToken: (conversationId: string) =>
     request<{ token: string }>('POST', `/conversations/${conversationId}/app-token/rotate`),
 
@@ -303,8 +306,19 @@ export const api = {
   // Resolves once the server has transcribed and posted the message, with the
   // saved row — the composer shows "Transcribing…" until then. The server
   // finishes the job even if the client navigates away meanwhile.
-  sendAudio: async (conversationId: string, audioBlob: Blob, model?: string, effort?: Effort): Promise<{ message: Message }> => {
+  // What else the composer held goes with it — typed text ahead of the
+  // transcript, the attachments, the quote — as fields before the file, which
+  // is where the server reads them from.
+  sendAudio: async (
+    conversationId: string,
+    audioBlob: Blob,
+    opts: { model?: string; effort?: Effort; text?: string; attachments?: Attachment[]; replyTo?: ReplyTo | null } = {},
+  ): Promise<{ message: Message }> => {
+    const { model, effort, text, attachments, replyTo } = opts
     const form = new FormData()
+    if (text?.trim()) form.append('text', text)
+    if (attachments?.length) form.append('attachments', JSON.stringify(attachments))
+    if (replyTo) form.append('reply_to', JSON.stringify(replyTo))
     form.append('file', audioBlob, 'audio.webm')
     const token = getToken()
     const query = new URLSearchParams()

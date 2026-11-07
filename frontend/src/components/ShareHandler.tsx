@@ -32,7 +32,8 @@ type ShareIntent = { title?: string; text?: string; url?: string; files?: File[]
 /**
  * /share — where the PWA share target lands. Pinned destinations first (set in
  * Settings › General), then the sidebar's tree. A chat gets the content in its
- * composer, an app gets it as an intent, a webhook runs on it straight away.
+ * composer, an app that handles shares gets it as an intent (one that doesn't
+ * leaves it to its chat's composer), a webhook runs on it straight away.
  */
 export default function ShareHandler({
   onReady,
@@ -101,13 +102,18 @@ export default function ShareHandler({
           onReady(conv.id, message, files.length > 0 ? files : undefined)
           return
         }
-        case 'conversation':
-          if (dest.conv.app_path) {
+        case 'conversation': {
+          // An app gets the share only if it says it handles one; any other
+          // would open and drop it, so the chat's composer takes it instead.
+          const toApp = !!dest.conv.app_path &&
+            (await api.appAcceptsShares(dest.conv.id).then((r) => r.accepts, () => false))
+          if (toApp) {
             onAppPick(dest.conv.id, { ...intent, files: files.length > 0 ? files : undefined })
           } else {
             onReady(dest.conv.id, message, files.length > 0 ? files : undefined)
           }
           return
+        }
         case 'webhook': {
           // Uploaded into the routine's thread, so the files go with it.
           const { thread_id } = await api.webhookThread(dest.webhook.id)

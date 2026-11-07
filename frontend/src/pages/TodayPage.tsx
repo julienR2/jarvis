@@ -132,7 +132,8 @@ export default function TodayPage() {
             <ChatInput
               onSend={() => {}}
               onSendNow={(text, files) => start({ kind: 'message', text, files })}
-              onSendAudio={(audio) => start({ kind: 'voice', audio })}
+              onSendAudio={(audio, { text, files }) => start({ kind: 'voice', audio, text, files })}
+              draftKey='today'
               onCancel={() => {}}
               isProcessing={false}
               focusKey={composeKey}

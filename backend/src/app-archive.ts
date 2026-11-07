@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, cpSync } from 'fs'
-import { join } from 'path'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, cpSync, statSync } from 'fs'
+import { extname, join } from 'path'
 import { config } from './config.js'
 
 /**
@@ -47,6 +47,31 @@ export function conversationFiles(conversationId: string, appPath?: string | nul
     uploads: count(join(config.workspaceDir, 'uploads', conversationId)),
     app: existsSync(join(config.workspaceDir, 'apps', appDirName(conversationId, appPath))),
   }
+}
+
+/**
+ * Whether the app listens for what is shared to it from other apps: its code
+ * mentions the `jarvis:share-intent` message (agent/skills/apps). One that
+ * doesn't would open and do nothing with the share, so the share goes to the
+ * chat's composer instead. Read from disk each time — the agent rewrites apps
+ * at will, and this is asked once per share.
+ */
+export function appAcceptsShares(conversationId: string, appPath?: string | null): boolean {
+  const CODE = new Set(['.html', '.htm', '.js', '.mjs', '.jsx', '.ts', '.tsx'])
+  const MAX_BYTES = 2 * 1024 * 1024
+  const search = (dir: string): boolean => {
+    if (!existsSync(dir)) return false
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, e.name)
+      if (e.isDirectory()) {
+        if (e.name !== 'node_modules' && !e.name.startsWith('.') && search(path)) return true
+      } else if (CODE.has(extname(e.name).toLowerCase()) && statSync(path).size <= MAX_BYTES) {
+        if (readFileSync(path, 'utf8').includes('jarvis:share-intent')) return true
+      }
+    }
+    return false
+  }
+  return search(join(config.workspaceDir, 'apps', appDirName(conversationId, appPath)))
 }
 
 function appDirName(conversationId: string, appPath?: string | null): string {

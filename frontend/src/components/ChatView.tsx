@@ -19,7 +19,7 @@ import {
 import { useChatStore } from '../stores/chatStore'
 import { useChatEvents } from '../hooks/useChatEvents'
 import MessageBubble, { Markdown, liveStatus, markdownComponents } from './MessageBubble'
-import ChatInput from './ChatInput'
+import ChatInput, { type VoiceExtras } from './ChatInput'
 import { DEFAULT_EFFORT, modelName, useModelCatalogue } from './ModelSelector'
 import AppPreview from './AppPreview'
 import ResizeHandle from './ResizeHandle'
@@ -38,6 +38,7 @@ import SelectionReply from './SelectionReply'
 import { dropQuietRuns, groupMessagesByDay, isFinishedReply } from '../lib/transcript'
 import { answerFromComposer } from './AnswerCard'
 import { useOutbox, type Outgoing } from '../lib/outbox'
+import { settleUploads, spoken } from '../lib/drafts'
 
 /** Shared so the jump button can find the divider without threading a ref
  *  through the day-grouping list. */
@@ -256,8 +257,10 @@ export default function ChatView({
   // The conversation whose unread divider has been scrolled to on open.
   const positionedRef = useRef<string | null>(null)
 
+  // A chat with an app opens on the app — unless something was just shared
+  // into its composer, which is then what needs to be seen.
   useEffect(() => {
-    setShowPreview(true)
+    setShowPreview(!(initialMessage || initialFiles?.length))
   }, [conversationId])
 
   // Consume initial message once passed to input
@@ -578,16 +581,21 @@ export default function ChatView({
     setQuote(null)
   }
 
-  async function sendAudio(audioBlob: Blob) {
+  async function sendAudio(audioBlob: Blob, { text, files }: VoiceExtras) {
     if (!conversationId) return
+    const attachments = await settleUploads(files)
+    if (attachments.length < files.length) window.__jarvisToast?.error("A file couldn't be uploaded — sent without it.")
     if (composerAnswers && pending) {
       // Dictated answer: transcribe here, then answer with the words.
       const { transcript } = await api.transcribeAudio(audioBlob)
-      if (transcript.trim()) await answerFromComposer(conversationId, pending, transcript.trim(), [])
+      const words = spoken(text, transcript)
+      if (words || attachments.length) await answerFromComposer(conversationId, pending, words, attachments)
       return
     }
+    const replyTo = quote
+    setQuote(null)
     // The bubble lands as the transcription ends, without waiting on the stream.
-    const { message } = await api.sendAudio(conversationId, audioBlob, model, effort)
+    const { message } = await api.sendAudio(conversationId, audioBlob, { model, effort, text, attachments, replyTo })
     useChatStore.getState().upsertMessage(conversationId, message)
     useChatStore.getState().rememberModel(conversationId, model, effort)
   }
@@ -901,6 +909,9 @@ export default function ChatView({
           {/* Input — absent on a read-only link, present on an editable one */}
           {!shared?.readOnly && (
           <ChatInput
+            // One per chat: what is recording or half-picked in one never
+            // carries into the next. The draft itself lives in lib/drafts.
+            key={conversationId}
             onSend={sendMessage}
             onSendAudio={sendAudio}
             transcribing={outgoing?.kind === 'voice'}

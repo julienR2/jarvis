@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { ChevronDown, ChevronRight, MessageSquare, Repeat } from 'lucide-react'
 import { api, describePending, pendingQuestionOf, questionsOf, type Conversation, type Message, type RunListItem } from '../api'
 import AnswerCard, { answerFromComposer } from './AnswerCard'
-import ChatInput from './ChatInput'
+import ChatInput, { type VoiceExtras } from './ChatInput'
+import { settleUploads, spoken } from '../lib/drafts'
 import StatusPill from './StatusPill'
 
 /**
@@ -57,10 +58,11 @@ export default function NeedsYouCard({
   async function answer(text: string, attachments: Parameters<typeof answerFromComposer>[3], answers?: Record<string, string>) {
     if (pending) await answerFromComposer(conversation.id, pending, text, attachments, answers)
   }
-  async function answerAudio(blob: Blob) {
+  async function answerAudio(blob: Blob, { text, files }: VoiceExtras) {
     if (!pending) return
-    const { transcript } = await api.transcribeAudio(blob)
-    if (transcript.trim()) await answerFromComposer(conversation.id, pending, transcript.trim(), [])
+    const [{ transcript }, attachments] = await Promise.all([api.transcribeAudio(blob), settleUploads(files)])
+    const words = spoken(text, transcript)
+    if (words || attachments.length) await answerFromComposer(conversation.id, pending, words, attachments)
   }
 
   return (
