@@ -21,6 +21,8 @@ import { cronRoutes } from './routes/crons.js'
 import { runRoutes } from './routes/runs.js'
 import { runByKey, reconcileStaleRuns, markQuietMessages } from './runs.js'
 import { seedFixtures } from './fixtures.js'
+import { tabRoutes } from './routes/tabs.js'
+import { watchOpenDocs } from './tabs.js'
 import { webhookRoutes, webhookTriggerRoute } from './routes/webhooks.js'
 import { shareTargetRoutes } from './routes/share-targets.js'
 import { uploadRoutes, UPLOADS_DIR, MAX_FILE_SIZE } from './routes/uploads.js'
@@ -186,11 +188,14 @@ if (process.env.SEED_FIXTURES === '1') seedFixtures()
 
 // Quiet runs closed before their messages were stamped as such.
 markQuietMessages()
+// Documents open in a tab re-render as they change.
+watchOpenDocs()
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 
 await app.register(authRoutes, { prefix: '/api/auth' })
 await app.register(conversationRoutes, { prefix: '/api/conversations' })
+await app.register(tabRoutes, { prefix: '/api/conversations' })
 await app.register(sectionRoutes, { prefix: '/api/sections' })
 await app.register(cronRoutes, { prefix: '/api/crons' })
 await app.register(runRoutes, { prefix: '/api/runs' })

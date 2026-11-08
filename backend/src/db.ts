@@ -548,6 +548,22 @@ export function initDb(): void {
     db.pragma('user_version = 4')
   }
 
+  // Tabs beside a chat, next to its app: a document (a file, rendered) or a
+  // link. At most one per chat is unpinned — the temporary tab, replaced by
+  // the next one opened — so whatever Jarvis pops open does not pile up.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversation_tabs (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK(kind IN ('doc', 'link')),
+      target TEXT NOT NULL,
+      title TEXT NOT NULL,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_conversation_tabs_conv ON conversation_tabs(conversation_id)')
+
   // Connectors — one row per connector holding its definition AND its values.
   // Unified from the former three-way split (hardcoded catalog + custom_connectors
   // definitions + connectors secrets). See connectors.ts.

@@ -58,6 +58,9 @@ export function seedFixtures(): void {
     quietThread: '00000000-0000-4000-8000-000000000012',
     // Read, then marked unread again by its spec: nothing else may rely on it.
     reopen: '00000000-0000-4000-8000-000000000013',
+    // Documents beside a chat: one with only tabs, one with an app and a tab.
+    spec: '00000000-0000-4000-8000-000000000014',
+    appDocs: '00000000-0000-4000-8000-000000000015',
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -281,6 +284,27 @@ export function seedFixtures(): void {
     insConv.run(ID.app2, '◫ Second app', t(88), t(84), projects.id, 'apps/fixture-two', randomBytes(18).toString('base64url'))
     insMsg.run(uuid(), ID.app2, 'user', 'And another one.', null, null, null, t(88))
     insMsg.run(uuid(), ID.app2, 'assistant', 'Second app is up, in its own pane.', null, null, null, t(85))
+
+    // 4b. Documents beside a chat. A pinned spec in the pane, and an answer
+    // linking a second document — a click opens it as the temporary tab.
+    const specDir = join(config.workspaceDir, 'uploads', ID.spec)
+    mkdirSync(specDir, { recursive: true })
+    writeFileSync(join(specDir, 'spec.md'), FIXTURE_SPEC_MD)
+    writeFileSync(join(specDir, 'report.md'), '# Weekly report\n\nThree things shipped, one slipped.\n')
+    insConv.run(ID.spec, '📄 Spec draft', t(80), t(79), projects.id, null, null)
+    insMsg.run(uuid(), ID.spec, 'user', 'Draft the spec, and the weekly report.', null, null, null, t(80))
+    insMsg.run(uuid(), ID.spec, 'assistant',
+      `The spec is open beside the chat. The report is here: [report.md](/jarvis/agent/workspace/uploads/${ID.spec}/report.md).`,
+      null, null, null, t(79))
+    const insTab = db.prepare('INSERT INTO conversation_tabs (id, conversation_id, kind, target, title, pinned) VALUES (?, ?, ?, ?, ?, ?)')
+    insTab.run(uuid(), ID.spec, 'doc', join(specDir, 'spec.md'), 'spec.md', 1)
+    const docsAppDir = join(config.workspaceDir, 'apps', 'fixture-docs')
+    mkdirSync(docsAppDir, { recursive: true })
+    writeFileSync(join(docsAppDir, 'index.html'), FIXTURE_APP_HTML.replace(/Fixture app/g, 'Docs app').replace('fixture-app', 'fixture-app-docs'))
+    insConv.run(ID.appDocs, '◫ App with docs', t(78), t(77), projects.id, 'apps/fixture-docs', randomBytes(18).toString('base64url'))
+    insMsg.run(uuid(), ID.appDocs, 'user', 'Show the spec next to the app.', null, null, null, t(78))
+    insMsg.run(uuid(), ID.appDocs, 'assistant', 'Both are in the side pane.', null, null, null, t(77))
+    insTab.run(uuid(), ID.appDocs, 'doc', join(specDir, 'spec.md'), 'spec.md', 1)
 
     // 5. Routines and a key — rows for the settings pages. The cron is disabled so
     // nothing in a throwaway instance ever fires.
@@ -534,4 +558,21 @@ const FIXTURE_APP_HTML = `<!doctype html>
 <style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0;background:#faf9f7;color:#1a1816}
 main{text-align:center}h1{font-weight:600;font-size:20px;margin:0 0 6px}p{color:#9b9590;margin:0}</style></head>
 <body><main><h1>Fixture app</h1><p data-testid="fixture-app">Rendered in the side pane.</p></main></body></html>
+`
+
+const FIXTURE_SPEC_MD = `# Side pane tabs — spec
+
+**Goal** — show documents beside the chat, the way the app already is.
+
+## Decided
+- A tab points at a file; the file stays where it lives.
+- One temporary tab per chat, replaced by the next one opened.
+
+## Open
+- Pin documents to a topic.
+
+| Kind | Opens |
+|---|---|
+| doc | rendered in the pane |
+| link | framed, with a way out |
 `

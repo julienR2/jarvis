@@ -18,6 +18,8 @@ interface Props {
   onRefresh: () => void
   shareIntent?: ShareIntent | null
   onShareIntentConsumed?: () => void
+  /** Off when the side pane's tab strip carries the refresh and open actions. */
+  toolbar?: boolean
 }
 
 async function fileToDataUrl(file: File): Promise<{ name: string; type: string; dataUrl: string }> {
@@ -36,6 +38,7 @@ export default function AppPreview({
   onRefresh,
   shareIntent,
   onShareIntentConsumed,
+  toolbar = true,
 }: Props) {
   // The in-app route (#/…) survives a refresh of the same app but belongs to
   // it alone: another chat's app starts at its own root.
@@ -107,7 +110,7 @@ export default function AppPreview({
   return (
     <div className='flex flex-col h-full bg-white'>
       {/* Toolbar — hidden on mobile where actions are in the header */}
-      <div className='border-b border-border hidden md:flex w-full'>
+      <div className={`border-b border-border hidden w-full ${toolbar ? 'md:flex' : ''}`}>
         <div className='flex flex-1 items-center gap-1 px-3 bg-bg h-12 shrink-0'>
           <span className='text-text-muted flex-1 truncate px-1 font-medium'>
             Preview

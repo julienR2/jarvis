@@ -256,6 +256,26 @@ export const api = {
   rotateAppToken: (conversationId: string) =>
     request<{ token: string }>('POST', `/conversations/${conversationId}/app-token/rotate`),
 
+  // Tabs beside the chat: documents and links (the app is not one of them).
+  getTabs: (conversationId: string) =>
+    request<{ tabs: ChatTab[] }>('GET', `/conversations/${conversationId}/tabs`),
+  openTab: (conversationId: string, tab: { kind: ChatTab['kind']; target: string; title?: string; pinned?: boolean }) =>
+    request<{ tab: ChatTab; tabs: ChatTab[] }>('POST', `/conversations/${conversationId}/tabs`, tab),
+  updateTab: (conversationId: string, tabId: string, changes: { pinned?: boolean; title?: string }) =>
+    request<{ tabs: ChatTab[] }>('PATCH', `/conversations/${conversationId}/tabs/${tabId}`, changes),
+  closeTab: (conversationId: string, tabId: string) =>
+    request<{ tabs: ChatTab[] }>('DELETE', `/conversations/${conversationId}/tabs/${tabId}`),
+  /** A document tab's text, for the kinds the pane renders itself (markdown, plain text). */
+  getTabText: async (conversationId: string, tabId: string): Promise<string> => {
+    const res = await fetch(`${BASE}/conversations/${conversationId}/tabs/${tabId}/content`, { headers: headers(false) })
+    if (res.status === 401) handleUnauthorized()
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new ApiError(err.error || res.statusText, res.status)
+    }
+    return res.text()
+  },
+
   // Conversation sharing (owner side).
   getShare: (conversationId: string) =>
     request<{ mode: 'read' | 'write' | null; token: string | null }>(
@@ -1023,6 +1043,25 @@ export interface ConnectorInput {
   proxy?: ConnectorProxy | null
 }
 
+/** A tab beside a chat: a document (a file Jarvis can keep editing) or a link. */
+export interface ChatTab {
+  id: string
+  conversation_id: string
+  kind: 'doc' | 'link'
+  /** The file's absolute path, or the URL. */
+  target: string
+  title: string
+  /** 0 = the chat's temporary tab, replaced by the next one opened. */
+  pinned: number
+  created_at: number
+}
+
+/** Where a document tab's file is read from — for what renders in a frame (PDF, HTML, images). */
+export function tabContentUrl(tab: ChatTab): string {
+  const token = getToken()
+  return `${BASE}/conversations/${tab.conversation_id}/tabs/${tab.id}/content${token ? `?token=${encodeURIComponent(token)}` : ''}`
+}
+
 export type ChatEvent =
   | { type: 'message'; message: Message }
   | { type: 'conversation'; id: string; title?: string }
@@ -1034,6 +1073,11 @@ export type ChatEvent =
   // closed (null).
   | { type: 'question'; question: PendingQuestion | null }
   | { type: 'app_updated' }
+  // The chat's tabs, whole list on every change. `focus` = Jarvis opened
+  // that one and wants it shown.
+  | { type: 'tabs'; tabs: ChatTab[]; focus?: string }
+  // A document open in a tab changed on disk.
+  | { type: 'tab_updated'; tab_id: string }
   | { type: 'usage'; contextTokens: number; contextWindow: number | null }
   // Live-only, never persisted: answer text as it is written (append). Dropped
   // once the authoritative `message` for the turn arrives — see the chat store's

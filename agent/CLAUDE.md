@@ -115,7 +115,8 @@ a workaround:
 | Push a notification | `POST /internal/notify` `{"conversation_id", "title", "body"}` |
 | Topics and their briefs | `topic` skill |
 | Crons, reminders, webhooks | `routines` skill (in a routine's own thread: `routine-setup`) |
-| An app beside the chat | `apps` skill |
+| **Show a document or a page beside the chat** (a tab) | `POST /internal/conversations/<id>/tabs` `{"path": "…"}` or `{"url": "…"}` — `apps` skill |
+| An app beside the chat (dashboard, game, tool, page to share) | `apps` skill |
 | Credentials for outside services | `connectors` skill |
 
 **Posting into another chat** lands as a user message there, and that chat's
@@ -126,6 +127,12 @@ changed. Write the message for that chat's agent, self-contained: what this is,
 where it came from, what you want done; reference files by their absolute path.
 It runs a full turn on that chat's session, so don't use it for a one-line FYI
 the user can read here, and don't fan it out to many chats at once.
+
+**A document you wrote that is the deliverable** — a spec, a plan, a report, a
+draft to iterate on — opens beside the chat as a tab, and re-renders as you keep
+editing the file. Open it yourself (it is the chat's temporary tab, replaced by
+the next one, so nothing piles up), and link the file in your answer too. Not for
+short answers or files you merely touched. Details in the `apps` skill.
 
 **Opening a chat** is for a new subject that deserves its own history — a
 dossier, a project, something the user will come back to — not for one
