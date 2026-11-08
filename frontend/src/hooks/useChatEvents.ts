@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { connectEvents, type ChatEvent } from '../api'
 import { useChatStore } from '../stores/chatStore'
+import { useTabsStore } from '../stores/tabsStore'
 
 // Subscribes to the per-conversation SSE stream and dispatches into the chat store.
 // Returns a key that bumps when the backend reports an app refresh, so callers
 // can pass it to AppPreview's `refreshKey` to force the iframe to reload.
-export function useChatEvents(conversationId: string | undefined): {
+//
+// `tabs`: also keep the chat's tabs in step. Off for a share-link visitor —
+// tabs are the owner's, and asking for them would bounce the visitor to login.
+export function useChatEvents(conversationId: string | undefined, { tabs = true }: { tabs?: boolean } = {}): {
   appRefreshKey: number
   bumpApp: () => void
 } {
@@ -54,6 +58,12 @@ export function useChatEvents(conversationId: string | undefined): {
         case 'usage':
           s.setContextUsage(cid, ev.contextTokens, ev.contextWindow)
           break
+        case 'tabs':
+          if (tabs) useTabsStore.getState().setTabs(cid, ev.tabs, ev.focus)
+          break
+        case 'tab_updated':
+          useTabsStore.getState().bump(ev.tab_id)
+          break
         case 'app_updated':
           s.loadConversation(cid)
           setAppRefreshKey((k) => k + 1)
@@ -66,11 +76,15 @@ export function useChatEvents(conversationId: string | undefined): {
       if (status && wasConnected) {
         useChatStore.getState().resyncConversation(conversationId)
       }
+      // Tabs load once the stream is up (and again on every reconnect): none
+      // opened meanwhile is missed, and landing on a chat sends no extra
+      // request alongside the ones that mark it read.
+      if (status && tabs) useTabsStore.getState().load(conversationId)
       wasConnected = true
     })
 
     return () => conn.close()
-  }, [conversationId])
+  }, [conversationId, tabs])
 
   return { appRefreshKey, bumpApp }
 }

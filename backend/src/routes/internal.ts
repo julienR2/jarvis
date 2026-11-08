@@ -20,6 +20,7 @@ import { config } from '../config.js'
 import { secureEquals } from '../security.js'
 import type { CronRow, WebhookRow, ConvRow } from '../types.js'
 import { afterRoutineWrite, checkRoutineRefs, routineOfThread } from '../threads.js'
+import { closeTab, emitTabs, getTab, listTabs, openTab } from '../tabs.js'
 
 function checkSecret(req: any, reply: any): boolean {
   const auth = req.headers['x-internal-secret']
@@ -451,6 +452,38 @@ export async function internalRoutes(app: FastifyInstance) {
       return { id, conversation_id: conv.id, title: conv.title }
     },
   )
+
+  // ── Tabs beside a chat ────────────────────────────────────────────────
+  //
+  // Jarvis opens a document or a link beside the chat (see tabs.ts). The open
+  // screens switch to it: unpinned it is the chat's temporary tab, replacing
+  // the last one; `pin: true` keeps it.
+  app.get<{ Params: { id: string } }>('/conversations/:id/tabs', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    return { tabs: listTabs(req.params.id) }
+  })
+
+  app.post<{ Params: { id: string } }>('/conversations/:id/tabs', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    if (!getDb().prepare('SELECT 1 FROM conversations WHERE id = ?').get(req.params.id)) {
+      return reply.code(404).send({ error: 'Conversation not found' })
+    }
+    const { path, url, title, pin } = (req.body ?? {}) as { path?: string; url?: string; title?: string; pin?: boolean }
+    if (!path === !url) return reply.code(400).send({ error: 'give either path (a file) or url (a link)' })
+    const result = openTab(req.params.id, { kind: path ? 'doc' : 'link', target: (path ?? url)!, title, pinned: pin })
+    if ('error' in result) return reply.code(400).send(result)
+    emitTabs(req.params.id, result.tab.id)
+    return { tab: result.tab }
+  })
+
+  app.delete<{ Params: { id: string; tabId: string } }>('/conversations/:id/tabs/:tabId', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    const tab = getTab(req.params.id, req.params.tabId)
+    if (!tab) return reply.code(404).send({ error: 'Tab not found' })
+    closeTab(tab)
+    emitTabs(req.params.id)
+    return { ok: true }
+  })
 
   // ── Webhooks ───────────────────────────────────────────────────────────
 

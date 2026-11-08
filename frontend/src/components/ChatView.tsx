@@ -22,6 +22,9 @@ import MessageBubble, { Markdown, liveStatus, markdownComponents } from './Messa
 import ChatInput, { type VoiceExtras } from './ChatInput'
 import { DEFAULT_EFFORT, modelName, useModelCatalogue } from './ModelSelector'
 import AppPreview from './AppPreview'
+import SidePanel, { type PanelKey } from './SidePanel'
+import { useChatTabs, useTabsStore } from '../stores/tabsStore'
+import { PanelOpenerContext } from '../lib/panelOpener'
 import ResizeHandle from './ResizeHandle'
 import { useIsDesktop } from '../hooks/useIsDesktop'
 import { ContentTitle } from './ContentLayout'
@@ -220,7 +223,13 @@ export default function ChatView({
   const showSkeleton = !loaded && messages.length === 0 && !outgoing
   const lastMessageId = messages[messages.length - 1]?.id
 
-  const { appRefreshKey, bumpApp } = useChatEvents(conversationId)
+  // Tabs (documents, links) are the owner's: not on a share link, and not in
+  // a thread shown inside another chat, which has no side pane of its own.
+  const withTabs = !shared && !embedded
+  const { appRefreshKey, bumpApp } = useChatEvents(conversationId, { tabs: withTabs })
+  const tabs = useChatTabs(withTabs ? conversationId : undefined)
+  // The side pane: the chat's app, and/or the tabs opened beside it.
+  const hasPanel = hasApp || tabs.length > 0
   const isDesktop = useIsDesktop()
   // What this chat opens on: what it was last left showing on this device
   // (unset, the default) — unless something was just shared into its
@@ -361,9 +370,10 @@ export default function ChatView({
     }, { replace: !id })
   }
   // Beside the chat: an open thread takes the app's place while it is open.
-  const sidePane: 'thread' | 'app' | null = threadPanel ? 'thread' : hasApp ? 'app' : null
+  const sidePane: 'thread' | 'app' | null = threadPanel ? 'thread' : hasPanel ? 'app' : null
   // Mobile has room for one pane: "both" (the desktop default) shows the app.
-  const view: PaneView = paneView ?? (isDesktop ? 'both' : 'app')
+  // A chat with only documents opens on the chat: they are beside it, not it.
+  const view: PaneView = paneView ?? (isDesktop ? 'both' : hasApp ? 'app' : 'chat')
   const appShown = sidePane === 'app' && view !== 'chat'
   const chatShown = sidePane !== 'app' || (isDesktop ? view !== 'app' : view === 'chat')
 
@@ -376,6 +386,47 @@ export default function ChatView({
     setPane({ id: conversationId, view: next })
     if (conversationId) savePaneView(conversationId, next)
   }
+  // Which tab the side pane shows: the app unless something else was picked
+  // (or opened) in this chat — and back to it when that tab closes.
+  const [activeTab, setActiveTab] = useState<{ id: string | undefined; key: PanelKey } | null>(null)
+  const pickedKey = activeTab && activeTab.id === conversationId ? activeTab.key : null
+  const panelKey: PanelKey =
+    pickedKey && (pickedKey === 'app' ? hasApp : tabs.some((t) => t.id === pickedKey)) ? pickedKey
+    : hasApp ? 'app'
+    : tabs[tabs.length - 1]?.id ?? 'app'
+  const activate = (key: PanelKey) => setActiveTab({ id: conversationId, key })
+
+  // Show the side pane for this visit, without making it the chat's saved choice.
+  const revealPanel = () => {
+    if (!appShown) setPane({ id: conversationId, view: isDesktop ? 'both' : 'app' })
+  }
+
+  // Jarvis opened a tab: bring it forward. On desktop the pane opens beside
+  // the chat; on the phone the view is left alone — the link in the answer
+  // opens it. Only a fresh ask counts: one left over from before this chat
+  // was opened is history.
+  const focusAsk = useTabsStore((s) => (conversationId ? s.focus[conversationId] : undefined))
+  useEffect(() => {
+    if (!focusAsk || Date.now() - focusAsk.nonce > 15_000) return
+    activate(focusAsk.tabId)
+    if (isDesktop) revealPanel()
+  }, [focusAsk?.nonce])
+
+  // A file link clicked in the chat opens as the temporary tab, shown at once.
+  const openFile = useCallback((path: string) => {
+    if (!conversationId) return
+    api.openTab(conversationId, { kind: 'doc', target: path })
+      .then(({ tab, tabs }) => {
+        useTabsStore.getState().setTabs(conversationId, tabs)
+        setActiveTab({ id: conversationId, key: tab.id })
+        setPane((p) => {
+          const shown = p.id === conversationId && (isDesktop ? p.view === 'both' || p.view === 'app' : p.view === 'app')
+          return shown ? p : { id: conversationId, view: isDesktop ? 'both' : 'app' }
+        })
+      })
+      .catch((e: Error) => window.__jarvisToast?.info(`Couldn't open it beside the chat: ${e.message}`))
+  }, [conversationId, isDesktop])
+
   // The threads started from each message, for the marks under them.
   const childThreads = useChatStore(useShallow((s) =>
     s.order.map((id) => s.conversations[id]).filter((c) => !!c && c.parent_id === conversationId && !!c.parent_message_id),
@@ -718,7 +769,7 @@ export default function ChatView({
             aria-pressed={on}
             className={`px-3 py-1 text-xs rounded-md transition-colors ${on ? 'bg-bg text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}
           >
-            {pane === 'chat' ? 'Chat' : 'App'}
+            {pane === 'chat' ? 'Chat' : hasApp ? 'App' : 'Docs'}
           </button>
         )
       })}
@@ -746,7 +797,7 @@ export default function ChatView({
   )
 
   return (
-    <>
+    <PanelOpenerContext.Provider value={withTabs && conversationId ? openFile : null}>
     {renaming && createPortal(
       <div
         className='fixed inset-0 z-[300] flex items-center justify-center bg-black/40'
@@ -808,7 +859,7 @@ export default function ChatView({
           >
             <span className='flex items-center gap-3'>
               <span className='truncate flex-1'>{title}</span>
-              {hasApp && paneToggle}
+              {hasPanel && paneToggle}
             </span>
           </ContentTitle>
         </div>
@@ -1010,19 +1061,43 @@ export default function ChatView({
           >
             {/* The app alone on desktop: the title comes along, toggle included */}
             {isDesktop && !chatShown && title && desktopTitle}
-            <AppPreview
-              appSlug={conv!.app_path!.replace(/^apps\//, '')}
-              appToken={appShareToken}
-              refreshKey={appRefreshKey}
-              onRefresh={bumpApp}
-              shareIntent={shareIntent}
-              onShareIntentConsumed={onShareIntentConsumed}
-            />
+            {tabs.length === 0 ? (
+              <AppPreview
+                appSlug={conv!.app_path!.replace(/^apps\//, '')}
+                appToken={appShareToken}
+                refreshKey={appRefreshKey}
+                onRefresh={bumpApp}
+                shareIntent={shareIntent}
+                onShareIntentConsumed={onShareIntentConsumed}
+              />
+            ) : (
+              <SidePanel
+                conversationId={conversationId!}
+                tabs={tabs}
+                active={panelKey}
+                onActivate={activate}
+                app={hasApp ? {
+                  onRefresh: bumpApp,
+                  url: appShareUrl,
+                  node: (
+                    <AppPreview
+                      appSlug={conv!.app_path!.replace(/^apps\//, '')}
+                      appToken={appShareToken}
+                      refreshKey={appRefreshKey}
+                      onRefresh={bumpApp}
+                      shareIntent={shareIntent}
+                      onShareIntentConsumed={onShareIntentConsumed}
+                      toolbar={false}
+                    />
+                  ),
+                } : undefined}
+              />
+            )}
           </div>
         )}
       </div>
     </div>
-    </>
+    </PanelOpenerContext.Provider>
   )
 }
 

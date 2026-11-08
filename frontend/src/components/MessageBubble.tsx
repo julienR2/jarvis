@@ -1,6 +1,7 @@
 import { memo, useLayoutEffect, useMemo, useState, useRef } from 'react'
 import { API_BASE } from '../base'
 import ReactMarkdown from 'react-markdown'
+import { openablePath, usePanelOpener } from '../lib/panelOpener'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
 import { FileText, ChevronRight, Copy, Check, Mail } from 'lucide-react'
@@ -518,14 +519,33 @@ export const markdownComponents: Components = {
       </a>
     )
   },
-  a: ({ href, children, node: _node, ...props }) => {
-    const translated = translateSrc(href)
-    return (
-      <a href={translated} target='_blank' rel='noopener noreferrer' {...props}>
-        {children}
-      </a>
-    )
-  },
+  a: FileAwareLink,
+}
+
+/**
+ * A link in an answer. One to a document Jarvis wrote — a spec, a report, a
+ * PDF — opens beside the chat, as a tab, where the chat has a side pane.
+ * Everything else, and any modified click, opens a browser tab as before.
+ */
+function FileAwareLink({ href, children, node: _node, ...props }: React.ComponentPropsWithoutRef<'a'> & ExtraProps) {
+  const openInPanel = usePanelOpener()
+  const translated = translateSrc(href)
+  const path = openInPanel ? openablePath(href) : null
+  return (
+    <a
+      href={translated}
+      target='_blank'
+      rel='noopener noreferrer'
+      {...props}
+      onClick={path ? (e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+        e.preventDefault()
+        openInPanel!(path)
+      } : undefined}
+    >
+      {children}
+    </a>
+  )
 }
 
 function CodeBlockWrapper({
@@ -614,6 +634,9 @@ function MediaPlayer({
 }
 
 function AttachmentPreview({ attachment }: { attachment: Attachment }) {
+  // A document attached to a message opens beside the chat, like a link to one.
+  const openInPanel = usePanelOpener()
+  const openPath = openInPanel ? openablePath(attachment.path) ?? openablePath(attachment.url) : null
   const isImage = attachment.mimetype.startsWith('image/')
 
   // mimetype is authoritative here; fall back to the extension for older rows
@@ -656,6 +679,11 @@ function AttachmentPreview({ attachment }: { attachment: Attachment }) {
       href={withMediaToken(attachment.url)}
       target='_blank'
       rel='noopener noreferrer'
+      onClick={openPath ? (e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+        e.preventDefault()
+        openInPanel!(openPath)
+      } : undefined}
       className='flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-bg hover:bg-surface transition-colors'
     >
       <FileText size={16} className='text-text-muted shrink-0' />
