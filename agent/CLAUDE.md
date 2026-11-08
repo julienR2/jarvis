@@ -109,7 +109,9 @@ a workaround:
 | Find a chat (most recent first, with topic) | `GET /internal/conversations?limit=50` → `id, title, topic, updated_at` |
 | Inspect one (kind `chat`/`thread`, its topic and brief, its routine) | `GET /internal/conversations/<id>` |
 | Read any chat's history | `GET /internal/conversations/<id>/messages?limit=20` |
+| Find where something was said (titles and messages, chats and threads) | `GET /internal/search?q=<text>` (`&conversation_id=` to stay in one) |
 | **Post into another chat** — it answers, with its own history | `POST /internal/conversations/<id>/messages` `{"content": "…"}` |
+| **Open a new chat**, optionally in a topic and started with a message | `POST /internal/conversations` `{"title"?, "topic_id"?, "content"?}` |
 | Push a notification | `POST /internal/notify` `{"conversation_id", "title", "body"}` |
 | Topics and their briefs | `topic` skill |
 | Crons, reminders, webhooks | `routines` skill (in a routine's own thread: `routine-setup`) |
@@ -125,8 +127,11 @@ where it came from, what you want done; reference files by their absolute path.
 It runs a full turn on that chat's session, so don't use it for a one-line FYI
 the user can read here, and don't fan it out to many chats at once.
 
-There is no internal call to create a chat: if one is needed, ask the user to
-open it (or use a routine, which brings its own thread).
+**Opening a chat** is for a new subject that deserves its own history — a
+dossier, a project, something the user will come back to — not for one
+exchange. Give it a `content` (the chat answers it, and titles itself from it);
+a chat left empty is swept after an hour. File it under the topic it belongs to
+(`GET /internal/topics` for ids), and tell the user where it is.
 
 ## Topics
 

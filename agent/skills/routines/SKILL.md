@@ -37,7 +37,7 @@ Crons and webhooks share the same shape; swap `crons` ↔ `webhooks`.
 |---|---|
 | List | `GET /internal/crons` · `GET /internal/webhooks` (webhooks include `token`) |
 | Create / update | `POST /internal/crons` · `POST /internal/webhooks` — upsert, see below |
-| Run once now | `POST /internal/crons/<id>/trigger` · `POST /internal/webhooks/<id>/trigger` (no payload) |
+| Run now | `POST /internal/crons/<id or name>/trigger` · `POST /internal/webhooks/<id or name>/trigger` — a JSON body is the webhook's payload; `?sync=1` waits for its answer |
 | Delete | `DELETE /internal/crons/<name>` · `DELETE /internal/webhooks/<name>` — by **name**; the thread and its history stay |
 | Its thread | `GET /internal/conversations/<thread_id>` (includes `routine`), `…/messages` for past runs |
 
@@ -86,15 +86,22 @@ exact minute/hour/day/month with `once: true`.
 
 ### Webhook URLs
 
-Once created, a webhook is called with its `token`:
+From inside Jarvis (a chat, another routine), call it by name — no token needed:
+
+```bash
+curl -s -X POST "$BACKEND_URL/internal/webhooks/<name>/trigger" \
+  -H "X-Internal-Secret: $INTERNAL_SECRET" -H "Content-Type: application/json" \
+  -d @payload.json
+```
+
+From outside (n8n, a script, a device), with its `token`:
 
 ```
-POST $BACKEND_URL/api/hooks/<token>/trigger           # from inside Jarvis
-POST https://<jarvis public host>/api/hooks/<token>/trigger   # from outside
+POST https://<jarvis public host>/api/hooks/<token>/trigger
 ```
 
 No other auth — the token is the secret, so don't paste it anywhere public.
-A JSON body becomes the run's `Webhook payload:` appended to the prompt.
+Either way, a JSON body becomes the run's `Webhook payload:` appended to the prompt.
 `?sync=1` waits and returns the run's answer as `response` (what the Pebble
 uses); without it the call returns at once. `POST …/<token>/cancel` stops a
 running run.
@@ -106,7 +113,8 @@ running run.
 | Something at a time, or repeatedly | a cron (`once: true` for a single later moment) |
 | An outside system pushes events in | a webhook, its URL given to that system |
 | Hand something to **another chat now**, so it acts with its own history | `POST /internal/conversations/<id>/messages` (CLAUDE.md, *Other chats*) — not a new webhook |
-| A run should hand a payload to a self-contained processing step | a webhook with its own prompt, called with the payload |
+| A run should hand a payload to a self-contained processing step | a webhook with its own prompt, triggered by name with the payload |
+| A new subject that deserves its own chat | `POST /internal/conversations` (CLAUDE.md) |
 | Just tell the user | the run's answer (reports into its chat), or `POST /internal/notify` |
 
 Before creating, `GET` the list: a routine doing nearly the same thing may

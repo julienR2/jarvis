@@ -12,9 +12,9 @@ import { getAllConnectors, getConnector } from '../connectors.js'
 import { listOneConnections, oneActive } from '../one.js'
 import { archiveAppDir } from '../app-archive.js'
 import { schedule, rescheduleAll, fireCron } from '../crons.js'
-import { fireWebhook } from '../webhooks.js'
+import { fireWebhook, fireWebhookSync } from '../webhooks.js'
 import { getSection, setSectionContext, topicConversations, MAX_CONTEXT_CHARS } from '../topics.js'
-import { emitConversationEvent } from '../sse.js'
+import { emitConversationEvent, emitGlobalEvent } from '../sse.js'
 import { pushForConversation } from '../push.js'
 import { config } from '../config.js'
 import { secureEquals } from '../security.js'
@@ -172,20 +172,37 @@ export async function internalRoutes(app: FastifyInstance) {
   //
   // The conversation the agent runs in, with the topic it is filed under —
   // what the `topic` skill reads before updating a brief.
-  // Fire a routine now — "run it once so I see" during setup.
+  // Fire a routine now — "run it once so I see" during setup. By id or by
+  // name: the agent usually knows a routine by its name, and a lookup first
+  // is one more call to get wrong.
   app.post<{ Params: { id: string } }>('/crons/:id/trigger', async (req, reply) => {
     if (!checkSecret(req, reply)) return
-    const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(req.params.id) as CronRow | undefined
+    const row = getDb().prepare('SELECT * FROM crons WHERE id = ? OR name = ?').get(req.params.id, req.params.id) as CronRow | undefined
     if (!row) return reply.code(404).send({ error: 'Cron not found' })
     fireCron(row)
     return { ok: true }
   })
-  app.post<{ Params: { id: string } }>('/webhooks/:id/trigger', async (req, reply) => {
+
+  // A JSON body is the run's payload, as on the public /api/hooks/<token>
+  // route — so one routine can hand an item to another without fetching its
+  // token and going out through the public URL. `?sync=1` waits for the run's
+  // answer.
+  app.post<{ Params: { id: string }; Querystring: { sync?: string } }>('/webhooks/:id/trigger', async (req, reply) => {
     if (!checkSecret(req, reply)) return
-    const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(req.params.id) as WebhookRow | undefined
+    const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ? OR name = ?').get(req.params.id, req.params.id) as WebhookRow | undefined
     if (!row) return reply.code(404).send({ error: 'Webhook not found' })
-    fireWebhook(row)
-    return { ok: true }
+    const payload = req.body && typeof req.body === 'object' && Object.keys(req.body as object).length > 0
+      ? req.body
+      : undefined
+    if (req.query.sync === 'true' || req.query.sync === '1') {
+      try {
+        return { ok: true, webhook: row.name, response: await fireWebhookSync(row, payload) }
+      } catch {
+        return reply.code(504).send({ error: 'Response timeout' })
+      }
+    }
+    fireWebhook(row, payload)
+    return { ok: true, webhook: row.name }
   })
 
   // The chats, most recent first — what a routine can report into.
@@ -216,6 +233,77 @@ export async function internalRoutes(app: FastifyInstance) {
       routine: routine ? { kind: routine.table === 'crons' ? 'cron' : 'webhook', ...routine.row } : null,
       topic: section ? { id: section.id, name: section.name, context: section.context, context_updated_at: section.context_updated_at } : null,
     }
+  })
+
+  // Open a new chat, optionally filed under a topic and started with a first
+  // message — which the new chat's agent answers at once. Without a message
+  // the chat is swept after an hour like any empty one (empty-chats.ts).
+  app.post('/conversations', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    const { title, topic_id, content } = (req.body ?? {}) as { title?: string; topic_id?: string | null; content?: string }
+    const section = topic_id ? getSection(topic_id) : undefined
+    if (topic_id && !section) return reply.code(400).send({ error: 'Unknown topic_id' })
+
+    const id = uuid()
+    getDb()
+      .prepare(
+        `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, section_id)
+         VALUES (?, ?, NULL, 'default', unixepoch(), 'auto', ?)`,
+      )
+      // Left as the placeholder, the title is generated from the first message.
+      .run(id, title?.trim() || 'New conversation', section?.id ?? null)
+    const conv = getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id) as ConvRow
+
+    const messageId = content?.trim() ? processMessage(id, conv, content.trim(), [], {}) : null
+    emitGlobalEvent({ type: 'conversation_changed', conversation_id: id })
+    return { id, title: conv.title, topic: section ? { id: section.id, name: section.name } : null, message_id: messageId }
+  })
+
+  // Find where something was said: chat and thread titles, and the text of
+  // every message (an answer's final text, not its step log). Newest first.
+  app.get<{ Querystring: { q?: string; limit?: string; conversation_id?: string } }>('/search', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    const q = (req.query.q ?? '').trim()
+    if (q.length < 2) return reply.code(400).send({ error: 'q (at least 2 characters) is required' })
+    const asked = Number(req.query.limit)
+    const limit = Math.min(Math.max(Number.isFinite(asked) ? asked : 20, 1), 100)
+    const like = `%${q.replace(/[\\%_]/g, (c) => '\\' + c)}%`
+    const scope = req.query.conversation_id ?? null
+
+    const conversations = scope
+      ? []
+      : getDb()
+          .prepare(
+            `SELECT c.id, c.title, c.kind, s.name AS topic, c.updated_at FROM conversations c
+               LEFT JOIN sections s ON s.id = c.section_id
+              WHERE c.title LIKE ? ESCAPE '\\' ORDER BY c.updated_at DESC LIMIT ?`,
+          )
+          .all(like, limit)
+
+    const rows = getDb()
+      .prepare(
+        `SELECT m.conversation_id, c.title, c.kind, s.name AS topic, m.role, m.created_at,
+                CASE WHEN m.role = 'assistant' AND m.result IS NOT NULL THEN m.result ELSE m.content END AS text
+           FROM messages m
+           JOIN conversations c ON c.id = m.conversation_id
+           LEFT JOIN sections s ON s.id = c.section_id
+          WHERE m.type IS NULL
+            AND (@scope IS NULL OR m.conversation_id = @scope)
+            AND CASE WHEN m.role = 'assistant' AND m.result IS NOT NULL THEN m.result ELSE m.content END LIKE @like ESCAPE '\\'
+          ORDER BY m.created_at DESC LIMIT @limit`,
+      )
+      .all({ scope, like, limit }) as { conversation_id: string; title: string; kind: string; topic: string | null; role: string; created_at: number; text: string }[]
+
+    // A window around the first hit, so the result says why it matched.
+    const needle = q.toLowerCase()
+    const messages = rows.map(({ text, created_at, ...r }) => {
+      const at = Math.max(text.toLowerCase().indexOf(needle), 0)
+      const start = Math.max(at - 120, 0)
+      const snippet = (start > 0 ? '…' : '') + text.slice(start, at + needle.length + 200).replace(/\s+/g, ' ').trim() + (at + needle.length + 200 < text.length ? '…' : '')
+      return { ...r, at: new Date(created_at * 1000).toISOString(), snippet }
+    })
+
+    return { query: q, conversations, messages }
   })
 
   // ── Topics ──────────────────────────────────────────────────────────────
