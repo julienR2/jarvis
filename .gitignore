@@ -31,8 +31,7 @@ agent/*
 
 # Whitelist default skills — anything else under agent/skills/ is gitignored
 agent/skills/*
-!agent/skills/cron/
-!agent/skills/webhook/
+!agent/skills/routines/
 !agent/skills/apps/
 !agent/skills/gmail/
 !agent/skills/linear/

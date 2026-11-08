@@ -101,28 +101,20 @@ backend. Fetch through:
 $BACKEND_URL/api/connectors/<id>/proxy/<path>
 ```
 
-GET is unauthenticated by design (only surfaced inside JWT-gated chat/apps);
-PUT/POST/DELETE need a JWT. See the `copyparty` skill for usage.
+It takes a user session or an app's token (see the `apps` skill) — it is how
+**browsers and apps** reach the service. You don't need it from the shell: load
+the connector's values and call the service directly.
 
 ## Adding / editing a connector
 
-Prefer the UI: **Settings → Connectors → Add connector** — name it, pick an icon
+Through the UI: **Settings → Connectors → Add connector** — name it, pick an icon
 (or paste a logo image URL), then add label + value fields. Editing opens the
 same modal. The machine key for each field is derived from its label
 automatically; existing keys are preserved.
 
-To do it programmatically (needs a JWT):
-
-```bash
-curl -s -X POST "$BACKEND_URL/api/connectors" -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" -d '{
-    "name": "My Service",
-    "description": "what it is for",
-    "icon": "Plug",
-    "fields": [ { "label": "API key", "value": "…" } ]
-  }'
-# PATCH /api/connectors/:id to edit, DELETE /api/connectors/:id to remove.
-```
+You cannot do it yourself: `/api/connectors` needs a user session, which you
+never hold. When a service needs credentials that aren't there, tell the user
+exactly which fields to add (labels and where to find the values).
 
 There is **no hardcoded connector catalog** — every connector is just a DB row.
 

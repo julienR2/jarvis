@@ -33,5 +33,5 @@ The plain-text transcript is returned in the response body. The path of a shared
 ## Notes
 
 - Supported formats: mp3, wav, m4a, ogg, flac, webm, mp4 and more (ffmpeg-backed).
-- For subtitles, use `output=srt` or `output=vtt` and save the file to `$WORKSPACE_DIR/uploads/` so the user can download it.
+- For subtitles, use `output=srt` or `output=vtt` and save the file to `$WORKSPACE_DIR/uploads/$JARVIS_CONVERSATION_ID/` so the user can download it.
 - This is the same engine the backend falls back to for voice input when ElevenLabs is unavailable.
