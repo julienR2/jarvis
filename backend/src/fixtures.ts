@@ -61,6 +61,8 @@ export function seedFixtures(): void {
     // Documents beside a chat: one with only tabs, one with an app and a tab.
     spec: '00000000-0000-4000-8000-000000000014',
     appDocs: '00000000-0000-4000-8000-000000000015',
+    // An app that talks to its chat through window.jarvis.
+    bridge: '00000000-0000-4000-8000-000000000016',
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -305,6 +307,16 @@ export function seedFixtures(): void {
     insMsg.run(uuid(), ID.appDocs, 'user', 'Show the spec next to the app.', null, null, null, t(78))
     insMsg.run(uuid(), ID.appDocs, 'assistant', 'Both are in the side pane.', null, null, null, t(77))
     insTab.run(uuid(), ID.appDocs, 'doc', join(specDir, 'spec.md'), 'spec.md', 1)
+    // The spec is also the Daily topic's document: a tab in each of its chats.
+    db.prepare('INSERT INTO section_docs (id, section_id, kind, target, title) VALUES (?, ?, ?, ?, ?)')
+      .run(uuid(), daily.id, 'doc', join(specDir, 'spec.md'), 'Daily spec')
+    const bridgeDir = join(config.workspaceDir, 'apps', 'fixture-bridge')
+    mkdirSync(bridgeDir, { recursive: true })
+    writeFileSync(join(bridgeDir, 'index.html'), FIXTURE_BRIDGE_HTML)
+    insConv.run(ID.bridge, '◫ Bridge app', t(76), t(75), projects.id, 'apps/fixture-bridge', randomBytes(18).toString('base64url'))
+    insMsg.run(uuid(), ID.bridge, 'user', 'An app that talks to you.', null, null, null, t(76))
+    insMsg.run(uuid(), ID.bridge, 'assistant', 'It is beside the chat.', null, null, null, t(75))
+
 
     // 5. Routines and a key — rows for the settings pages. The cron is disabled so
     // nothing in a throwaway instance ever fires.
@@ -575,4 +587,21 @@ const FIXTURE_SPEC_MD = `# Side pane tabs — spec
 |---|---|
 | doc | rendered in the pane |
 | link | framed, with a way out |
+`
+
+// Every bridge call, one button each; what comes back is written into #out.
+const FIXTURE_BRIDGE_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>Bridge app</title></head>
+<body style="font-family:sans-serif;padding:16px">
+<h1>Bridge app</h1>
+<p id="available"></p>
+<button id="send">Send</button> <button id="ask">Ask</button> <button id="context">Context</button>
+<pre id="out"></pre>
+<script>
+  var out = document.getElementById('out')
+  document.getElementById('available').textContent = window.jarvis && window.jarvis.available ? 'bridge: on' : 'bridge: off'
+  document.getElementById('send').onclick = function () { jarvis.send('Hello from the bridge app').then(function () { out.textContent = 'sent' }, function (e) { out.textContent = 'error: ' + e.message }) }
+  document.getElementById('ask').onclick = function () { jarvis.ask('What is the answer?').then(function (a) { out.textContent = 'answer: ' + a }, function (e) { out.textContent = 'error: ' + e.message }) }
+  document.getElementById('context').onclick = function () { jarvis.context().then(function (c) { out.textContent = 'chat: ' + c.title }) }
+</script>
+</body></html>
 `

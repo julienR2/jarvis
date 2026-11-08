@@ -1,6 +1,6 @@
 ---
 name: topic
-description: Read and update the shared brief of the topic a chat is filed under. Use when a chat belongs to a topic and something durable was decided or learned, when the user asks what the topic knows, or when asked to consolidate, refresh or rewrite a topic's brief.
+description: Read and update the shared brief of the topic a chat is filed under, and the documents pinned to it (a tab in each of its chats). Use when a document should be shared by all the chats of a topic, when a chat belongs to a topic and something durable was decided or learned, when the user asks what the topic knows, or when asked to consolidate, refresh or rewrite a topic's brief.
 allowed-tools: Bash, Read
 ---
 
@@ -70,6 +70,26 @@ curl -s -X PATCH "$BACKEND_URL/internal/topics/<topic-id>/context" \
 ```
 
 The other chats of the topic get the new text on their next turn.
+
+## Documents pinned to the topic
+
+A document (or a link) can be **pinned to the topic**: it shows as a tab beside
+every chat of the topic, is listed on the topic page, and is named in the
+topic context each chat gets — so every chat knows the file exists and where.
+Use it for the document the topic works *from*: the dossier's state, the
+project spec, the list of open questions. Keep the file somewhere durable
+(`$WORKSPACE_DIR/memory/<topic>/…`, the repo's `docs/`), not a chat's uploads.
+
+```bash
+curl -s -X POST "$BACKEND_URL/internal/topics/<topic-id>/docs" \
+  -H "X-Internal-Secret: $INTERNAL_SECRET" -H "Content-Type: application/json" \
+  -d '{"path": "/jarvis/agent/workspace/memory/house-sale/state.md", "title": "State of the dossier"}'
+# {"url": "https://…"} for a link.  The list: GET /internal/topics/<topic-id> → docs
+# Unpin: DELETE /internal/topics/<topic-id>/docs/<doc-id>   (the file stays)
+```
+
+To change one, edit the file: every chat's tab re-renders. The brief stays
+short and points at the document rather than copying it.
 
 ---
 

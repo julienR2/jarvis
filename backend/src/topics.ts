@@ -15,6 +15,7 @@
 //     back through the internal API the `topic` skill documents.
 
 import { getDb, uuid } from './db.js'
+import { listTopicDocs } from './tabs.js'
 import { config } from './config.js'
 import { emitGlobalEvent } from './sse.js'
 import type { ConvRow, SectionRow } from './types.js'
@@ -54,20 +55,34 @@ export function setSectionContext(id: string, context: string): SectionRow | und
 export function topicContextFor(conv: ConvRow, opts: { freshSession?: boolean } = {}): string | null {
   if (!conv.section_id) return null
   const section = getSection(conv.section_id)
-  if (!section || !section.context.trim() || section.brief_hidden) return null
+  if (!section || section.brief_hidden) return null
+  const brief = section.context.trim()
+  const docs = listTopicDocs(section.id)
+  if (!brief && !docs.length) return null
   const fresh = opts.freshSession || !conv.claude_session_id
-  const rewritten = (section.context_updated_at ?? 0) > (conv.topic_context_at ?? 0)
-  if (!fresh && !rewritten) return null
+  const changed = Math.max(section.context_updated_at ?? 0, section.docs_updated_at ?? 0) > (conv.topic_context_at ?? 0)
+  if (!fresh && !changed) return null
   getDb()
     .prepare('UPDATE conversations SET topic_context_at = unixepoch() WHERE id = ?')
     .run(conv.id)
   return [
     '<article data-jarvis="topic-context">',
-    `This chat is filed under the topic "${section.name}". Its shared brief, kept across every chat of the topic:`,
-    '',
-    section.context.trim(),
-    '',
-    'When something durable is decided or learned here, update the brief with the `topic` skill so the other chats of this topic know too. Do not repeat the brief back to the person.',
+    ...(brief
+      ? [
+          `This chat is filed under the topic "${section.name}". Its shared brief, kept across every chat of the topic:`,
+          '',
+          brief,
+          '',
+          'When something durable is decided or learned here, update the brief with the `topic` skill so the other chats of this topic know too. Do not repeat the brief back to the person.',
+        ]
+      : [`This chat is filed under the topic "${section.name}".`]),
+    ...(docs.length
+      ? [
+          '',
+          "Documents pinned to the topic — open beside every chat of it, as tabs. Read them when the task touches what they cover; edit the file itself and every chat's tab follows:",
+          ...docs.map((d) => `- ${d.title}: ${d.kind === 'doc' ? d.target.replace(config.workspaceDir, '/jarvis/agent/workspace') : d.target}`),
+        ]
+      : []),
     '</article>',
   ].join('\n')
 }

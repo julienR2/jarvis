@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
-  AppWindow, Check, Clock, Link2, Loader2, MessageSquare, MoreHorizontal, Pencil, Plus, Repeat, Settings2, Sparkles, Trash2, X, Zap, ChevronDown, EyeOff, FolderOpen
+  AppWindow, Check, Clock, FileText, Globe, Link2, Loader2, MessageSquare, MoreHorizontal, Pencil, Plus, Repeat, Settings2, Sparkles, Trash2, X, Zap, ChevronDown, EyeOff, FolderOpen
 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { SidebarToggle } from '../components/ContentLayout'
@@ -9,7 +9,7 @@ import { Markdown } from '../components/MessageBubble'
 import NeedsYouCard from '../components/NeedsYouCard'
 import NameModal from '../components/NameModal'
 import Popover from '../components/Popover'
-import { api, pendingQuestionOf, type Conversation } from '../api'
+import { api, pendingQuestionOf, topicDocUrl, type Conversation, type TopicDoc } from '../api'
 import { routinePath, type Routine } from '../lib/routines'
 import { useChatStore } from '../stores/chatStore'
 import { describeSchedule, relative } from '../lib/runs'
@@ -142,6 +142,8 @@ export default function TopicPage() {
       <div className='flex-1 overflow-y-auto'>
         <div className='max-w-3xl mx-auto px-4 md:px-6 py-6 flex flex-col gap-7'>
           <Brief section={section} />
+
+          <TopicDocs sectionId={section.id} version={section.docs_updated_at ?? 0} />
 
           {waiting.length > 0 && (
             <section data-testid='topic-waiting'>
@@ -381,6 +383,45 @@ function Brief({ section }: { section: { id: string; name: string; context: stri
           )}
         </div>
       )}
+    </section>
+  )
+}
+
+/**
+ * The documents pinned to the topic — a tab in each of its chats, and listed
+ * in the brief they are given. Opened from here in a browser tab; pinned from
+ * a chat's side pane, or by Jarvis. Nothing shows until there is one.
+ */
+function TopicDocs({ sectionId, version }: { sectionId: string; version: number }) {
+  const [docs, setDocs] = useState<TopicDoc[]>([])
+  useEffect(() => {
+    let cancelled = false
+    api.getTopicDocs(sectionId).then(({ docs }) => { if (!cancelled) setDocs(docs) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [sectionId, version])
+  if (!docs.length) return null
+  return (
+    <section data-testid='topic-docs'>
+      <Eyebrow>Documents · {docs.length}</Eyebrow>
+      <div className='divide-y divide-border'>
+        {docs.map((d) => (
+          <div key={d.id} className='flex items-center gap-3 py-2.5' data-testid='topic-doc'>
+            {d.kind === 'doc' ? <FileText size={13} className='shrink-0 text-text-muted' /> : <Globe size={13} className='shrink-0 text-text-muted' />}
+            <a href={topicDocUrl(d)} target='_blank' rel='noopener noreferrer' className='min-w-0 flex-1' title={d.target}>
+              <span className='block truncate text-[13.5px] font-medium text-text-primary hover:text-accent'>{d.title}</span>
+              <span className='block truncate text-[11.5px] text-text-muted'>{d.target}</span>
+            </a>
+            <button
+              onClick={() => api.removeTopicDoc(sectionId, d.id).then(({ docs }) => setDocs(docs)).catch(() => {})}
+              title='Remove from the topic'
+              aria-label={`Remove ${d.title} from the topic`}
+              className='rounded-md p-1 text-text-muted/60 hover:bg-surface2 hover:text-text-primary'
+            >
+              <X size={13} />
+            </button>
+          </div>
+        ))}
+      </div>
     </section>
   )
 }

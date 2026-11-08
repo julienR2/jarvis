@@ -80,13 +80,30 @@ const auth = () => (APP_TOKEN ? { Authorization: `Bearer ${APP_TOKEN}` } : {})
 const res = await fetch('/api/connectors/copyparty/proxy/notes/', { headers: auth() })   // GET, PUT, POST, DELETE
 ```
 
-**Jarvis itself** (a button that asks something, a form that files a note): a
-webhook with its own narrow prompt (`routines` skill), called from the app with
-`fetch('/api/hooks/<token>/trigger?sync=1', {method: 'POST', body: JSON.stringify(payload)})`
-— `sync=1` returns the answer as `response`. Know the cost: the token sits in
-the app's source, so anyone holding the app's share link can call that webhook.
-Keep such a webhook's prompt narrow (it acts on the payload, nothing else), and
-say so when the app is shared.
+**Jarvis itself**, through `window.jarvis` — present in every app page, nothing
+to include:
+
+```js
+if (jarvis.available) {                                    // false when opened alone (a share link)
+  await jarvis.send('Add milk to the list')                // posts into the chat as the user; the chat answers
+  const n = await jarvis.ask('How many invoices are unpaid? Reply with a number')   // one-off, stays out of the chat
+  await jarvis.openDoc('/jarvis/agent/workspace/memory/dossier/state.md')           // a tab beside the chat
+  const { conversationId, title, topicId } = await jarvis.context()
+  const stop = jarvis.onMessage(({ id, text }) => render(text))   // each answer that finishes in the chat
+}
+```
+
+- `send` is for what should happen *in the conversation* (a request the user
+  could have typed: the chat runs a full turn, with its history). `ask` is for
+  what the app needs back (a number, a JSON blob, a sentence to display): a
+  fresh session that can read the chat and use tools, whose answer never shows
+  in the chat. Ask for an exact format and parse it.
+- The bridge answers with the user's session from the page around the app; the
+  app holds no credential. Opened on its own (a share link) there is no bridge:
+  check `jarvis.available` and degrade (read-only view, hide the buttons).
+- Older apps call a webhook with its token written in their source; anyone
+  holding the share link can read that token. Prefer the bridge, and move such
+  an app over when you touch it.
 
 **Shares from the phone**: an app that handles `jarvis:share-intent` messages
 is offered in the share sheet, and receives what was shared:
@@ -122,7 +139,10 @@ curl -s -X POST "$BACKEND_URL/internal/conversations/$JARVIS_CONVERSATION_ID/tab
   user can pin or close any tab themselves.
 - **Where the file lives decides who sees it**: in the chat's uploads folder it
   is this chat's; under `$WORKSPACE_DIR/memory/…` or in the repo (`/jarvis/docs/…`)
-  any chat can open the same one — the right place for a document a topic shares.
+  any chat can open the same one.
+- **A document a whole topic works from** (the dossier's state, the project
+  spec) is pinned to the topic instead: a tab in every chat of it, listed on the
+  topic page and in the topic's context — `topic` skill.
 - Renders: Markdown (`.md`), text (`.txt .csv .json .yml .log`), PDF, HTML
   (sandboxed, no scripts — interactive pages are apps), images. Up to 5 MB. Paths
   under the workspace or the repo, not `agent/` outside the workspace.

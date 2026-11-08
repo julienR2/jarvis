@@ -3,6 +3,8 @@ import { getDb, uuid } from '../db.js'
 import { processMessage } from './conversations.js'
 import { consolidationPrompt, ensureDossierConversation, getSection, MAX_CONTEXT_CHARS, setSectionContext } from '../topics.js'
 import { emitGlobalEvent } from '../sse.js'
+import { createReadStream } from 'fs'
+import { addTopicDoc, docContentType, listTopicDocs, removeTopicDoc, resolveDocPath, type TopicDocRow } from '../tabs.js'
 import type { SectionRow } from '../types.js'
 
 const MAX_NAME = 60
@@ -44,6 +46,40 @@ export async function sectionRoutes(app: FastifyInstance) {
     const section = getSection(req.params.id)
     if (!section) return reply.code(404).send({ error: 'Not found' })
     return section
+  })
+
+  // Documents pinned to the topic: a tab in each of its chats (see tabs.ts).
+  app.get<{ Params: { id: string } }>('/:id/docs', auth, async (req, reply) => {
+    if (!getSection(req.params.id)) return reply.code(404).send({ error: 'Not found' })
+    return { docs: listTopicDocs(req.params.id) }
+  })
+
+  app.post<{ Params: { id: string } }>('/:id/docs', auth, async (req, reply) => {
+    if (!getSection(req.params.id)) return reply.code(404).send({ error: 'Not found' })
+    const body = (req.body ?? {}) as { kind?: string; target?: string; title?: string }
+    if (body.kind !== 'doc' && body.kind !== 'link') return reply.code(400).send({ error: 'kind must be doc or link' })
+    if (!body.target) return reply.code(400).send({ error: 'target is required' })
+    const result = addTopicDoc(req.params.id, { kind: body.kind, target: body.target, title: body.title })
+    if ('error' in result) return reply.code(400).send(result)
+    return { doc: result.doc, docs: listTopicDocs(req.params.id) }
+  })
+
+  app.delete<{ Params: { id: string; docId: string } }>('/:id/docs/:docId', auth, async (req, reply) => {
+    if (!removeTopicDoc(req.params.id, req.params.docId)) return reply.code(404).send({ error: 'Not found' })
+    return { docs: listTopicDocs(req.params.id) }
+  })
+
+  // Read from the topic page, outside any chat — served as a chat's tab is.
+  app.get<{ Params: { id: string; docId: string } }>('/:id/docs/:docId/content', auth, async (req, reply) => {
+    const doc = getDb().prepare(`SELECT * FROM section_docs WHERE id = ? AND section_id = ? AND kind = 'doc'`)
+      .get(req.params.docId, req.params.id) as TopicDocRow | undefined
+    if (!doc) return reply.code(404).send({ error: 'Not found' })
+    const r = resolveDocPath(doc.target)
+    if ('error' in r) return reply.code(404).send(r)
+    const type = docContentType(r.path)
+    reply.header('Content-Type', type).header('Cache-Control', 'no-store')
+    if (type !== 'application/pdf') reply.header('Content-Security-Policy', 'sandbox')
+    return reply.send(createReadStream(r.path))
   })
 
   // Rename, rewrite the brief, or both. A rewrite stamps context_updated_at so

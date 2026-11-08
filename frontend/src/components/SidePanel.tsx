@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ExternalLink, FileText, Globe, LayoutGrid, Pin, RefreshCw, X } from 'lucide-react'
+import { ExternalLink, FileText, FolderInput, FolderMinus, FolderOpen, Globe, LayoutGrid, Pin, RefreshCw, X } from 'lucide-react'
 import { api, tabContentUrl, type ChatTab } from '../api'
 import { useTabsStore } from '../stores/tabsStore'
 import { Markdown } from './MessageBubble'
@@ -14,6 +14,8 @@ interface Props {
   onActivate: (key: PanelKey) => void
   /** The chat's app, already built — kept mounted while another tab is shown, so it keeps its state. */
   app?: { node: ReactNode; onRefresh: () => void; url?: string }
+  /** The chat's topic, when it has one: its tabs can be shared with it. */
+  topicId?: string | null
 }
 
 /**
@@ -23,7 +25,7 @@ interface Props {
  * opened) is in italics, as in an editor's preview tab; double-click or the
  * pin keeps it.
  */
-export default function SidePanel({ conversationId, tabs, active, onActivate, app }: Props) {
+export default function SidePanel({ conversationId, tabs, active, onActivate, app, topicId }: Props) {
   const setTabs = useTabsStore((s) => s.setTabs)
   const bump = useTabsStore((s) => s.bump)
   const activeTab = tabs.find((t) => t.id === active)
@@ -32,6 +34,13 @@ export default function SidePanel({ conversationId, tabs, active, onActivate, ap
     api.updateTab(conversationId, tab.id, { pinned: true }).then(({ tabs }) => setTabs(conversationId, tabs)).catch(() => {})
   const close = (tab: ChatTab) =>
     api.closeTab(conversationId, tab.id).then(({ tabs }) => setTabs(conversationId, tabs)).catch(() => {})
+  const shareWithTopic = (tab: ChatTab) =>
+    api.shareTabWithTopic(conversationId, tab.id)
+      .then(({ tab: shared, tabs }) => { setTabs(conversationId, tabs); onActivate(shared.id) })
+      .catch((e: Error) => window.__jarvisToast?.error(e.message))
+  // Every chat of the topic gets the new list by event, this one included.
+  const removeFromTopic = (tab: ChatTab) =>
+    api.removeTopicDoc(tab.topic!.id, tab.id).catch((e: Error) => window.__jarvisToast?.error(e.message))
 
   const openUrl = activeTab ? (activeTab.kind === 'link' ? activeTab.target : tabContentUrl(activeTab)) : app?.url
   const refresh = activeTab ? () => bump(activeTab.id) : app?.onRefresh
@@ -49,16 +58,27 @@ export default function SidePanel({ conversationId, tabs, active, onActivate, ap
               selected={active === tab.id}
               onSelect={() => onActivate(tab.id)}
               onDoubleClick={() => !tab.pinned && pin(tab)}
-              icon={tab.kind === 'doc' ? <FileText size={13} /> : <Globe size={13} />}
+              icon={tab.topic ? <FolderOpen size={13} /> : tab.kind === 'doc' ? <FileText size={13} /> : <Globe size={13} />}
               title={tab.title}
-              hint={tab.target}
+              hint={tab.topic ? `Pinned to ${tab.topic.name} — ${tab.target}` : tab.target}
               temporary={!tab.pinned}
               onPin={!tab.pinned ? () => pin(tab) : undefined}
-              onClose={() => close(tab)}
+              // A topic's document is the topic's: removed there, not closed here.
+              onClose={tab.topic ? undefined : () => close(tab)}
             />
           ))}
         </div>
         <div className='flex items-center gap-0.5 px-2 shrink-0'>
+          {activeTab && !activeTab.topic && topicId && (
+            <button onClick={() => shareWithTopic(activeTab)} title='Pin to the topic — a tab in each of its chats' className='p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'>
+              <FolderInput size={13} />
+            </button>
+          )}
+          {activeTab?.topic && (
+            <button onClick={() => removeFromTopic(activeTab)} title={`Remove from ${activeTab.topic.name}`} className='p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'>
+              <FolderMinus size={13} />
+            </button>
+          )}
           {refresh && (
             <button onClick={refresh} title='Reload' className='p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'>
               <RefreshCw size={13} />

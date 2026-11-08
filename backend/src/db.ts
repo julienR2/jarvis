@@ -563,6 +563,22 @@ export function initDb(): void {
     )
   `)
   db.exec('CREATE INDEX IF NOT EXISTS idx_conversation_tabs_conv ON conversation_tabs(conversation_id)')
+  // Documents pinned to a topic: a tab in every chat of the topic, listed on
+  // its page and in the brief its chats are given. `docs_updated_at` tells a
+  // warm session the list changed, as context_updated_at does for the brief.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS section_docs (
+      id TEXT PRIMARY KEY,
+      section_id TEXT NOT NULL REFERENCES sections(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK(kind IN ('doc', 'link')),
+      target TEXT NOT NULL,
+      title TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `)
+  try {
+    db.exec('ALTER TABLE sections ADD COLUMN docs_updated_at INTEGER DEFAULT NULL')
+  } catch { /* already exists */ }
 
   // Connectors — one row per connector holding its definition AND its values.
   // Unified from the former three-way split (hardcoded catalog + custom_connectors

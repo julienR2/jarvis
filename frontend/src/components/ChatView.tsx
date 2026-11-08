@@ -228,8 +228,10 @@ export default function ChatView({
   const withTabs = !shared && !embedded
   const { appRefreshKey, bumpApp } = useChatEvents(conversationId, { tabs: withTabs })
   const tabs = useChatTabs(withTabs ? conversationId : undefined)
-  // The side pane: the chat's app, and/or the tabs opened beside it.
+  // The side pane: the chat's app, and/or the tabs opened beside it. A
+  // topic's documents alone don't open it — they wait behind the toggle.
   const hasPanel = hasApp || tabs.length > 0
+  const ownsPanel = hasApp || tabs.some((t) => !t.topic)
   const isDesktop = useIsDesktop()
   // What this chat opens on: what it was last left showing on this device
   // (unset, the default) — unless something was just shared into its
@@ -373,7 +375,7 @@ export default function ChatView({
   const sidePane: 'thread' | 'app' | null = threadPanel ? 'thread' : hasPanel ? 'app' : null
   // Mobile has room for one pane: "both" (the desktop default) shows the app.
   // A chat with only documents opens on the chat: they are beside it, not it.
-  const view: PaneView = paneView ?? (isDesktop ? 'both' : hasApp ? 'app' : 'chat')
+  const view: PaneView = paneView ?? (isDesktop ? (ownsPanel ? 'both' : 'chat') : hasApp ? 'app' : 'chat')
   const appShown = sidePane === 'app' && view !== 'chat'
   const chatShown = sidePane !== 'app' || (isDesktop ? view !== 'app' : view === 'chat')
 
@@ -393,7 +395,7 @@ export default function ChatView({
   const panelKey: PanelKey =
     pickedKey && (pickedKey === 'app' ? hasApp : tabs.some((t) => t.id === pickedKey)) ? pickedKey
     : hasApp ? 'app'
-    : tabs[tabs.length - 1]?.id ?? 'app'
+    : [...tabs].reverse().find((t) => !t.topic)?.id ?? tabs[tabs.length - 1]?.id ?? 'app'
   const activate = (key: PanelKey) => setActiveTab({ id: conversationId, key })
 
   // Show the side pane for this visit, without making it the chat's saved choice.
@@ -426,6 +428,32 @@ export default function ChatView({
       })
       .catch((e: Error) => window.__jarvisToast?.info(`Couldn't open it beside the chat: ${e.message}`))
   }, [conversationId, isDesktop])
+
+  // `window.jarvis` in the chat's app (app-jarvis-bridge.ts): the app asks,
+  // this answers with the owner's session, which never enters the frame.
+  const handleAppCall = useCallback(async (method: string, args: Record<string, unknown>): Promise<unknown> => {
+    if (!conversationId) throw new Error('No chat')
+    switch (method) {
+      case 'send': {
+        const text = String(args.text ?? '').trim()
+        if (!text) throw new Error('Empty message')
+        await api.sendMessage(conversationId, text, undefined, model, effort)
+        useChatStore.getState().rememberModel(conversationId, model, effort)
+        return true
+      }
+      case 'ask': {
+        const { answer } = await api.askFromApp(conversationId, String(args.prompt ?? ''))
+        return answer
+      }
+      case 'openDoc':
+        openFile(String(args.path ?? ''))
+        return true
+      case 'context':
+        return { conversationId, title: conv?.title ?? '', topicId: conv?.section_id ?? null }
+      default:
+        throw new Error(`Unknown jarvis method: ${method}`)
+    }
+  }, [conversationId, model, effort, openFile, conv?.title, conv?.section_id])
 
   // The threads started from each message, for the marks under them.
   const childThreads = useChatStore(useShallow((s) =>
@@ -1069,6 +1097,8 @@ export default function ChatView({
                 onRefresh={bumpApp}
                 shareIntent={shareIntent}
                 onShareIntentConsumed={onShareIntentConsumed}
+                conversationId={conversationId}
+                onCall={withTabs ? handleAppCall : undefined}
               />
             ) : (
               <SidePanel
@@ -1076,6 +1106,7 @@ export default function ChatView({
                 tabs={tabs}
                 active={panelKey}
                 onActivate={activate}
+                topicId={conv?.section_id ?? null}
                 app={hasApp ? {
                   onRefresh: bumpApp,
                   url: appShareUrl,
@@ -1088,6 +1119,8 @@ export default function ChatView({
                       shareIntent={shareIntent}
                       onShareIntentConsumed={onShareIntentConsumed}
                       toolbar={false}
+                      conversationId={conversationId}
+                      onCall={withTabs ? handleAppCall : undefined}
                     />
                   ),
                 } : undefined}

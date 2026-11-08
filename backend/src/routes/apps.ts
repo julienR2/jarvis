@@ -4,6 +4,7 @@ import { mkdirSync, createReadStream, readFileSync, statSync } from 'fs'
 import { config } from '../config.js'
 import { conversationForAppToken } from '../app-tokens.js'
 import { withSwipeBridge } from '../app-swipe-bridge.js'
+import { withJarvisBridge } from '../app-jarvis-bridge.js'
 
 const MIME: Record<string, string> = {
   '.html': 'text/html',
@@ -89,8 +90,9 @@ export async function appRoutes(app: FastifyInstance) {
 
     const mime = MIME[extname(fullPath).toLowerCase()] || 'application/octet-stream'
     reply.type(mime)
-    // Pages carry the bridge that lets a swipe on the app open the sidebar.
-    if (mime === 'text/html') return reply.send(withSwipeBridge(readFileSync(fullPath, 'utf8')))
+    // Pages carry the bridges: a swipe on the app opens the sidebar, and
+    // `window.jarvis` talks to the chat through the page around the frame.
+    if (mime === 'text/html') return reply.send(withJarvisBridge(withSwipeBridge(readFileSync(fullPath, 'utf8'))))
     return reply.send(createReadStream(fullPath))
   })
 }

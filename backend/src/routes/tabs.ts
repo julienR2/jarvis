@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { createReadStream, existsSync } from 'fs'
 import { getDb } from '../db.js'
-import { closeTab, docContentType, emitTabs, getTab, listTabs, openTab, resolveDocPath, updateTab } from '../tabs.js'
+import { addTopicDoc, closeTab, docContentType, emitTabs, getTab, listTabs, openTab, resolveDocPath, updateTab } from '../tabs.js'
 
 /**
  * The owner's side of a chat's tabs (see tabs.ts). Registered under
@@ -29,9 +29,13 @@ export async function tabRoutes(app: FastifyInstance) {
     return { tab: result.tab, tabs: listTabs(req.params.id) }
   })
 
+  // A topic's document is changed on the topic, not from one of its chats.
+  const TOPIC_DOC = { error: "This document is pinned to the topic: remove it there" }
+
   app.patch<{ Params: { id: string; tabId: string } }>('/:id/tabs/:tabId', auth, async (req, reply) => {
     const tab = getTab(req.params.id, req.params.tabId)
     if (!tab) return reply.code(404).send({ error: 'Not found' })
+    if (tab.topic) return reply.code(409).send(TOPIC_DOC)
     const { pinned, title } = (req.body ?? {}) as { pinned?: boolean; title?: string }
     updateTab(tab, { pinned, title })
     emitTabs(req.params.id)
@@ -41,9 +45,27 @@ export async function tabRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string; tabId: string } }>('/:id/tabs/:tabId', auth, async (req, reply) => {
     const tab = getTab(req.params.id, req.params.tabId)
     if (!tab) return reply.code(404).send({ error: 'Not found' })
+    if (tab.topic) return reply.code(409).send(TOPIC_DOC)
     closeTab(tab)
     emitTabs(req.params.id)
     return { tabs: listTabs(req.params.id) }
+  })
+
+  // Share one of the chat's tabs with its topic: it becomes the topic's
+  // document — a tab in every chat of the topic — and leaves this chat's own.
+  app.post<{ Params: { id: string; tabId: string } }>('/:id/tabs/:tabId/topic', auth, async (req, reply) => {
+    const tab = getTab(req.params.id, req.params.tabId)
+    if (!tab) return reply.code(404).send({ error: 'Not found' })
+    if (tab.topic) return { tabs: listTabs(req.params.id) }
+    const conv = getDb()
+      .prepare(`SELECT COALESCE(c.section_id, p.section_id) AS section_id FROM conversations c LEFT JOIN conversations p ON p.id = c.parent_id WHERE c.id = ?`)
+      .get(req.params.id) as { section_id: string | null } | undefined
+    if (!conv?.section_id) return reply.code(400).send({ error: 'This chat is not in a topic' })
+    const result = addTopicDoc(conv.section_id, { kind: tab.kind, target: tab.target, title: tab.title })
+    if ('error' in result) return reply.code(400).send(result)
+    closeTab(tab)
+    emitTabs(req.params.id)
+    return { tab: getTab(req.params.id, result.doc.id), tabs: listTabs(req.params.id) }
   })
 
   // A document tab's file. Re-checked on every read — the file may have
