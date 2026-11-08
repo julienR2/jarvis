@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { verifySession } from '../request-auth.js'
+import { emitTabs } from '../tabs.js'
 import { existsSync } from 'fs'
 import { basename, extname, resolve, sep } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
@@ -1641,6 +1642,8 @@ export async function conversationRoutes(app: FastifyInstance) {
       .run(...params)
     if (result.changes === 0)
       return reply.code(404).send({ error: 'Not found' })
+    // Another topic, other shared documents beside it.
+    if ('section_id' in body) emitTabs(req.params.id)
     return getDb()
       .prepare('SELECT * FROM conversations WHERE id = ?')
       .get(req.params.id)

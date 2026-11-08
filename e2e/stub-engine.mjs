@@ -43,6 +43,8 @@ const ROUTES = [
 const TRANSCRIPT = 'Voice note from the e2e microphone'
 const ASR_DELAY_MS = 1500
 
+const ASK_ANSWER = 'Answer from the stub engine'
+
 createServer((req, res) => {
   const path = new URL(req.url, 'http://localhost').pathname
   if (path === '/asr') {
@@ -51,6 +53,13 @@ createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/plain' })
       res.end(TRANSCRIPT)
     }, ASR_DELAY_MS)
+    return
+  }
+  // An app's `jarvis.ask` runs as a one-shot session keyed `ask-…`: answer
+  // it, so the bridge can be checked end to end.
+  if (path.startsWith('/stream/ask-')) {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    res.end(`data: ${JSON.stringify({ type: 'done', result: ASK_ANSWER })}\n\ndata: {"type":"end"}\n\n`)
     return
   }
   const match = ROUTES.find(([re]) => re.test(path))

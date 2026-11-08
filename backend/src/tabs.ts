@@ -16,7 +16,7 @@ import { existsSync, realpathSync, statSync, unwatchFile, watchFile } from 'fs'
 import { basename, isAbsolute, join, resolve, sep } from 'path'
 import { getDb, uuid } from './db.js'
 import { config } from './config.js'
-import { emitConversationEvent } from './sse.js'
+import { emitConversationEvent, emitGlobalEvent } from './sse.js'
 
 export interface TabRow {
   id: string
@@ -25,6 +25,17 @@ export interface TabRow {
   target: string
   title: string
   pinned: number
+  created_at: number
+  /** Set on a document pinned to the chat's topic rather than to the chat. */
+  topic?: { id: string; name: string }
+}
+
+export interface TopicDocRow {
+  id: string
+  section_id: string
+  kind: 'doc' | 'link'
+  target: string
+  title: string
   created_at: number
 }
 
@@ -59,21 +70,117 @@ export function resolveDocPath(input: string): { path: string } | { error: strin
   return { path }
 }
 
-export function listTabs(conversationId: string): TabRow[] {
+/**
+ * The topic a chat's tabs come from: its own, or — for a thread — its
+ * parent chat's, the same way the brief reaches it.
+ */
+function topicOf(conversationId: string): { id: string; name: string } | undefined {
   return getDb()
-    .prepare('SELECT * FROM conversation_tabs WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC')
-    .all(conversationId) as TabRow[]
+    .prepare(
+      `SELECT s.id, s.name FROM conversations c
+         LEFT JOIN conversations p ON p.id = c.parent_id
+         JOIN sections s ON s.id = COALESCE(c.section_id, p.section_id)
+        WHERE c.id = ?`,
+    )
+    .get(conversationId) as { id: string; name: string } | undefined
 }
 
-export function getTab(conversationId: string, tabId: string): TabRow | undefined {
+export function listTopicDocs(sectionId: string): TopicDocRow[] {
   return getDb()
+    .prepare('SELECT * FROM section_docs WHERE section_id = ? ORDER BY created_at ASC, rowid ASC')
+    .all(sectionId) as TopicDocRow[]
+}
+
+const asTab = (doc: TopicDocRow, conversationId: string, topic: { id: string; name: string }): TabRow => ({
+  id: doc.id, conversation_id: conversationId, kind: doc.kind, target: doc.target, title: doc.title,
+  pinned: 1, created_at: doc.created_at, topic,
+})
+
+/** The chat's tabs: its topic's documents first, then its own, oldest first. */
+export function listTabs(conversationId: string): TabRow[] {
+  const topic = topicOf(conversationId)
+  const shared = topic ? listTopicDocs(topic.id).map((d) => asTab(d, conversationId, topic)) : []
+  const own = getDb()
+    .prepare('SELECT * FROM conversation_tabs WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC')
+    .all(conversationId) as TabRow[]
+  return [...shared, ...own]
+}
+
+/** One of the chat's tabs — its own, or one of its topic's documents (`topic` set). */
+export function getTab(conversationId: string, tabId: string): TabRow | undefined {
+  const own = getDb()
     .prepare('SELECT * FROM conversation_tabs WHERE id = ? AND conversation_id = ?')
     .get(tabId, conversationId) as TabRow | undefined
+  if (own) return own
+  const topic = topicOf(conversationId)
+  if (!topic) return undefined
+  const doc = getDb().prepare('SELECT * FROM section_docs WHERE id = ? AND section_id = ?').get(tabId, topic.id) as TopicDocRow | undefined
+  return doc ? asTab(doc, conversationId, topic) : undefined
 }
 
 /** Tell the chat's open screens; `focus` asks them to show that tab. */
 export function emitTabs(conversationId: string, focus?: string) {
   emitConversationEvent(conversationId, { type: 'tabs', tabs: listTabs(conversationId), ...(focus ? { focus } : {}) })
+}
+
+/** Every chat of the topic (and the threads beneath them) gets the new list. */
+function emitTopicTabs(sectionId: string) {
+  const ids = getDb()
+    .prepare(
+      `SELECT id FROM conversations WHERE section_id = ?
+       UNION SELECT t.id FROM conversations t JOIN conversations p ON p.id = t.parent_id WHERE p.section_id = ? AND t.section_id IS NULL`,
+    )
+    .all(sectionId, sectionId) as { id: string }[]
+  for (const { id } of ids) emitTabs(id)
+}
+
+/** Check a target the way a tab would, and give it its stored form. */
+function normalizeTarget(kind: 'doc' | 'link', raw: string): { target: string } | { error: string } {
+  const target = raw.trim()
+  if (kind === 'doc') {
+    const r = resolveDocPath(target)
+    return 'error' in r ? r : { target: r.path }
+  }
+  let url: URL
+  try { url = new URL(target) } catch { return { error: 'url must be an absolute http(s) URL' } }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return { error: 'url must be an absolute http(s) URL' }
+  return { target: url.toString() }
+}
+
+/** Pin a document (or link) to a topic: a tab in all of its chats. The same target twice is one document. */
+export function addTopicDoc(
+  sectionId: string,
+  input: { kind: 'doc' | 'link'; target: string; title?: string },
+): { doc: TopicDocRow } | { error: string } {
+  const n = normalizeTarget(input.kind, input.target)
+  if ('error' in n) return n
+  const db = getDb()
+  const existing = db.prepare('SELECT * FROM section_docs WHERE section_id = ? AND kind = ? AND target = ?')
+    .get(sectionId, input.kind, n.target) as TopicDocRow | undefined
+  const id = existing?.id ?? uuid()
+  if (existing) {
+    if (input.title?.trim()) db.prepare('UPDATE section_docs SET title = ? WHERE id = ?').run(input.title.trim(), id)
+  } else {
+    db.prepare('INSERT INTO section_docs (id, section_id, kind, target, title) VALUES (?, ?, ?, ?, ?)')
+      .run(id, sectionId, input.kind, n.target, input.title?.trim() || defaultTitle(input.kind, n.target))
+  }
+  db.prepare('UPDATE sections SET docs_updated_at = unixepoch() WHERE id = ?').run(sectionId)
+  if (input.kind === 'doc') watchDoc(n.target)
+  emitTopicTabs(sectionId)
+  emitGlobalEvent({ type: 'sections' })
+  return { doc: db.prepare('SELECT * FROM section_docs WHERE id = ?').get(id) as TopicDocRow }
+}
+
+export function removeTopicDoc(sectionId: string, docId: string): boolean {
+  const db = getDb()
+  const doc = db.prepare('SELECT * FROM section_docs WHERE id = ? AND section_id = ?').get(docId, sectionId) as TopicDocRow | undefined
+  if (!doc) return false
+  db.prepare('DELETE FROM section_docs WHERE id = ?').run(docId)
+  db.prepare('UPDATE sections SET docs_updated_at = unixepoch() WHERE id = ?').run(sectionId)
+  if (doc.kind === 'doc') unwatchIfUnused(doc.target)
+  emitTopicTabs(sectionId)
+  emitGlobalEvent({ type: 'sections' })
+  return true
 }
 
 /**
@@ -85,19 +192,19 @@ export function openTab(
   conversationId: string,
   input: { kind: 'doc' | 'link'; target: string; title?: string; pinned?: boolean },
 ): { tab: TabRow } | { error: string } {
-  let target = input.target.trim()
-  if (input.kind === 'doc') {
-    const r = resolveDocPath(target)
-    if ('error' in r) return r
-    target = r.path
-  } else {
-    let url: URL
-    try { url = new URL(target) } catch { return { error: 'url must be an absolute http(s) URL' } }
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return { error: 'url must be an absolute http(s) URL' }
-    target = url.toString()
-  }
+  const n = normalizeTarget(input.kind, input.target)
+  if ('error' in n) return n
+  const target = n.target
   const title = input.title?.trim() || defaultTitle(input.kind, target)
   const db = getDb()
+
+  // Already one of the topic's documents: that tab, not a second one.
+  const topic = topicOf(conversationId)
+  if (topic) {
+    const doc = db.prepare('SELECT * FROM section_docs WHERE section_id = ? AND kind = ? AND target = ?')
+      .get(topic.id, input.kind, target) as TopicDocRow | undefined
+    if (doc) return { tab: asTab(doc, conversationId, topic) }
+  }
 
   const existing = db
     .prepare('SELECT * FROM conversation_tabs WHERE conversation_id = ? AND kind = ? AND target = ?')
@@ -164,16 +271,32 @@ function watchDoc(path: string) {
   watched.add(path)
   watchFile(path, { interval: 1500 }, (curr, prev) => {
     if (curr.mtimeMs === prev.mtimeMs && curr.size === prev.size) return
-    const tabs = getDb()
+    const db = getDb()
+    const tabs = db
       .prepare(`SELECT id, conversation_id FROM conversation_tabs WHERE kind = 'doc' AND target = ?`)
       .all(path) as { id: string; conversation_id: string }[]
-    if (!tabs.length) return unwatchIfUnused(path)
+    const shared = db
+      .prepare(`SELECT id, section_id FROM section_docs WHERE kind = 'doc' AND target = ?`)
+      .all(path) as { id: string; section_id: string }[]
+    if (!tabs.length && !shared.length) return unwatchIfUnused(path)
     for (const t of tabs) emitConversationEvent(t.conversation_id, { type: 'tab_updated', tab_id: t.id })
+    for (const d of shared) {
+      const chats = db
+        .prepare(
+          `SELECT id FROM conversations WHERE section_id = ?
+           UNION SELECT t.id FROM conversations t JOIN conversations p ON p.id = t.parent_id WHERE p.section_id = ? AND t.section_id IS NULL`,
+        )
+        .all(d.section_id, d.section_id) as { id: string }[]
+      for (const c of chats) emitConversationEvent(c.id, { type: 'tab_updated', tab_id: d.id })
+    }
   })
 }
 
 function unwatchIfUnused(path: string) {
-  const used = getDb().prepare(`SELECT 1 FROM conversation_tabs WHERE kind = 'doc' AND target = ? LIMIT 1`).get(path)
+  const used = getDb().prepare(
+    `SELECT 1 FROM conversation_tabs WHERE kind = 'doc' AND target = @path
+     UNION ALL SELECT 1 FROM section_docs WHERE kind = 'doc' AND target = @path LIMIT 1`,
+  ).get({ path })
   if (used || !watched.has(path)) return
   unwatchFile(path)
   watched.delete(path)
@@ -181,7 +304,9 @@ function unwatchIfUnused(path: string) {
 
 /** At boot: watch every document a tab still points at. */
 export function watchOpenDocs() {
-  const paths = getDb().prepare(`SELECT DISTINCT target FROM conversation_tabs WHERE kind = 'doc'`).all() as { target: string }[]
+  const paths = getDb().prepare(
+    `SELECT target FROM conversation_tabs WHERE kind = 'doc' UNION SELECT target FROM section_docs WHERE kind = 'doc'`,
+  ).all() as { target: string }[]
   for (const { target } of paths) watchDoc(target)
 }
 

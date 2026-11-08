@@ -70,6 +70,8 @@ export interface SectionRow {
   /** 1 when the group is a plain folder: no brief shown, none given to its chats. */
   brief_hidden: number
   created_at: number
+  /** When a document was last pinned to or removed from the topic. */
+  docs_updated_at: number | null
 }
 
 export interface MessageRow {

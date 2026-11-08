@@ -113,10 +113,10 @@ a workaround:
 | **Post into another chat** — it answers, with its own history | `POST /internal/conversations/<id>/messages` `{"content": "…"}` |
 | **Open a new chat**, optionally in a topic and started with a message | `POST /internal/conversations` `{"title"?, "topic_id"?, "content"?}` |
 | Push a notification | `POST /internal/notify` `{"conversation_id", "title", "body"}` |
-| Topics and their briefs | `topic` skill |
+| Topics: their brief, and documents pinned to them (a tab in each of their chats) | `topic` skill |
 | Crons, reminders, webhooks | `routines` skill (in a routine's own thread: `routine-setup`) |
 | **Show a document or a page beside the chat** (a tab) | `POST /internal/conversations/<id>/tabs` `{"path": "…"}` or `{"url": "…"}` — `apps` skill |
-| An app beside the chat (dashboard, game, tool, page to share) | `apps` skill |
+| An app beside the chat (dashboard, game, tool, page to share); it reaches you through `window.jarvis` | `apps` skill |
 | Credentials for outside services | `connectors` skill |
 
 **Posting into another chat** lands as a user message there, and that chat's

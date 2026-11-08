@@ -111,10 +111,12 @@
 .markdown p:last-child { margin-bottom: 0; }
 .markdown ul, .markdown ol { padding-left: 1.5em; margin-bottom: 0.75em; }
 .markdown li { margin-bottom: 0.25em; }
-/* A document in the side pane reads as a document: its lists keep their markers. */
-.doc-view ul { list-style: disc; }
-.doc-view ol { list-style: decimal; }
-.doc-view ul ul { list-style: circle; }
+/* Tailwind's reset strips list markers everywhere; prose keeps them. A GFM
+   task list has its checkboxes instead. */
+.markdown ul { list-style: disc; }
+.markdown ol { list-style: decimal; }
+.markdown ul ul { list-style: circle; }
+.markdown ul.contains-task-list { list-style: none; padding-left: 0.25em; }
 .markdown code {
   @apply bg-surface2 px-1.5 py-0.5 rounded text-[0.85em] font-mono;
   color: var(--color-accent);

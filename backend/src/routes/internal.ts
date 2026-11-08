@@ -20,7 +20,7 @@ import { config } from '../config.js'
 import { secureEquals } from '../security.js'
 import type { CronRow, WebhookRow, ConvRow } from '../types.js'
 import { afterRoutineWrite, checkRoutineRefs, routineOfThread } from '../threads.js'
-import { closeTab, emitTabs, getTab, listTabs, openTab } from '../tabs.js'
+import { addTopicDoc, closeTab, emitTabs, getTab, listTabs, listTopicDocs, openTab, removeTopicDoc } from '../tabs.js'
 
 function checkSecret(req: any, reply: any): boolean {
   const auth = req.headers['x-internal-secret']
@@ -318,7 +318,25 @@ export async function internalRoutes(app: FastifyInstance) {
     if (!checkSecret(req, reply)) return
     const section = getSection(req.params.id)
     if (!section) return reply.code(404).send({ error: 'Topic not found' })
-    return { ...section, conversations: topicConversations(section.id) }
+    return { ...section, conversations: topicConversations(section.id), docs: listTopicDocs(section.id) }
+  })
+
+  // Pin a document (or a link) to the topic: a tab in every chat of it, and
+  // listed in the brief its chats are given. The same target twice is one.
+  app.post<{ Params: { id: string } }>('/topics/:id/docs', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    if (!getSection(req.params.id)) return reply.code(404).send({ error: 'Topic not found' })
+    const { path, url, title } = (req.body ?? {}) as { path?: string; url?: string; title?: string }
+    if (!path === !url) return reply.code(400).send({ error: 'give either path (a file) or url (a link)' })
+    const result = addTopicDoc(req.params.id, { kind: path ? 'doc' : 'link', target: (path ?? url)!, title })
+    if ('error' in result) return reply.code(400).send(result)
+    return { doc: result.doc }
+  })
+
+  app.delete<{ Params: { id: string; docId: string } }>('/topics/:id/docs/:docId', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    if (!removeTopicDoc(req.params.id, req.params.docId)) return reply.code(404).send({ error: 'Not found' })
+    return { ok: true }
   })
 
   // Rewrite a topic's brief. The whole text, not a patch: the brief is meant
@@ -480,6 +498,7 @@ export async function internalRoutes(app: FastifyInstance) {
     if (!checkSecret(req, reply)) return
     const tab = getTab(req.params.id, req.params.tabId)
     if (!tab) return reply.code(404).send({ error: 'Tab not found' })
+    if (tab.topic) return reply.code(409).send({ error: `pinned to the topic: DELETE /internal/topics/${tab.topic.id}/docs/${tab.id}` })
     closeTab(tab)
     emitTabs(req.params.id)
     return { ok: true }

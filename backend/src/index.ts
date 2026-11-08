@@ -22,6 +22,7 @@ import { runRoutes } from './routes/runs.js'
 import { runByKey, reconcileStaleRuns, markQuietMessages } from './runs.js'
 import { seedFixtures } from './fixtures.js'
 import { tabRoutes } from './routes/tabs.js'
+import { appBridgeRoutes } from './routes/app-bridge.js'
 import { watchOpenDocs } from './tabs.js'
 import { webhookRoutes, webhookTriggerRoute } from './routes/webhooks.js'
 import { shareTargetRoutes } from './routes/share-targets.js'
@@ -196,6 +197,7 @@ watchOpenDocs()
 await app.register(authRoutes, { prefix: '/api/auth' })
 await app.register(conversationRoutes, { prefix: '/api/conversations' })
 await app.register(tabRoutes, { prefix: '/api/conversations' })
+await app.register(appBridgeRoutes, { prefix: '/api/conversations' })
 await app.register(sectionRoutes, { prefix: '/api/sections' })
 await app.register(cronRoutes, { prefix: '/api/crons' })
 await app.register(runRoutes, { prefix: '/api/runs' })

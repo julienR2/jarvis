@@ -1,6 +1,8 @@
 import { useRef, useEffect } from 'react'
 import { ExternalLink, RefreshCw } from 'lucide-react'
 import { APPS_ORIGIN } from '../api'
+import { useChatStore } from '../stores/chatStore'
+import { isFinishedReply } from '../lib/transcript'
 import { BASE_PATH } from '../base'
 
 interface ShareIntent {
@@ -20,6 +22,10 @@ interface Props {
   onShareIntentConsumed?: () => void
   /** Off when the side pane's tab strip carries the refresh and open actions. */
   toolbar?: boolean
+  /** The chat the app belongs to: its answers go to the app's `jarvis.onMessage`. */
+  conversationId?: string
+  /** Answers the app's `window.jarvis` calls. Absent where the bridge is not offered (a share link). */
+  onCall?: (method: string, args: Record<string, unknown>) => Promise<unknown>
 }
 
 async function fileToDataUrl(file: File): Promise<{ name: string; type: string; dataUrl: string }> {
@@ -39,6 +45,8 @@ export default function AppPreview({
   shareIntent,
   onShareIntentConsumed,
   toolbar = true,
+  conversationId,
+  onCall,
 }: Props) {
   // The in-app route (#/…) survives a refresh of the same app but belongs to
   // it alone: another chat's app starts at its own root.
@@ -86,6 +94,44 @@ export default function AppPreview({
   useEffect(() => {
     if (shareIntent) pendingIntentRef.current = shareIntent
   }, [shareIntent])
+
+  // `window.jarvis` (app-jarvis-bridge.ts): calls from this frame only, each
+  // answered with its result or its error.
+  const onCallRef = useRef(onCall)
+  onCallRef.current = onCall
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      const frame = iframeRef.current?.contentWindow
+      if (!frame || e.source !== frame || e.data?.type !== 'jarvis:call') return
+      const { id, method, args } = e.data as { id: string; method: string; args?: Record<string, unknown> }
+      const reply = (result: { value?: unknown; error?: string }) => frame.postMessage({ type: 'jarvis:result', id, ...result }, '*')
+      const handler = onCallRef.current
+      if (!handler) return reply({ error: 'The Jarvis bridge is not available here' })
+      handler(method, args ?? {}).then(
+        (value) => reply({ value }),
+        (err: Error) => reply({ error: err?.message || 'Failed' }),
+      )
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+
+  // Each answer that finishes in the chat, for `jarvis.onMessage`. Only what
+  // lands while the app is open: the ones already there are history.
+  useEffect(() => {
+    if (!conversationId || !onCall) return
+    const seen = new Set((useChatStore.getState().messages[conversationId] ?? []).filter((m) => isFinishedReply(m)).map((m) => m.id))
+    return useChatStore.subscribe((state) => {
+      for (const m of state.messages[conversationId] ?? []) {
+        if (seen.has(m.id) || !isFinishedReply(m)) continue
+        seen.add(m.id)
+        iframeRef.current?.contentWindow?.postMessage(
+          { type: 'jarvis:message', message: { id: m.id, role: m.role, text: m.result ?? m.content } },
+          '*',
+        )
+      }
+    })
+  }, [conversationId, !!onCall])
 
   async function handleIframeLoad() {
     const intent = pendingIntentRef.current

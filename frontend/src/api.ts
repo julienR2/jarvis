@@ -265,6 +265,16 @@ export const api = {
     request<{ tabs: ChatTab[] }>('PATCH', `/conversations/${conversationId}/tabs/${tabId}`, changes),
   closeTab: (conversationId: string, tabId: string) =>
     request<{ tabs: ChatTab[] }>('DELETE', `/conversations/${conversationId}/tabs/${tabId}`),
+  /** Make one of the chat's tabs its topic's: a tab in every chat of the topic. */
+  shareTabWithTopic: (conversationId: string, tabId: string) =>
+    request<{ tab: ChatTab; tabs: ChatTab[] }>('POST', `/conversations/${conversationId}/tabs/${tabId}/topic`),
+  getTopicDocs: (sectionId: string) =>
+    request<{ docs: TopicDoc[] }>('GET', `/sections/${sectionId}/docs`),
+  removeTopicDoc: (sectionId: string, docId: string) =>
+    request<{ docs: TopicDoc[] }>('DELETE', `/sections/${sectionId}/docs/${docId}`),
+  /** `window.jarvis.ask` from the chat's app: a one-off answer that stays out of the chat. */
+  askFromApp: (conversationId: string, prompt: string) =>
+    request<{ answer: string }>('POST', `/conversations/${conversationId}/ask`, { prompt }),
   /** A document tab's text, for the kinds the pane renders itself (markdown, plain text). */
   getTabText: async (conversationId: string, tabId: string): Promise<string> => {
     const res = await fetch(`${BASE}/conversations/${conversationId}/tabs/${tabId}/content`, { headers: headers(false) })
@@ -834,6 +844,8 @@ export interface Section {
   /** 1 when the group is a plain folder: the brief is hidden and not given to its chats. */
   brief_hidden: number
   created_at: number
+  /** When a document was last pinned to or removed from the topic. */
+  docs_updated_at?: number | null
 }
 
 export interface Cron {
@@ -1054,6 +1066,25 @@ export interface ChatTab {
   /** 0 = the chat's temporary tab, replaced by the next one opened. */
   pinned: number
   created_at: number
+  /** Set on a document pinned to the chat's topic: shown in every chat of it, changed on the topic. */
+  topic?: { id: string; name: string }
+}
+
+/** A document (or link) pinned to a topic. */
+export interface TopicDoc {
+  id: string
+  section_id: string
+  kind: 'doc' | 'link'
+  target: string
+  title: string
+  created_at: number
+}
+
+/** Where a topic's document is read from, outside any chat (the topic page). */
+export function topicDocUrl(doc: TopicDoc): string {
+  if (doc.kind === 'link') return doc.target
+  const token = getToken()
+  return `${BASE}/sections/${doc.section_id}/docs/${doc.id}/content${token ? `?token=${encodeURIComponent(token)}` : ''}`
 }
 
 /** Where a document tab's file is read from — for what renders in a frame (PDF, HTML, images). */
