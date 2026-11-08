@@ -40,8 +40,8 @@ own answer.
 
 **Write the prompt for the run, not for the user.** It must be self-contained:
 each run starts with no memory of this conversation. Say what to check, what
-counts as worth reporting, and end with: *if there is nothing worth reporting,
-start the answer with `[quiet]` and a one-line summary.*
+counts as worth reporting and what deserves a phone notification. The run is
+told about the `[quiet]` / `[push: …]` markers on its own; no need to repeat them.
 
 Pick a short kebab-case `name` (e.g. `surf-watch`). It becomes the thread's name.
 
@@ -96,7 +96,11 @@ curl -s -X POST "$BACKEND_URL/internal/crons" \
 - Pause or resume: `"enabled": false` / `true`
 - Report into a chat: `"conversation_id": "<chat id>"`. Stand alone: `"conversation_id": null`
 - Notifications (standing alone only): `"notify": "auto" | "subscribe" | "unsubscribe"`
-- Prompt: `"prompt": "..."`. Rewrite it whole, keeping the `[quiet]` instruction.
+- Prompt: `"prompt": "..."`. Rewrite it whole.
+- Model or effort: `"model": "<id>"` (`null` = default), `"effort": "high"`.
+
+Every field, the webhook URL (`?sync=1`, payloads) and which mechanism fits
+which need: the `routines` skill.
 
 To find the chat to report into (most recent first, with topics):
 `curl -s -H "X-Internal-Secret: $INTERNAL_SECRET" "$BACKEND_URL/internal/conversations?limit=50"`.

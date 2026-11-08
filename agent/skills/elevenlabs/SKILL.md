@@ -52,7 +52,7 @@ curl -s -X POST "https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}" \
   -H "xi-api-key: ${ELEVENLABS_API_KEY}" \
   -H "Content-Type: application/json" \
   -d '{"text":"Hello, this is Jarvis.","model_id":"eleven_multilingual_v2"}' \
-  --output "$WORKSPACE_DIR/uploads/speech.mp3"
+  --create-dirs --output "$WORKSPACE_DIR/uploads/$JARVIS_CONVERSATION_ID/speech.mp3"
 ```
 
 Then reference it in your reply with a markdown link — see CLAUDE.md for the literal path format the chat detects.
