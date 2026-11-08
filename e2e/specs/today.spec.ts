@@ -136,9 +136,12 @@ test.describe('today', () => {
     await expect(card.getByTestId('today-row-count')).toHaveText('1 message')
     await expect(card.getByText('1:1:1 by weight')).toBeVisible()
     await expect(sidebarRow.locator('xpath=..').getByText('1', { exact: true })).toBeVisible()
-    // Opening it again is reading it.
+    // Opening it again is reading it. Landing sends the read without waiting
+    // on it; leaving at once could cancel it, so the test waits for it first.
+    const read = page.waitForResponse((r) => r.request().method() === 'POST' && /\/api\/conversations\/[^/]+\/read$/.test(r.url()))
     await card.getByRole('button', { name: 'Open' }).click()
     await expect(page).toHaveURL(/\/c\//)
+    await read
     await page.goto('')
     await expect(rows.first()).toBeVisible()
     await expect(rows.filter({ hasText: 'Sourdough starter' })).toHaveCount(0)
