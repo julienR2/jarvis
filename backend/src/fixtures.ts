@@ -68,6 +68,10 @@ export function seedFixtures(): void {
     // went on after the thread's last question.
     aware: '00000000-0000-4000-8000-000000000017',
     awareThread: '00000000-0000-4000-8000-000000000018',
+    // The threads list: one thread with news, one a week and more untouched.
+    lister: '00000000-0000-4000-8000-000000000019',
+    listerFresh: '00000000-0000-4000-8000-00000000001a',
+    listerOld: '00000000-0000-4000-8000-00000000001b',
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -338,6 +342,23 @@ export function seedFixtures(): void {
     insMsg.run(uuid(), ID.aware, 'assistant', 'Noted: Dr Martin is the treating doctor.', null, null, 'Noted: Dr Martin is the treating doctor.', t(57))
     insMsg.run(uuid(), ID.awareThread, 'assistant', 'The call kit is ready.', null, null,
       'The call kit is ready: [kit.md](/jarvis/agent/workspace/uploads/kit/kit.md).', t(56))
+
+    // 4d. A chat with a thread that has news and one put away by age.
+    const listerAnswer = uuid()
+    insConv.run(ID.lister, '🗂️ Trip planning', t(60 * 24 * 12), t(30), projects.id, null, null)
+    insMsg.run(uuid(), ID.lister, 'user', 'Plan the trip to Porto.', null, null, null, t(60 * 24 * 12))
+    insMsg.run(listerAnswer, ID.lister, 'assistant', 'Three days: Ribeira, the wine cellars, then the coast.', null, null, 'Three days: Ribeira, the wine cellars, then the coast.', t(60 * 24 * 12 - 1))
+    insMsg.run(uuid(), ID.lister, 'user', 'Book nothing yet.', null, null, null, t(31))
+    insMsg.run(uuid(), ID.lister, 'assistant', 'Nothing booked.', null, null, 'Nothing booked.', t(30))
+    const insSubChat = db.prepare(
+      `INSERT INTO conversations (id, title, created_at, updated_at, last_read_at, kind, parent_id, parent_message_id) VALUES (?, ?, ?, ?, ?, 'thread', ?, ?)`,
+    )
+    insSubChat.run(ID.listerFresh, 'Wine cellars', t(40), t(20), t(39), ID.lister, listerAnswer)
+    insMsg.run(uuid(), ID.listerFresh, 'user', 'Which cellars?', null, null, null, t(40))
+    insMsg.run(uuid(), ID.listerFresh, 'assistant', 'Graham’s and Taylor’s.', null, null, 'Graham’s and Taylor’s, both in Gaia.', t(20))
+    insSubChat.run(ID.listerOld, 'Coast road', t(60 * 24 * 11), t(60 * 24 * 10), t(60 * 24 * 10), ID.lister, listerAnswer)
+    insMsg.run(uuid(), ID.listerOld, 'user', 'Which coast?', null, null, null, t(60 * 24 * 11))
+    insMsg.run(uuid(), ID.listerOld, 'assistant', 'The Costa Verde.', null, null, 'The Costa Verde, north to Viana.', t(60 * 24 * 10))
 
     // 5. Routines and a key — rows for the settings pages. The cron is disabled so
     // nothing in a throwaway instance ever fires.

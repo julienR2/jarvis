@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Hash, Maximize2, X } from 'lucide-react'
+import { ArrowLeft, Check, Hash, Maximize2, X } from 'lucide-react'
 import { api, type Attachment, type Effort, type ReplyTo } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { useIsDesktop } from '../hooks/useIsDesktop'
@@ -10,7 +10,8 @@ import ChatView from './ChatView'
 import { DEFAULT_EFFORT, useModelCatalogue } from './ModelSelector'
 
 export type ThreadPanelState =
-  | { kind: 'new'; quote: ReplyTo }
+  /** Not created until its first message: from a passage, or blank (no quote). */
+  | { kind: 'new'; quote: ReplyTo | null }
   | { kind: 'open'; id: string }
 
 /**
@@ -27,17 +28,29 @@ export default function ThreadPanel({
   state,
   onClose,
   onOpened,
+  onDone,
+  inTab = false,
 }: {
   parentId: string
   state: ThreadPanelState
   onClose: () => void
   /** The new thread exists: show it. */
   onOpened: (id: string) => void
+  /** Put the thread away: out of the chat's active list (Done). */
+  onDone?: (id: string) => void
+  /** Shown as a tab of the side pane, whose strip already closes it. */
+  inTab?: boolean
 }) {
   const navigate = useNavigate()
   const isDesktop = useIsDesktop()
   const parent = useChatStore((s) => s.conversations[parentId])
   const thread = useChatStore((s) => (state.kind === 'open' ? s.conversations[state.id] : undefined))
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const saveTitle = () => {
+    const next = renaming?.trim()
+    setRenaming(null)
+    if (thread && next && next !== thread.title) useChatStore.getState().patchConversation(thread.id, { title: next })
+  }
 
   return (
     <div className='flex h-full min-w-0 flex-col bg-bg' data-testid='thread-panel'>
@@ -49,16 +62,35 @@ export default function ThreadPanel({
         )}
         <div className='flex min-w-0 flex-1 items-baseline gap-2'>
           <span className='shrink-0 text-sm font-semibold text-text-primary'>Thread</span>
-          <span className='truncate text-[12px] text-text-muted'>
-            {thread ? thread.title : parent?.title}
-          </span>
+          {thread && renaming !== null ? (
+            <input
+              autoFocus
+              value={renaming}
+              onChange={(e) => setRenaming(e.target.value)}
+              onBlur={saveTitle}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') setRenaming(null) }}
+              aria-label='Thread name'
+              className='min-w-0 flex-1 rounded border border-border bg-bg px-1.5 py-0.5 text-[12px] text-text-primary focus:border-accent focus:outline-none'
+            />
+          ) : thread ? (
+            <button type='button' onClick={() => setRenaming(thread.title)} title='Rename the thread' className='truncate text-left text-[12px] text-text-muted hover:text-text-primary'>
+              {thread.title}
+            </button>
+          ) : (
+            <span className='truncate text-[12px] text-text-muted'>{state.kind === 'new' && !state.quote ? 'New thread' : parent?.title}</span>
+          )}
         </div>
+        {state.kind === 'open' && onDone && (
+          <button type='button' onClick={() => onDone(state.id)} title='Done — put the thread away' aria-label='Done with this thread' className='rounded-lg p-1.5 text-text-muted hover:bg-surface2 hover:text-text-primary'>
+            <Check size={15} />
+          </button>
+        )}
         {state.kind === 'open' && (
           <button type='button' onClick={() => navigate(`/c/${state.id}`)} title='Open as a full chat' className='rounded-lg p-1.5 text-text-muted hover:bg-surface2 hover:text-text-primary'>
             <Maximize2 size={14} />
           </button>
         )}
-        {isDesktop && (
+        {isDesktop && !inTab && (
           <button type='button' onClick={onClose} aria-label='Close the thread' className='rounded-lg p-1.5 text-text-muted hover:bg-surface2 hover:text-text-primary'>
             <X size={16} />
           </button>
@@ -75,7 +107,7 @@ export default function ThreadPanel({
   )
 }
 
-function NewThread({ parentId, quote, onOpened }: { parentId: string; quote: ReplyTo; onOpened: (id: string) => void }) {
+function NewThread({ parentId, quote, onOpened }: { parentId: string; quote: ReplyTo | null; onOpened: (id: string) => void }) {
   const parent = useChatStore((s) => s.conversations[parentId])
   const fallback = useModelCatalogue().default
   const [picked, setPicked] = useState<{ model?: string; effort?: Effort }>({})
@@ -89,7 +121,7 @@ function NewThread({ parentId, quote, onOpened }: { parentId: string; quote: Rep
     setSending(true)
     setError('')
     try {
-      const thread = await api.createThread(parentId, { content: text, reply_to: quote, model, effort, attachments })
+      const thread = await api.createThread(parentId, { content: text, ...(quote ? { reply_to: quote } : {}), model, effort, attachments })
       await useChatStore.getState().loadConversations()
       onOpened(thread.id)
     } catch (err: any) {
@@ -104,15 +136,15 @@ function NewThread({ parentId, quote, onOpened }: { parentId: string; quote: Rep
         <div className='mx-auto w-full max-w-2xl'>
           <p className='mb-3 text-[12px] leading-relaxed text-text-muted'>
             <Hash size={12} className='mr-1 inline -mt-0.5' />
-            A thread from {parent ? <span className='text-text-secondary'>{parent.title}</span> : 'this chat'}. It knows everything said there so far.
+            A thread from {parent ? <span className='text-text-secondary'>{parent.title}</span> : 'this chat'}. It knows everything said there so far, and hears what is said there next.
           </p>
-          <blockquote
+          {quote && <blockquote
             className='cursor-pointer rounded-xl border-l-[3px] border-accent/60 bg-surface2/60 px-3.5 py-2.5 text-[13.5px] leading-relaxed text-text-secondary hover:bg-surface2'
             title='Show it in the chat'
             onClick={() => document.querySelector(`[data-message-id="${CSS.escape(quote.message_id)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })}
           >
             <span className='line-clamp-6 whitespace-pre-wrap'>{quote.text}</span>
-          </blockquote>
+          </blockquote>}
           {error && <p className='mt-3 text-[12px] text-danger' role='alert'>{error}</p>}
         </div>
       </div>

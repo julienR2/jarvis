@@ -40,6 +40,8 @@ export interface ConvRow {
   parent_message_id: string | null
   created_at: number
   updated_at: number
+  /** A thread put away with Done; cleared by its next message. */
+  archived_at: number | null
 }
 
 /**

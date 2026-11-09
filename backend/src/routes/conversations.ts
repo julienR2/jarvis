@@ -327,6 +327,11 @@ export function processMessage(
     routine?: { name: string; kind: 'cron' | 'webhook' }
   },
 ): string | null {
+  // Anything new in a thread put away brings it back to its chat's list.
+  if (conv.kind === 'thread' && conv.archived_at) {
+    getDb().prepare('UPDATE conversations SET archived_at = NULL WHERE id = ?').run(conversationId)
+  }
+
   // Slash commands pass through untouched — no notify prefix, no attachment refs.
   const isCommand = userContent.trim().startsWith('/')
 
@@ -1478,14 +1483,29 @@ export async function conversationRoutes(app: FastifyInstance) {
     const content = (body.content ?? '').trim()
     const quote = body.reply_to
     if (!content && !body.attachments?.length) return reply.code(400).send({ error: 'content is required' })
-    if (!quote?.message_id || !quote.text?.trim()) return reply.code(400).send({ error: 'reply_to is required' })
-    const source = getDb()
-      .prepare('SELECT id FROM messages WHERE id = ? AND conversation_id = ?')
-      .get(quote.message_id, parent.id)
-    if (!source) return reply.code(400).send({ error: 'reply_to must be a message of this conversation' })
-
-    const firstLine = quote.text.trim().split('\n')[0]
-    const title = firstLine.length > 60 ? `${firstLine.slice(0, 57).trimEnd()}…` : firstLine
+    // From a passage, or blank — a sub-chat started from the list. A blank
+    // one still hangs off a message (the chat's latest), which is where its
+    // fork happened and what keeps it a thread of this chat.
+    let anchor: string
+    let title: string
+    if (quote) {
+      if (!quote.message_id || !quote.text?.trim()) return reply.code(400).send({ error: 'reply_to needs message_id and text' })
+      const source = getDb()
+        .prepare('SELECT id FROM messages WHERE id = ? AND conversation_id = ?')
+        .get(quote.message_id, parent.id)
+      if (!source) return reply.code(400).send({ error: 'reply_to must be a message of this conversation' })
+      anchor = quote.message_id
+      const firstLine = quote.text.trim().split('\n')[0]
+      title = firstLine.length > 60 ? `${firstLine.slice(0, 57).trimEnd()}…` : firstLine
+    } else {
+      const latest = getDb()
+        .prepare('SELECT id FROM messages WHERE conversation_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1')
+        .get(parent.id) as { id: string } | undefined
+      if (!latest) return reply.code(400).send({ error: 'Start the chat before opening a thread from it' })
+      anchor = latest.id
+      // Titled from its first exchange, like a new chat.
+      title = UNTITLED
+    }
     const { model, effort } = messageModel(req, parent, body.model, body.effort)
     const forked = parent.claude_session_id ? await forkEngineSession(parent.claude_session_id) : null
     const id = uuid()
@@ -1494,10 +1514,10 @@ export async function conversationRoutes(app: FastifyInstance) {
         `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, kind, parent_id, parent_message_id, claude_session_id)
          VALUES (?, ?, ?, ?, unixepoch(), 'auto', 'thread', ?, ?, ?)`,
       )
-      .run(id, title, model ?? null, effort ?? 'default', parent.id, quote.message_id, forked)
+      .run(id, title, model ?? null, effort ?? 'default', parent.id, anchor, forked)
     const conv = getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id) as ConvRow
     processMessage(id, conv, content, body.attachments ?? [], {
-      replyTo: { message_id: quote.message_id, text: quote.text.slice(0, 2000) },
+      ...(quote ? { replyTo: { message_id: quote.message_id, text: quote.text.slice(0, 2000) } } : {}),
       model,
       effort,
     })
@@ -1586,6 +1606,8 @@ export async function conversationRoutes(app: FastifyInstance) {
       section_id?: string | null
       /** Threads only: list it in the sidebar's Threads group, or take it off. */
       surfaced?: boolean
+      /** Passage threads: put away (Done), or bring back. */
+      archived?: boolean
     }
     const { title, notify } = body
 
@@ -1612,6 +1634,9 @@ export async function conversationRoutes(app: FastifyInstance) {
         params.push(notify)
       }
     }
+    if (body.archived !== undefined && target.kind === 'thread') {
+      sets.push(body.archived ? 'archived_at = unixepoch()' : 'archived_at = NULL')
+    }
     if (body.surfaced !== undefined && target.kind === 'thread') {
       sets.push(body.surfaced ? 'surfaced_at = unixepoch()' : 'surfaced_at = NULL')
     }
@@ -1637,7 +1662,7 @@ export async function conversationRoutes(app: FastifyInstance) {
     // Filing a chat isn't activity: bumping updated_at here would shuffle it to
     // the top of its new section, since sections sort by most recent activity.
     // Neither is putting a thread away.
-    const onlyMoved = sets.every((s) => s === 'section_id = ?' || s.startsWith('surfaced_at'))
+    const onlyMoved = sets.every((s) => s === 'section_id = ?' || s.startsWith('surfaced_at') || s.startsWith('archived_at'))
     if (!onlyMoved) sets.push('updated_at = unixepoch()')
     params.push(req.params.id)
 

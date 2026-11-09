@@ -17,15 +17,20 @@ test.describe('threads', () => {
     await signIn(page)
   })
 
-  test('a chat shows its routine’s silent runs as one line and its news as a report', async ({ page }) => {
+  test('a chat leaves out its routine’s silent runs, keeps its news as a report, and lists the routine with its last run', async ({ page }) => {
     // Silent runs count as nothing: the one unread is the report. (Read
     // before the chat is opened — opening it marks it read.)
     await page.goto('')
     const row = page.locator('aside').getByText('🏄 Surf', { exact: true }).locator('..')
     await expect(row.getByText('1', { exact: true })).toBeVisible()
     await page.goto(`c/${SURF}`)
-    await expect(page.getByTestId('run-report-stack')).toHaveCount(1)
-    await expect(page.getByTestId('run-report-stack')).toContainText('surf-watch ran 3× · nothing to report')
+    // Nothing to say, nothing in the chat: the routine's row says how it went.
+    await expect(page.getByTestId('run-report-stack')).toHaveCount(0)
+    await page.locator('[data-testid="threads-pill"]:visible').click()
+    const popover = page.getByTestId('threads-popover')
+    await expect(popover.getByText('Routines')).toBeVisible()
+    await expect(popover.getByText('surf-watch', { exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
     const report = page.getByTestId('run-report')
     await expect(report).toHaveCount(1)
     await expect(report).toContainText('Go now.')

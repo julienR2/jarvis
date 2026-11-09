@@ -67,7 +67,11 @@ export function isFinishedReply(msg: Message, runsById?: Map<string, Run>): bool
  * with nothing under it goes too.
  */
 export function dropQuietRuns(items: MessageItem[], runsById: Map<string, Run>): MessageItem[] {
-  const kept = items.filter((item) => !(item.type === 'runBlock' && item.msgs.every((m) => isQuietMessage(m, runsById))))
+  // Silent reports too: a routine with nothing to say leaves no line in the
+  // chat — how its last run went is on its row in the chat's threads list, and
+  // every run is still in the routine's own thread.
+  const kept = items.filter((item) =>
+    item.type !== 'reportStack' && !(item.type === 'runBlock' && item.msgs.every((m) => isQuietMessage(m, runsById))))
   const isContent = (n: MessageItem) => n.type !== 'separator' && n.type !== 'unread'
   return kept.filter((item, i) => {
     const rest = kept.slice(i + 1)
