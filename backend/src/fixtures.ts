@@ -72,6 +72,8 @@ export function seedFixtures(): void {
     lister: '00000000-0000-4000-8000-000000000019',
     listerFresh: '00000000-0000-4000-8000-00000000001a',
     listerOld: '00000000-0000-4000-8000-00000000001b',
+    // A thread of "App with docs", so its pane shows every kind of tab.
+    appDocsThread: '00000000-0000-4000-8000-00000000001c',
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -316,6 +318,13 @@ export function seedFixtures(): void {
     insMsg.run(uuid(), ID.appDocs, 'user', 'Show the spec next to the app.', null, null, null, t(78))
     insMsg.run(uuid(), ID.appDocs, 'assistant', 'Both are in the side pane.', null, null, null, t(77))
     insTab.run(uuid(), ID.appDocs, 'doc', join(specDir, 'spec.md'), 'spec.md', 1)
+    insTab.run(uuid(), ID.appDocs, 'doc', join(specDir, 'report.md'), 'report.md', 0)
+    const appDocsAnswer = uuid()
+    insMsg.run(appDocsAnswer, ID.appDocs, 'assistant', 'The spec and the weekly report are beside the app.', null, null, 'The spec and the weekly report are beside the app.', t(76))
+    db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at, last_read_at, kind, parent_id, parent_message_id) VALUES (?, ?, ?, ?, ?, 'thread', ?, ?)`)
+      .run(ID.appDocsThread, 'Open questions', t(74), t(72), t(72), ID.appDocs, appDocsAnswer)
+    insMsg.run(uuid(), ID.appDocsThread, 'user', 'What is still open in the spec?', null, null, null, t(74))
+    insMsg.run(uuid(), ID.appDocsThread, 'assistant', 'One thing: pinning documents to a topic.', null, null, 'One thing: pinning documents to a topic.', t(72))
     // The spec is also the Daily topic's document: a tab in each of its chats.
     db.prepare('INSERT INTO section_docs (id, section_id, kind, target, title) VALUES (?, ?, ?, ?, ?)')
       .run(uuid(), daily.id, 'doc', join(specDir, 'spec.md'), 'Daily spec')
