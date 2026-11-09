@@ -44,6 +44,7 @@ const TRANSCRIPT = 'Voice note from the e2e microphone'
 const ASR_DELAY_MS = 1500
 
 const ASK_ANSWER = 'Answer from the stub engine'
+const prompts = new Map()
 
 createServer((req, res) => {
   const path = new URL(req.url, 'http://localhost').pathname
@@ -60,6 +61,23 @@ createServer((req, res) => {
   if (path.startsWith('/stream/ask-')) {
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
     res.end(`data: ${JSON.stringify({ type: 'done', result: ASK_ANSWER })}\n\ndata: {"type":"end"}\n\n`)
+    return
+  }
+  // The last prompt sent for each conversation, for specs that check what
+  // the backend put around the person's message.
+  if (req.method === 'POST' && path === '/message') {
+    let body = ''
+    req.on('data', (c) => { body += c })
+    req.on('end', () => {
+      try { const m = JSON.parse(body); prompts.set(m.conversationId, m.prompt) } catch { /* not ours to judge */ }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, queued: false }))
+    })
+    return
+  }
+  if (path.startsWith('/__prompt/')) {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ prompt: prompts.get(path.slice('/__prompt/'.length)) ?? null }))
     return
   }
   const match = ROUTES.find(([re]) => re.test(path))

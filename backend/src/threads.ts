@@ -291,6 +291,91 @@ export function unseenReportsPrompt(conversationId: string): string | null {
   ].join('\n')
 }
 
+// ── A chat and the threads started from its passages ───────────────────
+//
+// A thread is forked from its chat once, when it is opened; after that each
+// runs on its own session and neither sees the other. Work done in one went
+// unnoticed in the other — the same document drafted twice, a decision taken
+// in a thread re-asked in the chat. Each now hears, on its next turn, what the
+// other said meanwhile, as routine reports already do.
+
+/** Absolute paths an answer mentions — what a thread made is usually linked in it. */
+function pathsIn(text: string): string[] {
+  return [...new Set(text.match(/\/jarvis\/[^\s)"'`\]>]+/g) ?? [])].slice(0, 10)
+}
+
+const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text)
+
+/** Before the person's turn in a chat: what its passage threads did since they last wrote here. */
+export function threadActivityPrompt(conversationId: string): string | null {
+  const db = getDb()
+  const since = (db.prepare(
+    `SELECT MAX(created_at) AS t FROM messages WHERE conversation_id = ? AND role = 'user'`,
+  ).get(conversationId) as { t: number | null }).t ?? 0
+  const threads = db.prepare(
+    `SELECT id, title FROM conversations WHERE kind = 'thread' AND parent_id = ? AND parent_message_id IS NOT NULL`,
+  ).all(conversationId) as { id: string; title: string }[]
+  const blocks: string[] = []
+  for (const t of threads) {
+    const answers = db.prepare(
+      `SELECT result, created_at FROM messages
+        WHERE conversation_id = ? AND role = 'assistant' AND type IS NULL AND result IS NOT NULL AND created_at > ?
+        ORDER BY created_at ASC, rowid ASC`,
+    ).all(t.id, since) as { result: string; created_at: number }[]
+    if (!answers.length) continue
+    const last = answers[answers.length - 1]
+    const asked = db.prepare(
+      `SELECT content FROM messages WHERE conversation_id = ? AND role = 'user' ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+    ).get(t.id) as { content: string } | undefined
+    const files = pathsIn(answers.map((a) => a.result).join('\n'))
+    blocks.push([
+      `### Thread "${t.title}" (conversation ${t.id}) — ${answers.length} answer${answers.length > 1 ? 's' : ''}, last at ${new Date(last.created_at * 1000).toISOString()}`,
+      ...(asked ? [`Last asked there: ${clip(asked.content.trim(), 300)}`] : []),
+      `Last answer: ${clip(last.result.trim(), 1500)}`,
+      ...(files.length ? [`Files it mentions: ${files.join(', ')}`] : []),
+    ].join('\n'))
+  }
+  if (!blocks.length) return null
+  return [
+    '<article data-jarvis="thread-activity">',
+    "Threads started from passages of this chat moved on since the user last wrote here. They ran in their own sessions: you have not seen this work. Build on it — don't redo a document or a decision a thread already made; read a thread in full with GET /internal/conversations/<id>/messages.",
+    '',
+    clip(blocks.join('\n\n'), 8000),
+    '</article>',
+  ].join('\n')
+}
+
+/** Before the person's turn in a passage thread: what was said in its chat since the thread last spoke. */
+export function parentActivityPrompt(conv: ConvRow): string | null {
+  if (conv.kind !== 'thread' || !conv.parent_message_id || !conv.parent_id) return null
+  const db = getDb()
+  const parent = getConv(conv.parent_id)
+  if (!parent) return null
+  // The fork carried the chat up to the thread's opening; after that, the
+  // thread knows the chat as of its own last turn.
+  const since = Math.max(
+    conv.created_at,
+    (db.prepare(`SELECT MAX(created_at) AS t FROM messages WHERE conversation_id = ? AND role = 'user'`).get(conv.id) as { t: number | null }).t ?? 0,
+  )
+  const rows = db.prepare(
+    `SELECT role, content, result FROM messages
+      WHERE conversation_id = ? AND type IS NULL AND created_at > ?
+        AND (role = 'user' OR result IS NOT NULL)
+      ORDER BY created_at ASC, rowid ASC`,
+  ).all(parent.id, since) as { role: string; content: string; result: string | null }[]
+  if (!rows.length) return null
+  const lines = rows.map((r) => `**${r.role === 'user' ? 'User' : 'Jarvis'}:** ${clip(((r.role === 'user' ? r.content : r.result) ?? '').trim(), 1200)}`)
+  const files = pathsIn(rows.map((r) => r.result ?? '').join('\n'))
+  return [
+    '<article data-jarvis="parent-chat-activity">',
+    `This thread was opened from the chat "${parent.title}" (conversation ${parent.id}). Since this thread last spoke, the chat went on without it — here is what was said there. Build on it rather than redoing it.`,
+    '',
+    clip(lines.join('\n\n'), 8000),
+    ...(files.length ? ['', `Files mentioned there: ${files.join(', ')}`] : []),
+    '</article>',
+  ].join('\n')
+}
+
 const NOTIFY_MODES: ConvRow['notify'][] = ['subscribe', 'unsubscribe', 'auto']
 
 export function validNotify(v: unknown): ConvRow['notify'] {

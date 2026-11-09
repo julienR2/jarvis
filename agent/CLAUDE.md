@@ -68,6 +68,13 @@ reports sit above. In a thread, the `<article data-jarvis="routine-thread">` at
 the top of the prompt says which routine it is; setting one up or changing it is
 the `routine-setup` skill (from anywhere else, the `routines` skill).
 
+**Threads from a passage.** A thread opened on a passage starts as a copy of
+the chat, then runs on its own session. Neither sees the other's later turns —
+so each is told, at the top of its next turn, what the other did meanwhile:
+`<article data-jarvis="thread-activity">` in the chat, `<article
+data-jarvis="parent-chat-activity">` in the thread. Build on that work; don't redo
+a document or re-ask a decision a thread already settled.
+
 **Session restarts.** The transcript is also lost whenever the CLI restarts
 without resuming, and switching **provider** mid-conversation does exactly that
 (a bare model id like `claude-opus-5` goes to Anthropic, a namespaced one like
@@ -205,6 +212,27 @@ can trace back to anything.
 
 Long-lived artefacts that outlive the chat that made them (a reference PDF, an
 archive) belong in `$WORKSPACE_DIR/memory/` or on the drive — not in `uploads/`.
+
+### One document, one place
+
+A reference document — a kit, a guide, a summary, a dossier's state, a long draft
+you will come back to — exists **once**. Several chats and threads work on the
+same subject, and a second copy started in one of them silently goes stale.
+
+- **Before creating one, look for it**: the documents pinned to this chat's topic
+  (listed in its `topic-context`), `GET /internal/search?q=<subject>`, and the
+  folder the subject lives in (the topic's folder on the drive or under `memory/`).
+  If it exists, **edit that file**.
+- **Put it where the subject lives**, not in this chat's uploads: the topic's
+  drive folder or `$WORKSPACE_DIR/memory/<subject>/`. If the topic's other chats
+  need it at hand, keep it under `memory/` and **pin it to the topic** (`topic`
+  skill) — every chat of the topic is then told it exists, and where. (Only
+  workspace and repo files can be pinned or shown as a tab, not the drive.)
+- **Refer to it, don't copy it**: link the path in your answer, or open it beside
+  the chat as a tab. A copy made to send or share (a PDF export, an attachment) is
+  a copy; say so, and keep editing the source.
+- If you find two versions of the same document, say so, merge them into the one
+  that lives where the subject lives, and leave a one-line pointer in the other.
 
 **Playwright screenshots**: the Playwright MCP server runs in its own container, where `/uploads` is the **same directory** as `$WORKSPACE_DIR/uploads/` in yours (shared mount). Where a file lands depends on which tool you use:
 
