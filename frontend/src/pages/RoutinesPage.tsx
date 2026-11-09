@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertCircle, Check, ChevronRight, Clock, Copy, Link2, Loader2, MessageCircleQuestion, MessageSquare, MoreHorizontal, Plus, Settings2, Square, Trash2, X, Zap } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import ContentLayout from '../components/ContentLayout'
+import { SidebarToggle } from '../components/ContentLayout'
+import NeedsYouCard from '../components/NeedsYouCard'
 import Popover from '../components/Popover'
 import { Switch } from '../components/RoutineCard'
 import { listRoutines, routinePath, webhookUrl, type Routine } from '../lib/routines'
-import { api, type RunListItem } from '../api'
+import { api, pendingQuestionOf, type Conversation, type RunListItem } from '../api'
 import { describeSchedule, firstLine, relative, RUNS_NUDGE_EVENT } from '../lib/runs'
 import { useChatStore } from '../stores/chatStore'
 
@@ -19,6 +20,10 @@ import { useChatStore } from '../stores/chatStore'
  * the thread is the record, this page is the index. It is also where a
  * routine is paused, fired by hand or deleted. Creating and editing one happen
  * in its thread: a routine is a thread that runs by itself.
+ *
+ * Laid out as a topic's page is: its title bar with the way to make one, a
+ * plain-words line on what routines are where a topic has its brief, the
+ * routines waiting for you, then the list.
  *
  * Filtered to one chat (`?conversation_id=`) or one topic (`?section_id=`)
  * when reached from there. The old `?edit=<id>` and `?new=cron|webhook`
@@ -101,47 +106,90 @@ export default function RoutinesPage() {
       ? sections.find((s) => s.id === filterSectionId)?.name ?? 'one topic'
       : null
 
+  // Routines waiting for an answer: the chats their waiting runs are in (the
+  // routine's own, or the chat it runs in), each once, with its question.
+  const [waitingIds, setWaitingIds] = useState<string[]>([])
+  useEffect(() => {
+    let alive = true
+    const load = () => api.listRunsAll({ status: ['needs_you'], limit: 50 })
+      .then((runs) => alive && setWaitingIds([...new Set(runs.map((r) => r.conversation_id))]))
+      .catch(() => {})
+    load()
+    window.addEventListener(RUNS_NUDGE_EVENT, load)
+    return () => { alive = false; window.removeEventListener(RUNS_NUDGE_EVENT, load) }
+  }, [])
+  const waiting = waitingIds
+    .map((id) => conversations[id])
+    .filter((c): c is Conversation => !!c && !!pendingQuestionOf(c)
+      && (!filterConvId || c.id === filterConvId || c.parent_id === filterConvId)
+      && (!filterSectionId || (c.section_id ?? (c.parent_id ? conversations[c.parent_id]?.section_id : null)) === filterSectionId))
+
   return (
-    <ContentLayout title={
-      <span className='flex items-center gap-2'>
-        Routines
-        {items && items.length > 0 && (
-          <span className='text-xs font-normal text-text-muted'>
-            {active} active{paused > 0 ? ` · ${paused} paused` : ''}
-          </span>
-        )}
-      </span>
-    }>
-      <div className='flex flex-wrap items-center gap-2 mb-4'>
-        {filterLabel && (
+    <div className='flex flex-col h-full' data-testid='routines-page'>
+      <div className='shrink-0 border-b border-border'>
+        <div className='flex items-center gap-2 h-12 px-3 md:px-6'>
+          <SidebarToggle />
+          <h1 className='min-w-0 flex-1 truncate text-sm font-medium text-text-primary'>
+            Routines
+            {items && items.length > 0 && (
+              <span className='ml-2 text-xs font-normal text-text-muted'>
+                {active} active{paused > 0 ? ` · ${paused} paused` : ''}
+              </span>
+            )}
+          </h1>
           <button
-            onClick={() => setParams((p) => { p.delete('conversation_id'); p.delete('section_id'); return p })}
-            className='inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs text-text-secondary hover:bg-surface2'
-            title='Show every routine'
+            onClick={() => navigate(newRoutinePath('cron', filterConvId))}
+            className='inline-flex items-center gap-1 rounded-lg border border-border bg-surface px-2.5 py-1 text-xs text-text-secondary hover:bg-surface2 hover:text-text-primary transition-colors'
           >
-            {filterConvId ? <MessageSquare size={11} /> : null}
-            {filterLabel}
-            <X size={11} />
+            <Plus size={13} /> New routine
           </button>
-        )}
-        <span className='flex-1' />
-        <button
-          onClick={() => navigate(newRoutinePath('cron', filterConvId))}
-          className='inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover transition-colors'
-        >
-          <Plus size={13} /> New routine
-        </button>
+        </div>
       </div>
 
+      <div className='flex-1 overflow-y-auto'>
+        <div className='max-w-3xl mx-auto px-4 md:px-6 py-6 flex flex-col gap-7'>
+          <section className='rounded-xl bg-surface2/70 px-4 py-3 text-[13.5px] leading-relaxed text-text-secondary' data-testid='routines-intro'>
+            <strong className='font-semibold text-text-primary'>What Jarvis does on its own.</strong>{' '}
+            A routine runs by itself — on a schedule (every morning, every hour…) or when something arrives (an email
+            forwarded to it, a link being called). Each has its own chat where every run happens, and can post what it
+            finds into one of your chats. Ask for one in any chat, or press New routine.
+          </section>
+
+          {filterLabel && (
+            <div>
+              <button
+                onClick={() => setParams((p) => { p.delete('conversation_id'); p.delete('section_id'); return p })}
+                className='inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs text-text-secondary hover:bg-surface2'
+                title='Show every routine'
+              >
+                {filterConvId ? <MessageSquare size={11} /> : null}
+                {filterLabel}
+                <X size={11} />
+              </button>
+            </div>
+          )}
+
+          {waiting.length > 0 && (
+            <section data-testid='routines-waiting'>
+              <Eyebrow>Needs you · {waiting.length}</Eyebrow>
+              <div className='flex flex-col gap-3'>
+                {waiting.map((c) => (
+                  <NeedsYouCard key={c.id} conversation={c} onOpen={() => navigate(`/c/${c.id}`)} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section data-testid='routines-list'>
+            <Eyebrow>Routines{displayed.length ? ` · ${displayed.length}` : ''}</Eyebrow>
       {items === null ? (
-        <div className='flex items-center gap-2 py-8 text-sm text-text-muted'><Loader2 size={14} className='animate-spin' /> Loading…</div>
+        <div className='flex items-center gap-2 py-3 text-xs text-text-muted'><Loader2 size={12} className='animate-spin' /> Loading…</div>
       ) : loadError && items.length === 0 ? (
-        <div className='py-10 text-center text-sm text-text-muted'>Couldn't load the routines. <button onClick={load} className='underline hover:text-text-primary'>Try again</button></div>
+        <div className='py-3 text-[12.5px] text-text-muted'>Couldn't load the routines. <button onClick={load} className='underline hover:text-text-primary'>Try again</button></div>
       ) : displayed.length === 0 ? (
-        <div className='py-12 text-center text-sm text-text-muted'>
-          {filterLabel ? 'No routine posts here yet.' : 'No routines yet.'}
-          <div className='mt-1 text-xs'>A routine is a prompt Jarvis runs without you — every morning, or whenever something calls its link. Ask for one in any chat, or create it here.</div>
-        </div>
+        <p className='py-2 text-[12.5px] text-text-muted'>
+          {filterLabel ? 'No routine posts here yet.' : 'No routine yet.'} Ask for one in any chat — “check the surf every morning and tell me when it’s good” — or press New routine.
+        </p>
       ) : (
         <div className='divide-y divide-border'>
           {displayed.map((r) => {
@@ -207,9 +255,15 @@ export default function RoutinesPage() {
           })}
         </div>
       )}
-
-    </ContentLayout>
+          </section>
+        </div>
+      </div>
+    </div>
   )
+}
+
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return <h2 className='mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted'>{children}</h2>
 }
 
 function newRoutinePath(kind: 'cron' | 'webhook', conversationId: string | null): string {

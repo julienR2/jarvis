@@ -16,6 +16,9 @@ test.describe('routines', () => {
     await page.goto('')
     await page.getByTestId('threads-group').getByTitle('All your routines: what Jarvis does on its own').click()
     await expect(page).toHaveURL(/\/routines$/)
+    // Laid out as a topic: what routines are, then those waiting for you, then the list.
+    await expect(page.getByTestId('routines-intro')).toContainText('What Jarvis does on its own')
+    await expect(page.getByTestId('routines-waiting')).toContainText('Push the post to the live site')
     const rows = page.getByTestId('routine-row')
     // Each fixture routine exactly once, by exact name — other rows may exist.
     for (const name of ['morning-brief', 'new-year-wish', 'reply-marta', 'fixture-hook', 'publish-post']) {
