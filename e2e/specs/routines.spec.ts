@@ -18,7 +18,8 @@ test.describe('routines', () => {
     await expect(page).toHaveURL(/\/routines$/)
     // Laid out as a topic: what routines are, then those waiting for you, then the list.
     await expect(page.getByTestId('routines-intro')).toContainText('What Jarvis does on its own')
-    await expect(page.getByTestId('routines-waiting')).toContainText('Push the post to the live site')
+    // Reply to Marta: the one waiting routine no spec ever answers.
+    await expect(page.getByTestId('routines-waiting')).toContainText('Send this reply to Marta?')
     const rows = page.getByTestId('routine-row')
     // Each fixture routine exactly once, by exact name — other rows may exist.
     for (const name of ['morning-brief', 'new-year-wish', 'reply-marta', 'fixture-hook', 'publish-post']) {
