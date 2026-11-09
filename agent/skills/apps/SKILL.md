@@ -87,6 +87,7 @@ to include:
 if (jarvis.available) {                                    // false when opened alone (a share link)
   await jarvis.send('Add milk to the list')                // posts into the chat as the user; the chat answers
   const n = await jarvis.ask('How many invoices are unpaid? Reply with a number')   // one-off, stays out of the chat
+  await jarvis.run('evenings-note', { note })               // fire a routine that reports into this chat ({sync: true} waits for its answer)
   await jarvis.openDoc('/jarvis/agent/workspace/memory/dossier/state.md')           // a tab beside the chat
   const { conversationId, title, topicId } = await jarvis.context()
   const stop = jarvis.onMessage(({ id, text }) => render(text))   // each answer that finishes in the chat
@@ -98,6 +99,9 @@ if (jarvis.available) {                                    // false when opened 
   what the app needs back (a number, a JSON blob, a sentence to display): a
   fresh session that can read the chat and use tools, whose answer never shows
   in the chat. Ask for an exact format and parse it.
+- `run` is for an app with its own automation — a webhook with a narrow prompt
+  that reports into the app's chat (create it with `conversation_id` set to the
+  chat). Only routines attached to the app's own chat can be run.
 - The bridge answers with the user's session from the page around the app; the
   app holds no credential. Opened on its own (a share link) there is no bridge:
   check `jarvis.available` and degrade (read-only view, hide the buttons).
