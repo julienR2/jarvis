@@ -842,7 +842,7 @@ export default function ChatView({
   }
 
   const paneToggle = (
-    <span className='flex bg-surface2 rounded-lg p-0.5 shrink-0'>
+    <span className='flex gap-0.5 bg-surface2 rounded-lg p-0.5 shrink-0'>
       {(['chat', 'app'] as const).map((pane) => {
         const on = pane === 'chat' ? chatShown : appShown
         return (
