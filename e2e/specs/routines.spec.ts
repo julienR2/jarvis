@@ -39,14 +39,16 @@ test.describe('routines', () => {
   })
 
   test('the switch pauses and resumes a routine', async ({ page }) => {
+    // new-year-wish: no other test reads whether it is on, and tests run in
+    // parallel — toggling morning-brief raced the ones that expect it paused.
     await page.goto('routines')
-    const sw = page.getByRole('switch', { name: 'Resume morning-brief' })
-    await expect(sw).toHaveAttribute('aria-checked', 'false')
+    const sw = page.getByRole('switch', { name: 'Pause new-year-wish' })
+    await expect(sw).toHaveAttribute('aria-checked', 'true')
     await sw.click()
-    await expect(page.getByRole('switch', { name: 'Pause morning-brief' })).toHaveAttribute('aria-checked', 'true')
-    // Back off — a live cron on a throwaway instance still costs.
-    await page.getByRole('switch', { name: 'Pause morning-brief' }).click()
-    await expect(page.getByRole('switch', { name: 'Resume morning-brief' })).toBeVisible()
+    await expect(page.getByRole('switch', { name: 'Resume new-year-wish' })).toHaveAttribute('aria-checked', 'false')
+    // Leave it as found.
+    await page.getByRole('switch', { name: 'Resume new-year-wish' }).click()
+    await expect(page.getByRole('switch', { name: 'Pause new-year-wish' })).toBeVisible()
   })
 
   test('a new routine is a thread whose card is the form', async ({ page }) => {
