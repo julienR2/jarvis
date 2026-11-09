@@ -1186,15 +1186,15 @@ export default function ChatView({
                 topicId={conv?.section_id ?? null}
                 threads={threadTabs}
                 onCloseThread={closeThreadTab}
+                onThreadDone={(id) => archiveThread(id, true)}
+                // A phone shows the thread instead of the chat, title bar included: the way back is in the strip.
+                onBack={!isDesktop && threadKey ? () => (threadKey === 'thread:new' ? setNewThread(null) : openThread(null)) : undefined}
                 renderThread={(key) => conversationId && (
                   <ThreadPanel
                     key={key}
                     parentId={conversationId}
-                    inTab
                     state={key === 'thread:new' ? { kind: 'new', quote: newThread?.quote ?? null } : { kind: 'open', id: key.slice('thread:'.length) }}
-                    onClose={() => (key === 'thread:new' ? setNewThread(null) : openThread(null))}
                     onOpened={(id) => openThread(id)}
-                    onDone={(id) => archiveThread(id, true)}
                   />
                 )}
                 app={hasApp ? {

@@ -1,9 +1,7 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Check, Hash, Maximize2, X } from 'lucide-react'
+import { Hash } from 'lucide-react'
 import { api, type Attachment, type Effort, type ReplyTo } from '../api'
 import { useChatStore } from '../stores/chatStore'
-import { useIsDesktop } from '../hooks/useIsDesktop'
 import ChatInput from './ChatInput'
 import { settleUploads, spoken } from '../lib/drafts'
 import ChatView from './ChatView'
@@ -16,8 +14,9 @@ export type ThreadPanelState =
 
 /**
  * A thread beside its chat, as Slack draws one: the chat stays where it is,
- * the thread opens in the side pane (the app's place, when the chat has one)
- * and, on a phone, over the whole screen.
+ * the thread opens as a tab of the side pane and, on a phone, over the whole
+ * screen. The pane's tab strip names it and carries its actions (rename,
+ * Done, open as a full chat), so the thread itself is only its messages.
  *
  * A new thread isn't created until its first message is sent — opening the
  * panel and changing your mind leaves nothing behind. Sending forks the chat
@@ -26,83 +25,20 @@ export type ThreadPanelState =
 export default function ThreadPanel({
   parentId,
   state,
-  onClose,
   onOpened,
-  onDone,
-  inTab = false,
 }: {
   parentId: string
   state: ThreadPanelState
-  onClose: () => void
   /** The new thread exists: show it. */
   onOpened: (id: string) => void
-  /** Put the thread away: out of the chat's active list (Done). */
-  onDone?: (id: string) => void
-  /** Shown as a tab of the side pane, whose strip already closes it. */
-  inTab?: boolean
 }) {
-  const navigate = useNavigate()
-  const isDesktop = useIsDesktop()
-  const parent = useChatStore((s) => s.conversations[parentId])
-  const thread = useChatStore((s) => (state.kind === 'open' ? s.conversations[state.id] : undefined))
-  const [renaming, setRenaming] = useState<string | null>(null)
-  const saveTitle = () => {
-    const next = renaming?.trim()
-    setRenaming(null)
-    if (thread && next && next !== thread.title) useChatStore.getState().patchConversation(thread.id, { title: next })
-  }
-
   return (
     <div className='flex h-full min-w-0 flex-col bg-bg' data-testid='thread-panel'>
-      <div className='flex h-12 shrink-0 items-center gap-2 border-b border-border px-3'>
-        {!isDesktop && (
-          <button type='button' onClick={onClose} aria-label='Back to the chat' className='rounded-lg p-1.5 text-text-muted hover:bg-surface2 hover:text-text-primary'>
-            <ArrowLeft size={16} />
-          </button>
-        )}
-        <div className='flex min-w-0 flex-1 items-baseline gap-2'>
-          <span className='shrink-0 text-sm font-semibold text-text-primary'>Thread</span>
-          {thread && renaming !== null ? (
-            <input
-              autoFocus
-              value={renaming}
-              onChange={(e) => setRenaming(e.target.value)}
-              onBlur={saveTitle}
-              onKeyDown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') setRenaming(null) }}
-              aria-label='Thread name'
-              className='min-w-0 flex-1 rounded border border-border bg-bg px-1.5 py-0.5 text-[12px] text-text-primary focus:border-accent focus:outline-none'
-            />
-          ) : thread ? (
-            <button type='button' onClick={() => setRenaming(thread.title)} title='Rename the thread' className='truncate text-left text-[12px] text-text-muted hover:text-text-primary'>
-              {thread.title}
-            </button>
-          ) : (
-            <span className='truncate text-[12px] text-text-muted'>{state.kind === 'new' && !state.quote ? 'New thread' : parent?.title}</span>
-          )}
-        </div>
-        {state.kind === 'open' && onDone && (
-          <button type='button' onClick={() => onDone(state.id)} title='Done — put the thread away' aria-label='Done with this thread' className='rounded-lg p-1.5 text-text-muted hover:bg-surface2 hover:text-text-primary'>
-            <Check size={15} />
-          </button>
-        )}
-        {state.kind === 'open' && (
-          <button type='button' onClick={() => navigate(`/c/${state.id}`)} title='Open as a full chat' className='rounded-lg p-1.5 text-text-muted hover:bg-surface2 hover:text-text-primary'>
-            <Maximize2 size={14} />
-          </button>
-        )}
-        {isDesktop && !inTab && (
-          <button type='button' onClick={onClose} aria-label='Close the thread' className='rounded-lg p-1.5 text-text-muted hover:bg-surface2 hover:text-text-primary'>
-            <X size={16} />
-          </button>
-        )}
-      </div>
-      <div className='flex min-h-0 flex-1 flex-col'>
-        {state.kind === 'open' ? (
-          <ChatView key={state.id} conversationId={state.id} embedded />
-        ) : (
-          <NewThread parentId={parentId} quote={state.quote} onOpened={onOpened} />
-        )}
-      </div>
+      {state.kind === 'open' ? (
+        <ChatView key={state.id} conversationId={state.id} embedded />
+      ) : (
+        <NewThread parentId={parentId} quote={state.quote} onOpened={onOpened} />
+      )}
     </div>
   )
 }

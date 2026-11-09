@@ -47,13 +47,13 @@ test.describe('the threads of a chat', () => {
     await expect(list.getByTestId('thread-row').filter({ has: page.getByText('Wine cellars', { exact: true }) })).toHaveCount(1)
   })
 
-  test('a thread is renamed from its header, and a blank one is started from the list', async ({ page }) => {
+  test('a thread is renamed from its tab, and a blank one is started from the list', async ({ page }) => {
     await openConversation(page, 'Trip planning')
     await page.locator('[data-testid="threads-pill"]:visible').click()
     await page.getByTestId('threads-popover').getByTestId('thread-row').filter({ has: page.getByText('Wine cellars', { exact: true }) }).getByRole('button').first().click()
-    const panel = page.getByTestId('thread-panel')
-    await panel.getByRole('button', { name: 'Wine cellars' }).click()
-    const name = panel.getByRole('textbox', { name: 'Thread name' })
+    const strip = page.getByRole('tablist')
+    await strip.getByRole('tab', { name: /Wine cellars/ }).dblclick()
+    const name = strip.getByRole('textbox', { name: 'Thread name' })
     await name.fill('Port cellars')
     await name.press('Enter')
     await expect(page.getByRole('tablist').getByRole('tab', { name: /Port cellars/ })).toBeVisible()
