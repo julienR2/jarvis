@@ -44,23 +44,26 @@ test.describe('threads from a passage', () => {
     // Not in the sidebar's Threads: it lives with its chat.
     await expect(page.getByTestId('threads-group').getByText(/A paragraph with/)).toHaveCount(0)
 
-    // Closed, then reopened from its mark.
-    await panel.getByRole('button', { name: 'Close the thread' }).click()
+    // Closed (its tab), then reopened from its mark.
+    await page.getByRole('tablist').getByRole('button', { name: /^Close A paragraph with/ }).click()
     await expect(panel).toHaveCount(0)
     await expect(page).not.toHaveURL(/thread=/)
     await mark.click()
     await expect(page.getByTestId('thread-panel').getByText('Can you shorten that?')).toBeVisible()
   })
 
-  test('in a chat with an app, a thread takes the app’s place while open', async ({ page }) => {
+  test('in a chat with an app, a thread opens as a tab beside it, and both stay a click away', async ({ page }) => {
     await openConversation(page, 'Fixture app')
     const app = page.frameLocator('iframe').first()
     await expect(app.getByTestId('fixture-app')).toBeVisible()
     await selectParagraph(page, 'Done — it is in the preview pane.')
     await page.getByTestId('thread-selection').click()
+    const tabs = page.getByRole('tablist')
     await expect(page.getByTestId('thread-panel')).toBeVisible()
-    await expect(page.locator('iframe')).toHaveCount(0)
-    await page.getByTestId('thread-panel').getByRole('button', { name: 'Close the thread' }).click()
+    await expect(tabs.getByRole('tab', { name: 'New thread' })).toHaveAttribute('aria-selected', 'true')
+    // The app is still there, one tab away — and the draft thread goes when you leave it.
+    await tabs.getByRole('tab', { name: 'App' }).click()
     await expect(app.getByTestId('fixture-app')).toBeVisible()
+    await expect(tabs.getByRole('tab', { name: 'New thread' })).toHaveCount(0)
   })
 })

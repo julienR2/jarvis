@@ -563,6 +563,12 @@ export function initDb(): void {
     )
   `)
   db.exec('CREATE INDEX IF NOT EXISTS idx_conversation_tabs_conv ON conversation_tabs(conversation_id)')
+  // A thread put away ("Done"): out of its chat's list of active threads,
+  // still there and searchable. Any new message in it brings it back.
+  try {
+    db.exec('ALTER TABLE conversations ADD COLUMN archived_at INTEGER DEFAULT NULL')
+  } catch { /* already exists */ }
+
   // Documents pinned to a topic: a tab in every chat of the topic, listed on
   // its page and in the brief its chats are given. `docs_updated_at` tells a
   // warm session the list changed, as context_updated_at does for the brief.

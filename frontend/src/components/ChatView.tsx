@@ -22,7 +22,8 @@ import MessageBubble, { Markdown, liveStatus, markdownComponents } from './Messa
 import ChatInput, { type VoiceExtras } from './ChatInput'
 import { DEFAULT_EFFORT, modelName, useModelCatalogue } from './ModelSelector'
 import AppPreview from './AppPreview'
-import SidePanel, { type PanelKey } from './SidePanel'
+import SidePanel, { type PanelKey, type ThreadTab } from './SidePanel'
+import ThreadsPill from './ThreadsPill'
 import { useChatTabs, useTabsStore } from '../stores/tabsStore'
 import { PanelOpenerContext } from '../lib/panelOpener'
 import ResizeHandle from './ResizeHandle'
@@ -36,7 +37,7 @@ import { RoutineCard, RoutineChip } from './RoutineCard'
 import ThreadPanel, { type ThreadPanelState } from './ThreadPanel'
 import { useShallow } from 'zustand/react/shallow'
 import { routineOf, ROUTINE_CHANGED_EVENT, type Routine } from '../lib/routines'
-import { isDraftThread } from '../lib/threads'
+import { isActiveThread, isDraftThread, isSubChat, readThreadTabs, saveThreadTabs } from '../lib/threads'
 import SelectionReply from './SelectionReply'
 import { dropQuietRuns, groupMessagesByDay, isFinishedReply } from '../lib/transcript'
 import { answerFromComposer } from './AnswerCard'
@@ -228,10 +229,50 @@ export default function ChatView({
   const withTabs = !shared && !embedded
   const { appRefreshKey, bumpApp } = useChatEvents(conversationId, { tabs: withTabs })
   const tabs = useChatTabs(withTabs ? conversationId : undefined)
-  // The side pane: the chat's app, and/or the tabs opened beside it. A
-  // topic's documents alone don't open it — they wait behind the toggle.
-  const hasPanel = hasApp || tabs.length > 0
-  const ownsPanel = hasApp || tabs.some((t) => !t.topic)
+  const [searchParams, setSearchParams] = useSearchParams()
+  // Threads of this chat: the sub-chats opened from its passages (or blank,
+  // from the list), and the threads of the routines reporting into it.
+  const subChats = useChatStore(useShallow((s) =>
+    embedded ? [] : s.order.map((id) => s.conversations[id]).filter((c): c is Conversation => !!c && c.parent_id === conversationId && isSubChat(c)),
+  ))
+  const routineThreads = useChatStore(useShallow((s) =>
+    embedded ? [] : s.order.map((id) => s.conversations[id]).filter((c): c is Conversation => !!c && c.parent_id === conversationId && c.kind === 'thread' && !c.parent_message_id),
+  ))
+
+  // Threads open beside the chat, as tabs of the side pane — kept per device
+  // like the pane view. The one shown is in the address (`?thread=<id>`: it
+  // survives a reload, and Back closes it); a new one, not until its first
+  // message creates it.
+  const [newThread, setNewThread] = useState<{ convId: string; quote: ReplyTo | null } | null>(null)
+  const openThreadId = embedded ? null : searchParams.get('thread')
+  const pendingNew = !!newThread && newThread.convId === conversationId
+  const [savedThreadTabs, setSavedThreadTabs] = useState(() => ({ id: conversationId, ids: conversationId && !embedded ? readThreadTabs(conversationId) : [] }))
+  if (savedThreadTabs.id !== conversationId) setSavedThreadTabs({ id: conversationId, ids: conversationId && !embedded ? readThreadTabs(conversationId) : [] })
+  const openTabIds = savedThreadTabs.id === conversationId ? savedThreadTabs.ids : []
+  const setOpenTabIds = (ids: string[]) => {
+    setSavedThreadTabs({ id: conversationId, ids })
+    if (conversationId) saveThreadTabs(conversationId, ids)
+  }
+  const knownThreads = new Map([...subChats, ...routineThreads].map((t) => [t.id, t]))
+  const threadTabs: ThreadTab[] = [
+    ...[...new Set([...openTabIds, ...(openThreadId ? [openThreadId] : [])])]
+      .filter((id) => knownThreads.has(id) || id === openThreadId)
+      .map((id) => {
+        const t = knownThreads.get(id)
+        return { key: `thread:${id}`, title: t?.title ?? 'Thread', unread: t?.unread_count ?? 0, routine: !!t && !t.parent_message_id }
+      }),
+    ...(pendingNew ? [{ key: 'thread:new', title: 'New thread', unread: 0 }] : []),
+  ]
+  // The thread chosen to be shown: it brings the side pane into view.
+  const threadKey: PanelKey | null = pendingNew ? 'thread:new' : openThreadId ? `thread:${openThreadId}` : null
+  const threadPanel: ThreadPanelState | null =
+    pendingNew ? { kind: 'new', quote: newThread!.quote } : openThreadId ? { kind: 'open', id: openThreadId } : null
+
+  // The side pane: the chat's app, the tabs opened beside it, its open
+  // threads. A topic's documents alone don't open it — they wait behind the
+  // toggle.
+  const hasPanel = hasApp || tabs.length > 0 || threadTabs.length > 0
+  const ownsPanel = hasApp || tabs.some((t) => !t.topic) || threadTabs.length > 0
   const isDesktop = useIsDesktop()
   // What this chat opens on: what it was last left showing on this device
   // (unset, the default) — unless something was just shared into its
@@ -346,18 +387,8 @@ export default function ChatView({
 
   // `?run=` — opened from a report or the routines page: bring that run into
   // view, paging back through older messages until it is loaded.
-  const [searchParams, setSearchParams] = useSearchParams()
   const focusRun = embedded ? null : searchParams.get('run')
 
-  // Threads from passages of this chat: one open beside it (`?thread=<id>`, so
-  // it survives a reload and Back closes it), or one being started — not in
-  // the address, since it doesn't exist until its first message is sent.
-  const [newThread, setNewThread] = useState<{ convId: string; quote: ReplyTo } | null>(null)
-  const openThreadId = embedded ? null : searchParams.get('thread')
-  const threadPanel: ThreadPanelState | null =
-    newThread && newThread.convId === conversationId ? { kind: 'new', quote: newThread.quote }
-    : openThreadId ? { kind: 'open', id: openThreadId }
-    : null
   function openThread(id: string | null) {
     // Leaving a thread read: what landed while it was open was seen there.
     if (openThreadId && openThreadId !== id) {
@@ -365,17 +396,31 @@ export default function ChatView({
       api.markConversationRead(openThreadId).catch(() => {})
     }
     setNewThread(null)
+    if (id && !openTabIds.includes(id)) setOpenTabIds([...openTabIds, id])
     setSearchParams((p) => {
       if (id) p.set('thread', id)
       else p.delete('thread')
       return p
     }, { replace: !id })
   }
-  // Beside the chat: an open thread takes the app's place while it is open.
-  const sidePane: 'thread' | 'app' | null = threadPanel ? 'thread' : hasPanel ? 'app' : null
+  function closeThreadTab(key: string) {
+    if (key === 'thread:new') return setNewThread(null)
+    const id = key.slice('thread:'.length)
+    setOpenTabIds(openTabIds.filter((t) => t !== id))
+    if (id === openThreadId) openThread(null)
+  }
+  // Done: out of the chat's active list (and its tab). Any new message in it
+  // brings it back.
+  function archiveThread(id: string, archived: boolean) {
+    useChatStore.getState().patchConversation(id, { archived_at: archived ? Math.floor(Date.now() / 1000) : null })
+    if (archived) closeThreadTab(`thread:${id}`)
+  }
+  const sidePane: 'app' | null = hasPanel ? 'app' : null
   // Mobile has room for one pane: "both" (the desktop default) shows the app.
   // A chat with only documents opens on the chat: they are beside it, not it.
-  const view: PaneView = paneView ?? (isDesktop ? (ownsPanel ? 'both' : 'chat') : hasApp ? 'app' : 'chat')
+  // A thread just chosen shows beside the chat (on a phone, instead of it).
+  const baseView: PaneView = paneView ?? (isDesktop ? (ownsPanel ? 'both' : 'chat') : hasApp ? 'app' : 'chat')
+  const view: PaneView = threadKey ? (isDesktop ? (baseView === 'chat' ? 'both' : baseView) : 'app') : baseView
   const appShown = sidePane === 'app' && view !== 'chat'
   const chatShown = sidePane !== 'app' || (isDesktop ? view !== 'app' : view === 'chat')
 
@@ -385,6 +430,8 @@ export default function ChatView({
     const shown = pane === 'chat' ? chatShown : appShown
     const other = pane === 'chat' ? appShown : chatShown
     const next: PaneView = !isDesktop ? pane : !shown ? 'both' : other ? (pane === 'chat' ? 'app' : 'chat') : pane
+    // Putting the pane away puts its thread away too, or it would hold it open.
+    if (threadKey && next === 'chat') openThread(null)
     setPane({ id: conversationId, view: next })
     if (conversationId) savePaneView(conversationId, next)
   }
@@ -392,11 +439,18 @@ export default function ChatView({
   // (or opened) in this chat — and back to it when that tab closes.
   const [activeTab, setActiveTab] = useState<{ id: string | undefined; key: PanelKey } | null>(null)
   const pickedKey = activeTab && activeTab.id === conversationId ? activeTab.key : null
-  const panelKey: PanelKey =
+  const panelKey: PanelKey = threadKey ?? (
     pickedKey && (pickedKey === 'app' ? hasApp : tabs.some((t) => t.id === pickedKey)) ? pickedKey
     : hasApp ? 'app'
-    : [...tabs].reverse().find((t) => !t.topic)?.id ?? tabs[tabs.length - 1]?.id ?? 'app'
-  const activate = (key: PanelKey) => setActiveTab({ id: conversationId, key })
+    : [...tabs].reverse().find((t) => !t.topic)?.id ?? tabs[tabs.length - 1]?.id ?? threadTabs[threadTabs.length - 1]?.key ?? 'app')
+  const activate = (key: PanelKey) => {
+    if (key.startsWith('thread:')) {
+      if (key !== 'thread:new') openThread(key.slice('thread:'.length))
+      return
+    }
+    if (threadKey) openThread(null)
+    setActiveTab({ id: conversationId, key })
+  }
 
   // Show the side pane for this visit, without making it the chat's saved choice.
   const revealPanel = () => {
@@ -460,18 +514,15 @@ export default function ChatView({
   }, [conversationId, model, effort, openFile, conv?.title, conv?.section_id])
 
   // The threads started from each message, for the marks under them.
-  const childThreads = useChatStore(useShallow((s) =>
-    s.order.map((id) => s.conversations[id]).filter((c) => !!c && c.parent_id === conversationId && !!c.parent_message_id),
-  ))
   const threadsByMessage = useMemo(() => {
     const map = new Map<string, Conversation[]>()
-    for (const t of childThreads) {
+    for (const t of subChats) {
       const list = map.get(t.parent_message_id!) ?? []
       list.push(t)
       map.set(t.parent_message_id!, list)
     }
     return map
-  }, [childThreads])
+  }, [subChats])
   const threadMarks = (ids: string[]) => {
     const threads = ids.flatMap((id) => threadsByMessage.get(id) ?? [])
     if (embedded || threads.length === 0) return null
@@ -801,18 +852,36 @@ export default function ChatView({
             aria-pressed={on}
             className={`px-3 py-1 text-xs rounded-md transition-colors ${on ? 'bg-bg text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}
           >
-            {pane === 'chat' ? 'Chat' : hasApp ? 'App' : 'Docs'}
+            {pane === 'chat' ? 'Chat' : hasApp ? 'App' : tabs.length ? 'Docs' : 'Threads'}
           </button>
         )
       })}
     </span>
   )
 
+  // The way back to this chat's threads, whatever was said since.
+  const threadsPill = !isThread && !shared && !embedded && conversationId && (messages.length > 0 || subChats.length > 0 || routineThreads.length > 0) ? (
+    <ThreadsPill
+      threads={subChats}
+      routines={routineThreads}
+      runs={recentRuns ?? []}
+      messages={messages}
+      activeId={openThreadId}
+      onOpen={openThread}
+      onNew={() => setNewThread({ convId: conversationId, quote: null })}
+      onArchive={(t, archived) => archiveThread(t.id, archived)}
+    />
+  ) : null
+  // A thread that answered while you were here: one tap away, above the composer.
+  const threadNews = subChats
+    .filter((t) => t.unread_count > 0 && t.id !== openThreadId && isActiveThread(t))
+    .sort((a, b) => b.updated_at - a.updated_at)
+
   const desktopTitle = (
     <ContentTitle
       action={conversationId && !shared ? (
         <span className='flex items-center gap-2'>
-          {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <RunsPill conversationId={conversationId} />}
+          {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <>{threadsPill}<RunsPill conversationId={conversationId} /></>}
           <ShareIcon shareMode={shareMode} />
           <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
           <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={notifiesThroughParent ? undefined : handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} />
@@ -877,12 +946,12 @@ export default function ChatView({
     )}
     <div className='flex flex-col h-full'>
       {/* Mobile title bar + toggle — above both panes */}
-      {title && !embedded && !threadPanel && (
+      {title && !embedded && !(threadPanel && !isDesktop) && (
         <div className='md:hidden'>
           <ContentTitle
             action={conversationId && !shared ? (
               <span className='flex items-center gap-2'>
-                {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <RunsPill conversationId={conversationId} />}
+                {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <>{threadsPill}<RunsPill conversationId={conversationId} /></>}
                 <ShareIcon shareMode={shareMode} />
                 <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
                 <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={notifiesThroughParent ? undefined : handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
@@ -902,8 +971,7 @@ export default function ChatView({
         {/* Chat pane — takes whatever the app pane leaves on desktop */}
         <div
           className={`flex flex-col h-full min-w-0 ${
-            sidePane === 'thread' ? 'hidden md:flex md:flex-1 md:border-r md:border-border'
-              : !chatShown ? 'hidden'
+            !chatShown ? 'hidden'
               : appShown ? 'flex flex-1 border-r border-border'
               : 'flex w-full'
           }`}
@@ -1024,6 +1092,22 @@ export default function ChatView({
             </div>
           </div>
 
+          {threadNews.length > 0 && (
+            <div className='flex justify-center px-4 pb-1'>
+              <button
+                type='button'
+                onClick={() => openThread(threadNews[0].id)}
+                data-testid='thread-news'
+                className='inline-flex max-w-full items-center gap-1.5 rounded-full border border-accent/30 bg-surface px-3 py-1 text-[12px] text-text-secondary shadow-sm transition-colors hover:border-accent/60 hover:text-text-primary'
+              >
+                <Hash size={12} className='shrink-0 text-accent' />
+                <span className='truncate'><span className='font-medium text-text-primary'>{threadNews[0].title}</span> replied</span>
+                <span className='shrink-0 rounded-full bg-accent px-1.5 text-[10.5px] font-medium text-white'>{threadNews[0].unread_count} new</span>
+                {threadNews.length > 1 && <span className='shrink-0 text-text-muted'>+{threadNews.length - 1} more</span>}
+              </button>
+            </div>
+          )}
+
           {/* Input — absent on a read-only link, present on an editable one */}
           {!shared?.readOnly && (
           <ChatInput
@@ -1054,10 +1138,10 @@ export default function ChatView({
           )}
         </div>
 
-        {/* Side pane: a thread, when one is open — else the app */}
-        {isDesktop && (sidePane === 'thread' || (appShown && chatShown)) && (
+        {/* Side pane: the app, documents, links and threads, as tabs */}
+        {isDesktop && appShown && chatShown && (
           <ResizeHandle
-            label={sidePane === 'thread' ? 'Resize thread panel' : 'Resize app panel'}
+            label='Resize the side panel'
             onStart={() => {
               appDragFrom.current = appPct
             }}
@@ -1072,17 +1156,6 @@ export default function ChatView({
           />
         )}
 
-        {sidePane === 'thread' && threadPanel && conversationId && (
-          <div className={`flex h-full min-w-0 flex-col ${isDesktop ? 'shrink-0' : 'w-full'}`} style={isDesktop ? { width: `${appPct}%` } : undefined}>
-            <ThreadPanel
-              parentId={conversationId}
-              state={threadPanel}
-              onClose={() => openThread(null)}
-              onOpened={(id) => openThread(id)}
-            />
-          </div>
-        )}
-
         {sidePane === 'app' && (
           // Hidden rather than unmounted, so the app keeps its state while away.
           <div
@@ -1093,7 +1166,7 @@ export default function ChatView({
           >
             {/* The app alone on desktop: the title comes along, toggle included */}
             {isDesktop && !chatShown && title && desktopTitle}
-            {tabs.length === 0 ? (
+            {hasApp && tabs.length === 0 && threadTabs.length === 0 ? (
               <AppPreview
                 appSlug={conv!.app_path!.replace(/^apps\//, '')}
                 appToken={appShareToken}
@@ -1111,6 +1184,19 @@ export default function ChatView({
                 active={panelKey}
                 onActivate={activate}
                 topicId={conv?.section_id ?? null}
+                threads={threadTabs}
+                onCloseThread={closeThreadTab}
+                renderThread={(key) => conversationId && (
+                  <ThreadPanel
+                    key={key}
+                    parentId={conversationId}
+                    inTab
+                    state={key === 'thread:new' ? { kind: 'new', quote: newThread?.quote ?? null } : { kind: 'open', id: key.slice('thread:'.length) }}
+                    onClose={() => (key === 'thread:new' ? setNewThread(null) : openThread(null))}
+                    onOpened={(id) => openThread(id)}
+                    onDone={(id) => archiveThread(id, true)}
+                  />
+                )}
                 app={hasApp ? {
                   onRefresh: bumpApp,
                   url: appShareUrl,

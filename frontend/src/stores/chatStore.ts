@@ -16,7 +16,7 @@ import { isFinishedReply } from '../lib/transcript'
 
 type PatchableFields = Pick<
   Conversation,
-  'title' | 'notify' | 'section_id'
+  'title' | 'notify' | 'section_id' | 'archived_at'
 >
 
 // How many messages to pull per page. Deliberately generous: one round-trip
@@ -501,6 +501,7 @@ export const useChatStore = create<ChatState>()(
         if (patch.title !== undefined) apiPatch.title = patch.title
         if (patch.notify !== undefined) apiPatch.notify = patch.notify
         if (patch.section_id !== undefined) apiPatch.section_id = patch.section_id
+        if (patch.archived_at !== undefined) apiPatch.archived = patch.archived_at !== null
         const updated = await api.updateConversation(id, apiPatch)
         set((s) => {
           s.conversations[id] = updated

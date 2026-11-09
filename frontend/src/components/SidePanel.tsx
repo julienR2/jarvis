@@ -1,11 +1,20 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ExternalLink, FileText, FolderInput, FolderMinus, FolderOpen, Globe, LayoutGrid, Pin, RefreshCw, X } from 'lucide-react'
+import { ExternalLink, FileText, FolderInput, FolderMinus, FolderOpen, Globe, Hash, LayoutGrid, Pin, RefreshCw, Repeat, X } from 'lucide-react'
 import { api, tabContentUrl, type ChatTab } from '../api'
 import { useTabsStore } from '../stores/tabsStore'
 import { Markdown } from './MessageBubble'
 
-/** What the side pane shows: the chat's app, or one of its tabs. */
+/** What the side pane shows: the chat's app, one of its tabs, or a thread (`thread:<id>`, `thread:new`). */
 export type PanelKey = 'app' | string
+
+/** A thread open beside the chat. */
+export interface ThreadTab {
+  key: string
+  title: string
+  unread: number
+  /** A routine's thread rather than one opened from a passage. */
+  routine?: boolean
+}
 
 interface Props {
   conversationId: string
@@ -16,6 +25,10 @@ interface Props {
   app?: { node: ReactNode; onRefresh: () => void; url?: string }
   /** The chat's topic, when it has one: its tabs can be shared with it. */
   topicId?: string | null
+  /** Threads open beside the chat, after the documents. */
+  threads?: ThreadTab[]
+  renderThread?: (key: string) => ReactNode
+  onCloseThread?: (key: string) => void
 }
 
 /**
@@ -25,7 +38,7 @@ interface Props {
  * opened) is in italics, as in an editor's preview tab; double-click or the
  * pin keeps it.
  */
-export default function SidePanel({ conversationId, tabs, active, onActivate, app, topicId }: Props) {
+export default function SidePanel({ conversationId, tabs, active, onActivate, app, topicId, threads = [], renderThread, onCloseThread }: Props) {
   const setTabs = useTabsStore((s) => s.setTabs)
   const bump = useTabsStore((s) => s.bump)
   const activeTab = tabs.find((t) => t.id === active)
@@ -42,8 +55,9 @@ export default function SidePanel({ conversationId, tabs, active, onActivate, ap
   const removeFromTopic = (tab: ChatTab) =>
     api.removeTopicDoc(tab.topic!.id, tab.id).catch((e: Error) => window.__jarvisToast?.error(e.message))
 
-  const openUrl = activeTab ? (activeTab.kind === 'link' ? activeTab.target : tabContentUrl(activeTab)) : app?.url
-  const refresh = activeTab ? () => bump(activeTab.id) : app?.onRefresh
+  const activeThread = threads.find((t) => t.key === active)
+  const openUrl = activeThread ? undefined : activeTab ? (activeTab.kind === 'link' ? activeTab.target : tabContentUrl(activeTab)) : app?.url
+  const refresh = activeThread ? undefined : activeTab ? () => bump(activeTab.id) : app?.onRefresh
 
   return (
     <div className='flex flex-col h-full bg-bg'>
@@ -65,6 +79,18 @@ export default function SidePanel({ conversationId, tabs, active, onActivate, ap
               onPin={!tab.pinned ? () => pin(tab) : undefined}
               // A topic's document is the topic's: removed there, not closed here.
               onClose={tab.topic ? undefined : () => close(tab)}
+            />
+          ))}
+          {threads.map((t) => (
+            <TabButton
+              key={t.key}
+              selected={active === t.key}
+              onSelect={() => onActivate(t.key)}
+              icon={t.routine ? <Repeat size={13} /> : <Hash size={13} className='text-accent' />}
+              title={t.title}
+              hint={t.routine ? `Routine — ${t.title}` : `Thread — ${t.title}`}
+              badge={active !== t.key && t.unread > 0 ? t.unread : undefined}
+              onClose={onCloseThread ? () => onCloseThread(t.key) : undefined}
             />
           ))}
         </div>
@@ -96,13 +122,14 @@ export default function SidePanel({ conversationId, tabs, active, onActivate, ap
         {app && <div className={`${active === 'app' ? 'flex' : 'hidden'} flex-1 min-h-0 flex-col`}>{app.node}</div>}
         {activeTab?.kind === 'doc' && <DocView key={activeTab.id} tab={activeTab} />}
         {activeTab?.kind === 'link' && <LinkView key={activeTab.id} tab={activeTab} />}
+        {activeThread && renderThread?.(activeThread.key)}
       </div>
     </div>
   )
 }
 
 function TabButton({
-  selected, onSelect, onDoubleClick, icon, title, hint, temporary, onPin, onClose,
+  selected, onSelect, onDoubleClick, icon, title, hint, temporary, badge, onPin, onClose,
 }: {
   selected: boolean
   onSelect: () => void
@@ -111,6 +138,8 @@ function TabButton({
   title: string
   hint?: string
   temporary?: boolean
+  /** Unread count, while the tab is in the background. */
+  badge?: number
   onPin?: () => void
   onClose?: () => void
 }) {
@@ -127,6 +156,7 @@ function TabButton({
     >
       <span className='shrink-0'>{icon}</span>
       <span className={`truncate ${temporary ? 'italic' : ''}`}>{title}</span>
+      {badge ? <span className='shrink-0 rounded-full bg-accent px-1.5 text-[10px] font-medium text-white'>{badge}</span> : null}
       {onPin && (
         <button
           onClick={(e) => { e.stopPropagation(); onPin() }}
