@@ -38,7 +38,7 @@ import {
 import { config } from '../config.js'
 import { getConnectorValues } from '../connectors.js'
 import { topicContextFor } from '../topics.js'
-import { detachThreadsOf, notifyTarget, reportQuestion, routineRunPrompt, surfaceThread, threadContextPrompt, unseenReportsPrompt } from '../threads.js'
+import { detachThreadsOf, notifyTarget, parentActivityPrompt, reportQuestion, routineRunPrompt, surfaceThread, threadActivityPrompt, threadContextPrompt, unseenReportsPrompt } from '../threads.js'
 import { SILENT_MARK, splitNotify } from '../runs.js'
 import type { ConvRow, MessageRow, EffortLevel, PendingQuestion } from '../types.js'
 import { userForApiKey } from '../api-keys.js'
@@ -372,6 +372,10 @@ export function processMessage(
     // person last spoke".
     const reports = unseenReportsPrompt(conversationId)
     if (reports) claudePrompt = `${reports}\n${claudePrompt}`
+    // A chat and the threads opened from its passages: each hears what the
+    // other did meanwhile (see threadActivityPrompt).
+    const fromThreads = conv.kind === 'chat' ? threadActivityPrompt(conversationId) : parentActivityPrompt(conv)
+    if (fromThreads) claudePrompt = `${fromThreads}\n${claudePrompt}`
   }
 
   if (options?.transcribed && !isCommand) {

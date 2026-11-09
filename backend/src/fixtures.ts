@@ -63,6 +63,11 @@ export function seedFixtures(): void {
     appDocs: '00000000-0000-4000-8000-000000000015',
     // An app that talks to its chat through window.jarvis.
     bridge: '00000000-0000-4000-8000-000000000016',
+    // A chat and a thread from one of its passages, each with news for the
+    // other: the thread answered after the chat's last message, and the chat
+    // went on after the thread's last question.
+    aware: '00000000-0000-4000-8000-000000000017',
+    awareThread: '00000000-0000-4000-8000-000000000018',
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -319,6 +324,20 @@ export function seedFixtures(): void {
     db.prepare('INSERT INTO webhooks (id, name, token, prompt, conversation_id, enabled) VALUES (?, ?, ?, ?, ?, 1)')
       .run('00000000-0000-4000-8000-0000000000a3', 'bridge-hook', randomBytes(24).toString('base64url'), 'Handle the app payload.', ID.bridge)
 
+
+    // 4c. A chat and its passage thread, out of step with each other.
+    const awareAnswer = uuid()
+    insConv.run(ID.aware, '🧵 Insurance prep', t(70), t(56), projects.id, null, null)
+    insMsg.run(uuid(), ID.aware, 'user', 'What do we need for the insurer?', null, null, null, t(70))
+    insMsg.run(awareAnswer, ID.aware, 'assistant', 'Six documents, starting with the death certificate.', null, null, 'Six documents, starting with the death certificate.', t(69))
+    db.prepare(
+      `INSERT INTO conversations (id, title, created_at, updated_at, kind, parent_id, parent_message_id) VALUES (?, ?, ?, ?, 'thread', ?, ?)`,
+    ).run(ID.awareThread, 'Call kit', t(60), t(56), ID.aware, awareAnswer)
+    insMsg.run(uuid(), ID.awareThread, 'user', 'Turn this into a call kit.', null, null, null, t(60))
+    insMsg.run(uuid(), ID.aware, 'user', 'The doctor is Dr Martin.', null, null, null, t(58))
+    insMsg.run(uuid(), ID.aware, 'assistant', 'Noted: Dr Martin is the treating doctor.', null, null, 'Noted: Dr Martin is the treating doctor.', t(57))
+    insMsg.run(uuid(), ID.awareThread, 'assistant', 'The call kit is ready.', null, null,
+      'The call kit is ready: [kit.md](/jarvis/agent/workspace/uploads/kit/kit.md).', t(56))
 
     // 5. Routines and a key — rows for the settings pages. The cron is disabled so
     // nothing in a throwaway instance ever fires.
