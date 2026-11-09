@@ -10,6 +10,7 @@
  *   jarvis.available          inside Jarvis (false on a share link)
  *   jarvis.send(text)         post into the chat as the user; the chat answers
  *   jarvis.ask(prompt)        a one-off answer for the app, kept out of the chat
+ *   jarvis.run(name, payload, {sync})  fire a routine that reports into this chat
  *   jarvis.openDoc(path)      open a document beside the chat, as a tab
  *   jarvis.context()          { conversationId, title, topic }
  *   jarvis.onMessage(fn)      each finished answer in the chat: { id, role, text }
@@ -44,6 +45,7 @@ const SCRIPT = `(function () {
     available: inside,
     send: function (text) { return call('send', { text: String(text) }) },
     ask: function (prompt) { return call('ask', { prompt: String(prompt) }) },
+    run: function (name, payload, opts) { return call('run', { name: String(name), payload: payload || {}, sync: !!(opts && opts.sync) }) },
     openDoc: function (path) { return call('openDoc', { path: String(path) }) },
     context: function () { return call('context', {}) },
     onMessage: function (fn) {

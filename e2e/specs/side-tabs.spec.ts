@@ -131,7 +131,7 @@ test.describe('tabs beside a chat', () => {
     await expect(docs.getByTestId('topic-doc')).toHaveCount(1)
   })
 
-  test('an app talks to its chat through window.jarvis: send, ask, context', async ({ page }) => {
+  test('an app talks to its chat through window.jarvis: send, ask, run, context', async ({ page }) => {
     await openConversation(page, 'Bridge app')
     const app = page.frameLocator('iframe[title="App preview"]')
     await expect(app.getByText('bridge: on')).toBeVisible()
@@ -140,6 +140,11 @@ test.describe('tabs beside a chat', () => {
     await expect(app.getByText('answer: Answer from the stub engine')).toBeVisible()
     await app.getByRole('button', { name: 'Context' }).click()
     await expect(app.getByText('chat: ◫ Bridge app')).toBeVisible()
+    await app.getByRole('button', { name: 'Run', exact: true }).click()
+    await expect(app.getByText('ran', { exact: true })).toBeVisible()
+    // Only the routines reporting into this chat.
+    await app.getByRole('button', { name: 'Run other' }).click()
+    await expect(app.getByText(/refused: No enabled webhook "fixture-hook"/)).toBeVisible()
     await app.getByRole('button', { name: 'Send' }).click()
     await expect(app.getByText('sent')).toBeVisible()
     await expect(page.locator('[data-message-id]').filter({ hasText: 'Hello from the bridge app' })).toBeVisible()

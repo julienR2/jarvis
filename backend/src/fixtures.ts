@@ -316,6 +316,8 @@ export function seedFixtures(): void {
     insConv.run(ID.bridge, '◫ Bridge app', t(76), t(75), projects.id, 'apps/fixture-bridge', randomBytes(18).toString('base64url'))
     insMsg.run(uuid(), ID.bridge, 'user', 'An app that talks to you.', null, null, null, t(76))
     insMsg.run(uuid(), ID.bridge, 'assistant', 'It is beside the chat.', null, null, null, t(75))
+    db.prepare('INSERT INTO webhooks (id, name, token, prompt, conversation_id, enabled) VALUES (?, ?, ?, ?, ?, 1)')
+      .run('00000000-0000-4000-8000-0000000000a3', 'bridge-hook', randomBytes(24).toString('base64url'), 'Handle the app payload.', ID.bridge)
 
 
     // 5. Routines and a key — rows for the settings pages. The cron is disabled so
@@ -595,12 +597,15 @@ const FIXTURE_BRIDGE_HTML = `<!doctype html><html><head><meta charset="utf-8"><t
 <h1>Bridge app</h1>
 <p id="available"></p>
 <button id="send">Send</button> <button id="ask">Ask</button> <button id="context">Context</button>
+<button id="run">Run</button> <button id="run-other">Run other</button>
 <pre id="out"></pre>
 <script>
   var out = document.getElementById('out')
   document.getElementById('available').textContent = window.jarvis && window.jarvis.available ? 'bridge: on' : 'bridge: off'
   document.getElementById('send').onclick = function () { jarvis.send('Hello from the bridge app').then(function () { out.textContent = 'sent' }, function (e) { out.textContent = 'error: ' + e.message }) }
   document.getElementById('ask').onclick = function () { jarvis.ask('What is the answer?').then(function (a) { out.textContent = 'answer: ' + a }, function (e) { out.textContent = 'error: ' + e.message }) }
+  document.getElementById('run').onclick = function () { jarvis.run('bridge-hook', { from: 'app' }).then(function () { out.textContent = 'ran' }, function (e) { out.textContent = 'error: ' + e.message }) }
+  document.getElementById('run-other').onclick = function () { jarvis.run('fixture-hook', {}).then(function () { out.textContent = 'ran' }, function (e) { out.textContent = 'refused: ' + e.message }) }
   document.getElementById('context').onclick = function () { jarvis.context().then(function (c) { out.textContent = 'chat: ' + c.title }) }
 </script>
 </body></html>
