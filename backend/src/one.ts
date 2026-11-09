@@ -13,22 +13,9 @@
  *
  * State is two entries in secrets.json: `oneApiKey` and `oneEnabled`.
  */
-import { readFileSync, writeFileSync } from 'fs'
+import { readSecrets, writeSecrets } from './secrets.js'
 
-const SECRETS_PATH = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
 const API_BASE = 'https://api.withone.ai/v1'
-
-function readSecrets(): Record<string, unknown> {
-  try {
-    return JSON.parse(readFileSync(SECRETS_PATH, 'utf8'))
-  } catch {
-    return {}
-  }
-}
-
-function writeSecrets(secrets: Record<string, unknown>): void {
-  writeFileSync(SECRETS_PATH, JSON.stringify(secrets, null, 2), { mode: 0o600 })
-}
 
 export interface OneSettings {
   key: string | null

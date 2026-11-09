@@ -25,8 +25,8 @@ curl -s -H "X-Internal-Secret: $INTERNAL_SECRET" "$BACKEND_URL/internal/connecto
   | python3 -m json.tool
 ```
 
-Returns every connector with its `id`, `name`, `description`, `hasProxy`, and
-field **labels + keys** (no values). Use this to discover what exists — for
+Returns every connector with its `id`, `name`, `description`, `hasProxy`,
+`access`, and field **labels + keys** (no values). Use this to discover what exists — for
 example to find that the same person has a `gmail-work` **and** an `aol-personal`
 mailbox configured.
 
@@ -41,6 +41,18 @@ curl -s -H "X-Internal-Secret: $INTERNAL_SECRET" "$BACKEND_URL/internal/connecto
 ```
 
 Returns `fields` (with values) and a flat `env` map keyed by field key.
+
+### Two kinds of access
+
+Each connector has an `access`, set by the user in Settings → Connectors:
+
+- **`values`** — you read the values and use them yourself, as below.
+- **`proxy`** — the secret values are **withheld from you on purpose**. Secret
+  fields come back as `{ "hidden": true }` and are left out of `env`; text
+  fields (a URL, an address) are still there. You reach the service through the
+  backend's proxy instead, which adds the credential — see [Proxy](#proxy).
+  Never try to find the value another way, and never ask the user to paste it
+  into the chat: keeping it out of your reach is the whole point.
 
 ### Load its values into the shell
 
@@ -93,17 +105,39 @@ works — use the one the user names, or ask if it matters which account.
 
 ## Proxy
 
-Some connectors (currently `copyparty`) carry a `proxy` config so browsers and
-`<img>` tags can reach an internal-only service with auth attached by the
-backend. Fetch through:
+A connector with a `proxy` config can be called through the backend, which
+forwards the request to the service and attaches the credential on the way
+out:
 
 ```
-$BACKEND_URL/api/connectors/<id>/proxy/<path>
+$BACKEND_URL/api/connectors/<id>/proxy/<path on the service>
 ```
 
-It takes a user session or an app's token (see the `apps` skill) — it is how
-**browsers and apps** reach the service. You don't need it from the shell: load
-the connector's values and call the service directly.
+`<path>` and the query string are appended to the connector's base URL. Send
+the `X-Internal-Secret` header; your other headers (Accept, Content-Type, an
+API version header…) are passed through. GET, POST, PUT, PATCH and DELETE all
+work, and the response comes back as the service sent it.
+
+```bash
+# a connector with access: "proxy" — e.g. a REST API whose token you never see
+curl -s -H "X-Internal-Secret: $INTERNAL_SECRET" -H "Accept: application/json" \
+  "$BACKEND_URL/api/connectors/github/proxy/user/repos?per_page=5"
+
+curl -s -X POST -H "X-Internal-Secret: $INTERNAL_SECRET" -H "Content-Type: application/json" \
+  -d '{"title":"…"}' "$BACKEND_URL/api/connectors/github/proxy/repos/OWNER/REPO/issues"
+```
+
+`GET /internal/connectors/<id>` returns the exact `proxy` URL for a connector
+whose values are hidden. A dedicated skill (github, linear, …) shows the
+`eval` loader; when the connector's `access` is `proxy`, use the same endpoints
+through the proxy instead of with the token.
+
+The proxy speaks HTTP only. A hidden connector for something that is not an
+HTTP API (IMAP/SMTP, SSH) cannot be used — tell the user rather than guessing.
+
+The same route serves the browser: `<img>` tags and generated apps load proxied
+content with the user's session or the app's own token (see the `apps` skill,
+and `copyparty` for files).
 
 ## Adding / editing a connector
 

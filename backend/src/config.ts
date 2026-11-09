@@ -1,17 +1,11 @@
 import { randomBytes } from 'crypto'
-import { mkdirSync, readFileSync, writeFileSync } from 'fs'
-import { dirname } from 'path'
+import { readSecrets, writeSecrets } from './secrets.js'
 
 const DEFAULT_JWT_PLACEHOLDER = 'change-me-in-production'
 const DEFAULT_INTERNAL_PLACEHOLDER = 'internal'
 
-const secretsPath = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
-
 function loadOrGenerateSecrets(): { jwt: string; internal: string } {
-  let stored: Partial<{ jwt: string; internal: string }> = {}
-  try {
-    stored = JSON.parse(readFileSync(secretsPath, 'utf8'))
-  } catch { /* first boot — no file yet */ }
+  const stored = readSecrets() as Partial<{ jwt: string; internal: string }>
 
   const envJwt = process.env.JWT_SECRET
   const envInternal = process.env.INTERNAL_SECRET
@@ -26,15 +20,17 @@ function loadOrGenerateSecrets(): { jwt: string; internal: string } {
     stored.internal ??
     randomBytes(32).toString('hex')
 
-  if (stored.jwt !== jwt || stored.internal !== internal) {
-    mkdirSync(dirname(secretsPath), { recursive: true })
-    writeFileSync(secretsPath, JSON.stringify({ jwt, internal }, null, 2), { mode: 0o600 })
-    console.log(`[config] Secrets persisted to ${secretsPath}`)
-  }
-
-  // Expose so subprocesses (engine → Claude CLI) inherit the same values
+  // Set before writing: the engine's mirror (see secrets.ts) reads the
+  // effective internal secret from here.
   process.env.JWT_SECRET = jwt
   process.env.INTERNAL_SECRET = internal
+
+  if (stored.jwt !== jwt || stored.internal !== internal) {
+    // Merged, not replaced: the file also holds the OAuth token, gateway and
+    // One keys, and the setup code.
+    writeSecrets({ ...stored, jwt, internal })
+    console.log('[config] Secrets persisted')
+  }
 
   return { jwt, internal }
 }

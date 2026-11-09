@@ -65,7 +65,8 @@ export function appAcceptsShares(conversationId: string, appPath?: string | null
       const path = join(dir, e.name)
       if (e.isDirectory()) {
         if (e.name !== 'node_modules' && !e.name.startsWith('.') && search(path)) return true
-      } else if (CODE.has(extname(e.name).toLowerCase()) && statSync(path).size <= MAX_BYTES) {
+      } else if (e.isFile() && CODE.has(extname(e.name).toLowerCase()) && statSync(path).size <= MAX_BYTES) {
+        // isFile() is false for a symlink: never follow one the agent planted.
         if (readFileSync(path, 'utf8').includes('jarvis:share-intent')) return true
       }
     }

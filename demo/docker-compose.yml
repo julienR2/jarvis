@@ -66,9 +66,13 @@ services:
   engine:
     # See backend — `npm ci` so the read-only source mount stays read-only.
     command: sh -c "npm ci && npx tsx src/index.ts"
-    volumes:
+    # !override: the base engine mounts the real instance's skills, rules and
+    # engine credentials one by one; merged, those would land in the demo.
+    volumes: !override
       - ./:/jarvis:${DEMO_SOURCE_MODE:-ro}
       - ./demo/instance/agent:/jarvis/agent
+      # The demo backend's mirror of its own secrets (backend/src/secrets.ts).
+      - ./demo/instance/agent/data/engine:/run/jarvis:ro
       - /jarvis/engine/node_modules
     # See backend — the demo reads only its own env file.
     env_file: !override

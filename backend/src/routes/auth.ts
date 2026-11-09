@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import bcrypt from 'bcrypt'
 import { randomBytes } from 'crypto'
-import { readFileSync, writeFileSync } from 'fs'
 import { getDb } from '../db.js'
 import { config } from '../config.js'
 import { verifyConnection, recycleSessions } from '../engine.js'
@@ -9,20 +8,7 @@ import { secureEquals } from '../security.js'
 import { defaultProvider, defaultModelFor, type Provider } from '../models.js'
 import { extractRequestToken, SESSION_COOKIE } from '../request-auth.js'
 import type { UserRow } from '../types.js'
-
-const SECRETS_PATH = process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
-
-function readSecrets(): Record<string, unknown> {
-  try {
-    return JSON.parse(readFileSync(SECRETS_PATH, 'utf8'))
-  } catch {
-    return {}
-  }
-}
-
-function writeSecrets(secrets: Record<string, unknown>): void {
-  writeFileSync(SECRETS_PATH, JSON.stringify(secrets, null, 2), { mode: 0o600 })
-}
+import { readSecrets, writeSecrets } from '../secrets.js'
 
 function userCount(): number {
   const row = getDb().prepare('SELECT COUNT(*) as n FROM users').get() as { n: number }

@@ -595,6 +595,11 @@ export function initDb(): void {
   // Unified from the former three-way split (hardcoded catalog + custom_connectors
   // definitions + connectors secrets). See connectors.ts.
   migrateConnectors(db)
+  // Migration: a connector whose secret values the agent never sees — it calls
+  // the service through the backend's proxy, which adds them (connectors.ts).
+  try {
+    db.exec(`ALTER TABLE connectors ADD COLUMN hide_values INTEGER NOT NULL DEFAULT 0`)
+  } catch { /* already exists */ }
 }
 
 export function uuid(): string {

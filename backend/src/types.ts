@@ -196,6 +196,7 @@ export interface ConnectorRow {
   icon: string
   fields_json: string
   proxy_json: string | null
+  hide_values: number
   created_at: number
   updated_at: number
 }

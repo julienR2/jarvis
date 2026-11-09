@@ -7,6 +7,9 @@ import rateLimit from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import bcrypt from 'bcrypt'
 import { config } from './config.js'
+import { watchSecrets } from './secrets.js'
+import { resolveInside } from './safe-path.js'
+import { join } from 'path'
 import { extractRequestToken, applyApiKey, verifySession } from './request-auth.js'
 import { resolveShareToken } from './share-access.js'
 import { userForApiKey } from './api-keys.js'
@@ -33,7 +36,7 @@ import { internalRoutes } from './routes/internal.js'
 import { gitRoutes } from './routes/git.js'
 import { connectorRoutes } from './routes/connectors.js'
 import { oneRoutes } from './routes/one.js'
-import { skillRoutes, commandRoutes } from './routes/skills.js'
+import { skillRoutes, internalSkillRoutes, commandRoutes } from './routes/skills.js'
 import { manifestRoutes } from './routes/manifest.js'
 import { sharedRoutes } from './routes/shared.js'
 import { browserRoutes } from './routes/browser.js'
@@ -93,6 +96,9 @@ await app.register(fastifyStatic, {
   root: UPLOADS_DIR,
   prefix: '/api/uploads/files/',
   decorateReply: false,
+  // The agent writes this directory: resolve symlinks before serving, so a
+  // link into the backend's data is a 404, not a download (see safe-path.ts).
+  allowedPath: (pathname) => !!resolveInside(UPLOADS_DIR, join(UPLOADS_DIR, pathname)),
 })
 
 // Uploaded and agent-generated files were served to anyone who knew the path.
@@ -208,6 +214,7 @@ await app.register(uploadRoutes)
 await app.register(pushRoutes, { prefix: '/api/push' })
 await app.register(appRoutes, { prefix: '/api/apps' })
 await app.register(internalRoutes, { prefix: '/internal' })
+await app.register(internalSkillRoutes, { prefix: '/internal/skills' })
 await app.register(gitRoutes, { prefix: '/api/git' })
 await app.register(connectorRoutes, { prefix: '/api/connectors' })
 await app.register(oneRoutes, { prefix: '/api/one' })
@@ -336,6 +343,10 @@ async function reconnectActiveSessions(): Promise<void> {
 reconnectActiveSessions().then(reconcileStaleRuns)
 
 startEmptyChatSweep()
+
+// The engine reads its credentials from a mirror of secrets.json, not the file
+// itself (see secrets.ts). Written now so a fresh engine finds it.
+watchSecrets()
 
 // ── Start ────────────────────────────────────────────────────────────────────
 

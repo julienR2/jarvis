@@ -10,14 +10,27 @@ x-logging: &default-logging
 services:
   # Pre-creates agent/{data,workspace} with uid 1000 ownership so playwright
   # (which runs as root and would otherwise win the race) doesn't materialize
-  # them as root-owned dirs the backend can't write to. Runs once and exits.
+  # them as root-owned dirs the backend can't write to. Also prepares what the
+  # engine mounts from in there (agent/data/engine) and the e2e runners'
+  # node_modules volumes, which Docker would otherwise create root-owned.
+  # And the mount points the engine nests inside its read-only mounts: Docker
+  # cannot create a directory inside a read-only bind, so a fresh clone without
+  # them would leave the engine unable to start. Runs once and exits.
   setup:
     image: alpine:3
     command: >
-      sh -c "mkdir -p /agent/data /agent/workspace/apps /agent/workspace/uploads &&
-      chown -R 1000:1000 /agent/data /agent/workspace"
+      sh -c "mkdir -p /agent/data/engine /agent/workspace/apps /agent/workspace/uploads
+      /repo/engine/node_modules /repo/backend/node_modules /repo/frontend/node_modules
+      /repo/e2e/node_modules &&
+      chown -R 1000:1000 /agent/data /agent/workspace /e2e-engine /e2e-deploy /engine-deploy &&
+      chown 1000:1000 /repo/engine/node_modules /repo/backend/node_modules
+      /repo/frontend/node_modules /repo/e2e/node_modules"
     volumes:
       - ./agent:/agent
+      - ./:/repo
+      - engine-e2e-node-modules:/e2e-engine
+      - deploy-e2e-node-modules:/e2e-deploy
+      - deploy-engine-node-modules:/engine-deploy
     restart: 'no'
 
   # No container_name anywhere: Compose prefixes containers with the project
@@ -70,35 +83,104 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
+  # Where the agent runs — and so what a prompt-injected page, email or webhook
+  # could reach. It mounts only what the agent needs, and none of what would
+  # let it read secrets, rewrite its own logic, or put code live:
+  #
+  #   agent/           read-write: its workspace, memory, sessions, CLI state —
+  #     data/          …except this, hidden behind an empty tmpfs: the database,
+  #                    secrets.json, VAPID keys. The agent reaches data through
+  #                    the backend's /internal API, which decides what it sees.
+  #     skills/ rules/ CLAUDE.md settings.json mcp.json
+  #                    read-only. Skills change through the backend
+  #                    (POST /internal/skills, see the `skills` skill), which
+  #                    refuses to touch the ones the repo ships.
+  #   engine/          read-only: the code running the agent.
+  #   frontend/src/    read-write, so it can still propose interface changes —
+  #                    inert until a person commits and deploys them from the
+  #                    host (docker compose run --rm deploy). The rest of
+  #                    frontend/, dist included, is read-only.
+  #   backend/ e2e/    read-only, for the throwaway stack e2e/shot.sh starts.
+  #
+  # No .env either: it carries the JWT secret and the admin password, and any
+  # process here can read the engine's environment. The engine's own
+  # credentials come from agent/data/engine/, a mirror the backend writes with
+  # only the values the agent's environment carries anyway (backend/src/secrets.ts).
   engine:
     build: ./engine
     working_dir: /jarvis/engine
-    command: sh -c "npm install && npx tsx src/index.ts"
+    # `npm ci`, not install: the package directory is read-only here, and only
+    # ci leaves the lockfile alone. It reinstalls into the volume each start.
+    command: sh -c "npm ci --no-audit --no-fund && npx tsx src/index.ts"
     volumes:
-      - ./:/jarvis
+      - ./engine:/jarvis/engine:ro
       - engine-node-modules:/jarvis/engine/node_modules
-      # The agent edits backend and frontend source from in here, so it needs
-      # their dependencies to typecheck what it wrote — without these it sees
-      # every import as "cannot find module" and can only guess. Read-only:
-      # each tree belongs to the service that installs it, and the agent has
-      # no business writing to either.
-      - backend-node-modules:/jarvis/backend/node_modules:ro
+      - ./agent:/jarvis/agent
+      - ./agent/CLAUDE.md:/jarvis/agent/CLAUDE.md:ro
+      - ./agent/settings.json:/jarvis/agent/settings.json:ro
+      - ./agent/mcp.json:/jarvis/agent/mcp.json:ro
+      - ./agent/rules:/jarvis/agent/rules:ro
+      - ./agent/skills:/jarvis/agent/skills:ro
+      - ./agent/data/engine:/run/jarvis:ro
+      - ./frontend:/jarvis/frontend:ro
+      - ./frontend/src:/jarvis/frontend/src
+      # Each tree belongs to the service that installs it; read-only here, for
+      # typechecking and the throwaway stack.
       - frontend-node-modules:/jarvis/frontend/node_modules:ro
-    env_file:
-      - path: .env
-        required: false
+      - ./backend:/jarvis/backend:ro
+      - backend-node-modules:/jarvis/backend/node_modules:ro
+      - ./e2e:/jarvis/e2e:ro
+      - engine-e2e-node-modules:/jarvis/e2e/node_modules
+    tmpfs:
+      - /jarvis/agent/data
     depends_on:
       setup:
         condition: service_completed_successfully
     environment:
       CLAUDE_CONFIG_DIR: /jarvis/agent
       WORKSPACE_DIR: /jarvis/agent/workspace
-      SECRETS_PATH: /jarvis/agent/data/secrets.json
       BACKEND_URL: http://backend:3005
       PORT: 3010
       TZ: ${TZ:-UTC}
+      CLAUDE_TELEMETRY: ${CLAUDE_TELEMETRY:-false}
+      # e2e/ is read-only here; the suite writes its artefacts there instead.
+      E2E_RESULTS_DIR: /tmp/e2e-results
     restart: unless-stopped
     logging: *default-logging
+
+  # Puts the code on disk into the running instance. Not a running service: a
+  # tool, started from the host only, after a person has reviewed and committed
+  # the change. It mounts everything (it has to write frontend/dist and read the
+  # secret that restarts the backend), which is exactly why nothing in it may
+  # come from a place the agent can write:
+  #   - its own engine and e2e node_modules, installed here — never the
+  #     engine's, which the agent's user owns;
+  #   - a PATH without any node_modules/.bin, and bash by absolute path;
+  #   - no .env: deploy.sh reads the one secret it needs from secrets.json.
+  # The backend's and frontend's node_modules are shared read-only: the agent
+  # has them read-only too, and only their own services write them.
+  #
+  #   docker compose run --rm deploy [--dry-run] [--fast] [--engine] [--all]
+  deploy:
+    profiles: [ tools ]
+    build: ./engine
+    working_dir: /jarvis
+    entrypoint: [ "/bin/bash", "/jarvis/scripts/deploy.sh" ]
+    volumes:
+      - ./:/jarvis
+      - backend-node-modules:/jarvis/backend/node_modules:ro
+      - frontend-node-modules:/jarvis/frontend/node_modules:ro
+      - deploy-engine-node-modules:/jarvis/engine/node_modules
+      - deploy-e2e-node-modules:/jarvis/e2e/node_modules
+    environment:
+      PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      BACKEND_URL: http://backend:3005
+      ENGINE_URL: http://engine:3010
+      TZ: ${TZ:-UTC}
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    restart: 'no'
 
   frontend:
     image: node:25
@@ -246,3 +328,8 @@ volumes:
   backend-node-modules:
   frontend-node-modules:
   engine-node-modules:
+  # The e2e runner's and the engine's again, for the deploy tool: the engine's
+  # own are writable by the agent, so deploy never loads them.
+  engine-e2e-node-modules:
+  deploy-e2e-node-modules:
+  deploy-engine-node-modules:

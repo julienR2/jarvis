@@ -16,9 +16,14 @@ export interface ConnectorField {
 // Lets a connector expose its internal HTTP service through jarvis-backend at
 // `/api/connectors/:id/proxy/*`, using a stored base URL and auth. Used for
 // inline content (e.g. drive images) that <img> tags can't authenticate for.
+//
+// It is also how the agent uses a connector whose values are hidden from it
+// (`hideValues`): it calls the proxy, and the backend adds the credential.
 export interface ConnectorProxy {
   baseUrlField: string                               // field key holding the internal base URL
-  authHeader?: { name: string; valueField: string }  // header name + field key holding its value
+  // header name + field key holding its value, sent as `${prefix}${value}`
+  // (prefix e.g. "Bearer ")
+  authHeader?: { name: string; valueField: string; prefix?: string }
   cookieField?: { name: string; valueField: string } // cookie name + field key holding its value
 }
 
@@ -29,6 +34,9 @@ export interface Connector {
   icon: string
   fields: ConnectorField[]
   proxy?: ConnectorProxy
+  // Secret fields are withheld from the agent; it reaches the service through
+  // the proxy instead. Non-secret fields (a URL, an address) stay readable.
+  hideValues: boolean
   created_at: number
   updated_at: number
 }
@@ -39,6 +47,7 @@ export interface ConnectorInput {
   icon?: string
   fields?: Array<{ key?: string; label: string; value: string; type?: ConnectorField['type'] }>
   proxy?: ConnectorProxy | null
+  hideValues?: boolean
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -69,6 +78,21 @@ function normalizeFields(input: ConnectorInput['fields']): ConnectorField[] {
     })
 }
 
+// Keep only the known shape, so nothing unexpected is stored and replayed into
+// the proxy's outgoing requests.
+function normalizeProxy(p: ConnectorProxy): ConnectorProxy {
+  const key = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  const out: ConnectorProxy = { baseUrlField: key(p.baseUrlField) }
+  if (p.authHeader && key(p.authHeader.name) && key(p.authHeader.valueField)) {
+    out.authHeader = { name: key(p.authHeader.name), valueField: key(p.authHeader.valueField) }
+    if (typeof p.authHeader.prefix === 'string' && p.authHeader.prefix) out.authHeader.prefix = p.authHeader.prefix
+  }
+  if (p.cookieField && key(p.cookieField.name) && key(p.cookieField.valueField)) {
+    out.cookieField = { name: key(p.cookieField.name), valueField: key(p.cookieField.valueField) }
+  }
+  return out
+}
+
 function rowToConnector(row: ConnectorRow): Connector {
   let fields: ConnectorField[] = []
   let proxy: ConnectorProxy | undefined
@@ -81,6 +105,7 @@ function rowToConnector(row: ConnectorRow): Connector {
     icon: row.icon,
     fields,
     proxy,
+    hideValues: !!row.hide_values,
     created_at: row.created_at,
     updated_at: row.updated_at,
   }
@@ -107,15 +132,16 @@ export function createConnector(input: ConnectorInput): Connector {
 
   const fields = normalizeFields(input.fields)
   getDb().prepare(`
-    INSERT INTO connectors (id, name, description, icon, fields_json, proxy_json)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO connectors (id, name, description, icon, fields_json, proxy_json, hide_values)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     name,
     (input.description ?? '').trim(),
     input.icon || 'Plug',
     JSON.stringify(fields),
-    input.proxy ? JSON.stringify(input.proxy) : null,
+    input.proxy ? JSON.stringify(normalizeProxy(input.proxy)) : null,
+    input.hideValues ? 1 : 0,
   )
   return getConnector(id)!
 }
@@ -125,10 +151,11 @@ export function updateConnector(id: string, input: ConnectorInput): Connector | 
   if (!existing) return null
 
   const fields = input.fields ? normalizeFields(input.fields) : existing.fields
-  const proxy = input.proxy === undefined ? existing.proxy : (input.proxy ?? undefined)
+  const proxy = input.proxy === undefined ? existing.proxy : (input.proxy ? normalizeProxy(input.proxy) : undefined)
+  const hideValues = input.hideValues === undefined ? existing.hideValues : !!input.hideValues
   getDb().prepare(`
     UPDATE connectors
-    SET name = ?, description = ?, icon = ?, fields_json = ?, proxy_json = ?, updated_at = unixepoch()
+    SET name = ?, description = ?, icon = ?, fields_json = ?, proxy_json = ?, hide_values = ?, updated_at = unixepoch()
     WHERE id = ?
   `).run(
     input.name?.trim() || existing.name,
@@ -136,6 +163,7 @@ export function updateConnector(id: string, input: ConnectorInput): Connector | 
     input.icon ?? existing.icon,
     JSON.stringify(fields),
     proxy ? JSON.stringify(proxy) : null,
+    hideValues ? 1 : 0,
     id,
   )
   return getConnector(id)!

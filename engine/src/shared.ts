@@ -70,6 +70,17 @@ export const WORKSPACE_DIR =
   process.env.WORKSPACE_DIR || '/jarvis/agent/workspace'
 export const MAX_EVENTS = 1000
 
+// Where the engine reads its credentials. Not secrets.json: that lives in the
+// backend's data directory, which is hidden from this container. The backend
+// mirrors the handful of values the engine needs into a directory of their own
+// and compose mounts it here read-only (backend/src/secrets.ts). Everything in
+// it is a value the agent's own environment carries anyway.
+const CREDENTIALS_PATH = process.env.SECRETS_PATH || '/run/jarvis/credentials.json'
+
+function readCredentials(): Record<string, any> {
+  return JSON.parse(readFileSync(CREDENTIALS_PATH, 'utf8'))
+}
+
 // The shared INTERNAL_SECRET is the auth token for this service AND is needed by
 // Claude subprocesses to call the backend's /internal/* API. Read it fresh (not
 // cached at module load) so that on a cold boot — where the backend generates and
@@ -79,16 +90,14 @@ export function internalSecret(): string | undefined {
   const env = process.env.INTERNAL_SECRET
   if (env && env !== 'internal') return env
   try {
-    const secretsPath =
-      process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
-    return JSON.parse(readFileSync(secretsPath, 'utf8')).internal || undefined
+    return readCredentials().internal || undefined
   } catch {
     return undefined
   }
 }
 
 // Provider config: which Anthropic-compatible endpoint the CLI talks to.
-// Stored in secrets.json and read fresh on every spawn (never cached), so
+// Stored in secrets.json (mirrored, see CREDENTIALS_PATH) and read fresh on every spawn (never cached), so
 // switching provider from the UI applies to the next turn with no restart.
 //
 // `baseUrl` unset  → Anthropic direct, authenticated with the OAuth token.
@@ -102,9 +111,7 @@ export interface ProviderConfig {
 
 export function providerConfig(): ProviderConfig {
   try {
-    const secretsPath =
-      process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
-    const s = JSON.parse(readFileSync(secretsPath, 'utf8'))
+    const s = readCredentials()
     const baseUrl = s.providerBaseUrl || process.env.ANTHROPIC_BASE_URL
     const authToken = s.providerAuthToken || process.env.ANTHROPIC_AUTH_TOKEN
     return { baseUrl: baseUrl || undefined, authToken: authToken || undefined }
@@ -120,14 +127,12 @@ export function providerConfig(): ProviderConfig {
 // on in Customize › One, every session gets One's MCP server — three tools
 // (list connections, find actions, execute one) over every app connected in
 // the One account. The key goes to that server's env, not the agent's own
-// (though the agent, running as the same user, could still read secrets.json).
+// (though the agent, running as the same user, can read that process's env).
 // Read fresh per spawn, like the provider config, so plugging or
 // unplugging applies to the next session. See backend/src/one.ts.
 export function oneMcpServer(): { command: string; args: string[]; env: Record<string, string> } | null {
   try {
-    const secretsPath =
-      process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
-    const s = JSON.parse(readFileSync(secretsPath, 'utf8'))
+    const s = readCredentials()
     if (typeof s.oneApiKey !== 'string' || !s.oneApiKey || s.oneEnabled === false) return null
     return { command: 'npx', args: ['-y', '@withone/mcp'], env: { ONE_SECRET: s.oneApiKey } }
   } catch {
@@ -242,10 +247,8 @@ export function claudeOauthToken(): string | undefined {
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN)
     return process.env.CLAUDE_CODE_OAUTH_TOKEN
   try {
-    const secretsPath =
-      process.env.SECRETS_PATH || '/jarvis/agent/data/secrets.json'
     return (
-      JSON.parse(readFileSync(secretsPath, 'utf8')).claudeOauthToken ||
+      readCredentials().claudeOauthToken ||
       undefined
     )
   } catch {

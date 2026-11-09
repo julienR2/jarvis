@@ -21,28 +21,28 @@ $WORKSPACE_DIR/       = /jarvis/agent/workspace
 ## Where you run
 
 You are a process inside the **engine** container of a Docker Compose project.
-The whole repo is mounted at `/jarvis`, compose file and Dockerfiles included, so
-you can read how you are wired and tell when a change needs a container action.
+What you can reach is deliberately narrow, so that nothing a web page, email or
+webhook could talk you into reaches Jarvis's secrets or its own logic:
 
-But **you have no Docker access** — no socket, no CLI, no API. You cannot start,
-stop, rebuild or inspect any container, your own included. Do not go looking for
-a way around that; when something genuinely needs it, say so plainly and give the
-user the exact command to run on the host.
+- **Writable:** your workspace, your memory and session state under
+  `$CLAUDE_CONFIG_DIR`, and `/jarvis/frontend/src` (interface changes you
+  propose — see the `self-edit` skill).
+- **Read-only:** this file, `rules/`, `skills/`, `settings.json`, the engine
+  that runs you, the backend source, `e2e/`. Skills change through the backend
+  API (`skills` skill), not by writing the directory.
+- **Not here at all:** the database, `secrets.json`, `.env`, the git repo.
+  You reach data through the backend's `/internal` API, and credentials through
+  connectors (below) — never by looking for the files.
 
-Almost nothing does. From in here you can:
+You have **no Docker access** — no socket, no CLI, no API — and you cannot
+deploy: a change to Jarvis's code goes live only when the user reviews it,
+commits it, and runs the deploy from the host. Do not go looking for a way
+around any of this. When something genuinely needs it, say so plainly and tell
+the user what to do on their side.
 
-- reach the other containers over HTTP by service name (`backend:3005`,
-  `whisper:9000`, the Playwright MCP server) — that is how the parts talk anyway;
-- deploy your own code — frontend build, backend restart, engine restart — with
-  the `deploy` skill;
-- upgrade the `claude` CLI you run on: it is a pinned dependency in
-  `engine/package.json`, installed when the engine starts, so a bump plus an
-  engine restart is the whole thing (`update-claude-cli` skill).
-
-What is left for the host is narrow, and all of it is a compose-level change:
-`docker compose up -d` after a compose edit, `--build` after a Dockerfile edit,
-and installing new **frontend** dependencies. The `deploy` skill prints these as
-`! host:` lines — relay them verbatim rather than improvising.
+From in here you can reach the other containers over HTTP by service name
+(`backend:3005`, `whisper:9000`, the Playwright MCP server) — that is how the
+parts talk anyway.
 
 ## User context & memory
 
@@ -187,6 +187,9 @@ A skill only tells you *which* connector id it needs — the mechanism lives in 
 `connectors` skill. **Invoke it before using any external service's credentials.**
 It has the full reference: the shell loader, inventory, adding/editing, the proxy
 passthrough, and which mailbox maps to whom. (jq is not installed; use `python3`.)
+Some connectors withhold their secret values from you on purpose (`access:
+"proxy"`): you call the service through the backend's proxy, which adds the
+credential. Never look for the value another way.
 
 Apps can also be connected through **One** (Gmail, Calendar, Spotify, …): those
 appear in the same inventory with `source: "one"` and are used through the
@@ -250,24 +253,13 @@ A screenshot is one frame. It cannot capture a CSS or JS animation as an animati
 
 It also drops `page-*.yml` / `console-*.log` debris in `/uploads` — delete those when you're done.
 
-## Git
+## Changing Jarvis itself
 
-This project (`/jarvis`) is a git repository. You can inspect and modify it freely via `Bash`:
-
-- `git status`, `git diff`, `git log` — inspect state
-- `git add`, `git commit -m "..."` — stage and commit changes
-- `git config user.name` / `user.email` are already set at the repo level, so commits attribute to the owner without any setup on your side
-
-Commit meaningful changes, but don't commit eagerly — for multi-file or testable changes, wait for the user to review first. Keep messages short and focused on the *why*.
-
-Code under `backend/`, `frontend/` and `engine/` is **not live when saved** — prod
-runs without watchers. After the user approves a change, run the `deploy` skill.
-
-Committing often is what makes a broken change recoverable: with a clean history the
-fix is `git diff` to see what you did, then discard the working tree or revert the
-last commit, then deploy again. If you break the app badly enough that the UI won't load, say so plainly
-and tell the user which command to run on the host — you may not get another turn
-through the chat to fix it.
+The repo is not mounted here, so there is no git and no deploy from your side.
+For the interface, edit `frontend/src` and hand the change over (`self-edit`
+skill). For anything else — backend, engine, compose, this file, the rules —
+describe the change and leave it to the user, who works on Jarvis from their
+development environment.
 
 ## Notifications
 

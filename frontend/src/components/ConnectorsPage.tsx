@@ -45,8 +45,40 @@ function IconComponent({ name, size = 20 }: { name: string; size?: number }) {
   return <Icon size={size} />
 }
 
-// A blank field row for the modal.
-type FieldRow = { key?: string; label: string; value: string; type: 'text' | 'password' | 'email' }
+// A field row in the modal. `uid` is client-only: it lets the proxy settings
+// point at a row before the row has a key.
+type FieldRow = { uid: number; key?: string; label: string; value: string; type: 'text' | 'password' | 'email' }
+
+let nextUid = 1
+const blankRow = (): FieldRow => ({ uid: nextUid++, label: '', value: '', type: 'password' })
+
+// The backend's key derivation (connectors.ts), so new rows get the key they
+// will be saved under and the proxy can refer to them.
+function assignKeys(rows: FieldRow[]): Map<number, string> {
+  const taken = new Set(rows.filter((r) => r.key).map((r) => r.key!))
+  const out = new Map<number, string>()
+  for (const r of rows) {
+    if (r.key) { out.set(r.uid, r.key); continue }
+    let base = r.label.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '') || 'FIELD'
+    let key = base
+    let n = 2
+    while (taken.has(key)) key = `${base}_${n++}`
+    taken.add(key)
+    out.set(r.uid, key)
+  }
+  return out
+}
+
+type AuthMode = 'none' | 'header' | 'cookie'
+interface ProxyForm {
+  enabled: boolean
+  baseUid: number | null
+  auth: AuthMode
+  headerName: string
+  prefix: string
+  cookieName: string
+  valueUid: number | null
+}
 
 export default function ConnectorsPanel() {
   const [connectors, setConnectors] = useState<ConnectorInfo[]>([])
@@ -183,6 +215,14 @@ function ConnectorCard({
                 Proxy
               </span>
             )}
+            {connector.hideValues && (
+              <span
+                className='text-[10px] text-text-muted bg-surface2 px-1.5 py-0.5 rounded font-medium'
+                title='Jarvis never sees the secret values: it calls the service through the proxy.'
+              >
+                Hidden from Jarvis
+              </span>
+            )}
           </div>
           <p className='text-xs text-text-muted mt-0.5'>
             {connector.description || `${fieldCount} field${fieldCount === 1 ? '' : 's'}`}
@@ -225,9 +265,23 @@ function ConnectorModal({
   const [icon, setIcon] = useState(existing?.icon ?? 'Plug')
   const [fields, setFields] = useState<FieldRow[]>(
     existing?.fields.length
-      ? existing.fields.map((f) => ({ key: f.key, label: f.label, value: f.value, type: f.type ?? 'password' }))
-      : [{ label: '', value: '', type: 'password' }],
+      ? existing.fields.map((f) => ({ uid: nextUid++, key: f.key, label: f.label, value: f.value, type: f.type ?? 'password' }))
+      : [blankRow()],
   )
+  const [hideValues, setHideValues] = useState(!!existing?.hideValues)
+  const [proxy, setProxy] = useState<ProxyForm>(() => {
+    const p = existing?.proxy
+    const uidOf = (key?: string) => (key ? fields.find((f) => f.key === key)?.uid ?? null : null)
+    return {
+      enabled: !!p,
+      baseUid: uidOf(p?.baseUrlField),
+      auth: p?.authHeader ? 'header' : p?.cookieField ? 'cookie' : 'header',
+      headerName: p?.authHeader?.name ?? 'Authorization',
+      prefix: p?.authHeader ? (p.authHeader.prefix ?? '') : 'Bearer ',
+      cookieName: p?.cookieField?.name ?? '',
+      valueUid: uidOf(p?.authHeader?.valueField ?? p?.cookieField?.valueField),
+    }
+  })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -238,19 +292,39 @@ function ConnectorModal({
     setFields(fields.length <= 1 ? fields : fields.filter((_, j) => j !== i))
   }
   function addField() {
-    setFields([...fields, { label: '', value: '', type: 'password' }])
+    setFields([...fields, blankRow()])
   }
 
   async function submit() {
     setError('')
     if (!name.trim()) { setError('Name is required'); return }
     const validFields = fields.filter((f) => f.label.trim())
+    const keys = assignKeys(validFields)
+
+    // Hiding the values only works with a proxy to call through.
+    const useProxy = proxy.enabled || hideValues
+    let proxyPayload: ConnectorInput['proxy'] = null
+    if (useProxy) {
+      const baseKey = proxy.baseUid !== null ? keys.get(proxy.baseUid) : undefined
+      if (!baseKey) { setError('Pick the field that holds the service URL'); return }
+      proxyPayload = { baseUrlField: baseKey }
+      const valueKey = proxy.valueUid !== null ? keys.get(proxy.valueUid) : undefined
+      if (proxy.auth === 'header') {
+        if (!valueKey || !proxy.headerName.trim()) { setError('Pick the header and the field holding the credential'); return }
+        proxyPayload.authHeader = { name: proxy.headerName.trim(), valueField: valueKey, ...(proxy.prefix ? { prefix: proxy.prefix } : {}) }
+      } else if (proxy.auth === 'cookie') {
+        if (!valueKey || !proxy.cookieName.trim()) { setError('Pick the cookie name and the field holding the credential'); return }
+        proxyPayload.cookieField = { name: proxy.cookieName.trim(), valueField: valueKey }
+      }
+    }
 
     const payload: ConnectorInput = {
       name: name.trim(),
       description: description.trim(),
       icon: icon.trim() || 'Plug',
-      fields: validFields.map((f) => ({ key: f.key, label: f.label.trim(), value: f.value, type: f.type })),
+      fields: validFields.map((f) => ({ key: keys.get(f.uid), label: f.label.trim(), value: f.value, type: f.type })),
+      proxy: proxyPayload,
+      hideValues,
     }
 
     setSaving(true)
@@ -332,7 +406,7 @@ function ConnectorModal({
         <div className='flex flex-col gap-2 mb-3'>
           {fields.map((field, i) => (
             <FieldRowInput
-              key={i}
+              key={field.uid}
               field={field}
               onChange={(patch) => updateField(i, patch)}
               onRemove={() => removeField(i)}
@@ -347,6 +421,14 @@ function ConnectorModal({
         >
           <Plus size={13} /> Add field
         </button>
+
+        <AccessSection
+          fields={fields}
+          hideValues={hideValues}
+          setHideValues={setHideValues}
+          proxy={proxy}
+          setProxy={setProxy}
+        />
 
         {/* Actions */}
         <div className='flex justify-end gap-2 pt-2 border-t border-border'>
@@ -365,6 +447,104 @@ function ConnectorModal({
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── How Jarvis uses it ────────────────────────────────────────────────────────
+
+/**
+ * Either Jarvis reads the values (and puts them in its own requests), or the
+ * secret ones never reach it: it calls the service through the backend's
+ * proxy, which adds the credential. The second needs a proxy, so choosing it
+ * opens the proxy settings.
+ */
+function AccessSection({
+  fields,
+  hideValues,
+  setHideValues,
+  proxy,
+  setProxy,
+}: {
+  fields: FieldRow[]
+  hideValues: boolean
+  setHideValues: (v: boolean) => void
+  proxy: ProxyForm
+  setProxy: (p: ProxyForm) => void
+}) {
+  const named = fields.filter((f) => f.label.trim())
+  const options = [
+    { value: '' as string, label: 'Pick a field' },
+    ...named.map((f) => ({ value: String(f.uid), label: f.label.trim() })),
+  ]
+  const pick = (uid: number | null) => (uid === null ? '' : String(uid))
+  const parse = (v: string) => (v ? Number(v) : null)
+  const showProxy = proxy.enabled || hideValues
+  const input = 'w-full bg-surface2 border border-border text-text-primary rounded-lg px-2.5 py-1.5 text-xs focus:border-accent focus:outline-none'
+
+  return (
+    <div className='border-t border-border pt-3 mb-4'>
+      <label className='text-xs font-medium text-text-muted mb-1.5 block'>Jarvis's access</label>
+      <label className='flex items-start gap-2 text-xs text-text-secondary mb-1.5 cursor-pointer'>
+        <input type='radio' checked={!hideValues} onChange={() => setHideValues(false)} className='mt-0.5' />
+        <span>Jarvis reads the values and uses them itself.</span>
+      </label>
+      <label className='flex items-start gap-2 text-xs text-text-secondary mb-2 cursor-pointer'>
+        <input type='radio' checked={hideValues} onChange={() => setHideValues(true)} className='mt-0.5' />
+        <span>
+          Hide secret values from Jarvis. It calls the service through Jarvis's proxy, which adds the
+          credential, so a prompt injection cannot read or leak it. Works for HTTP APIs.
+        </span>
+      </label>
+
+      {!hideValues && (
+        <label className='flex items-center gap-2 text-xs text-text-muted mb-2 cursor-pointer'>
+          <input type='checkbox' checked={proxy.enabled} onChange={(e) => setProxy({ ...proxy, enabled: e.target.checked })} />
+          <span>Also serve it through the proxy (for images and apps)</span>
+        </label>
+      )}
+
+      {showProxy && (
+        <div className='flex flex-col gap-2 bg-surface2/40 rounded-lg p-3'>
+          <div>
+            <div className='text-[11px] text-text-muted mb-1'>Service URL is in</div>
+            <Select aria-label='URL field' value={pick(proxy.baseUid)} onChange={(v: string) => setProxy({ ...proxy, baseUid: parse(v) })} options={options} />
+          </div>
+          <div>
+            <div className='text-[11px] text-text-muted mb-1'>Credential is sent as</div>
+            <Select
+              aria-label='Credential'
+              value={proxy.auth}
+              onChange={(auth: AuthMode) => setProxy({ ...proxy, auth })}
+              options={[
+                { value: 'header' as AuthMode, label: 'A header' },
+                { value: 'cookie' as AuthMode, label: 'A cookie' },
+                { value: 'none' as AuthMode, label: 'Nothing' },
+              ]}
+            />
+          </div>
+          {proxy.auth === 'header' && (
+            <div className='flex gap-2'>
+              <input value={proxy.headerName} onChange={(e) => setProxy({ ...proxy, headerName: e.target.value })} placeholder='Authorization' aria-label='Header name' className={input} />
+              <input value={proxy.prefix} onChange={(e) => setProxy({ ...proxy, prefix: e.target.value })} placeholder='Prefix, e.g. Bearer ' aria-label='Prefix' className={input} />
+            </div>
+          )}
+          {proxy.auth === 'cookie' && (
+            <input value={proxy.cookieName} onChange={(e) => setProxy({ ...proxy, cookieName: e.target.value })} placeholder='Cookie name' aria-label='Cookie name' className={input} />
+          )}
+          {proxy.auth !== 'none' && (
+            <div>
+              <div className='text-[11px] text-text-muted mb-1'>Its value is in</div>
+              <Select aria-label='Credential field' value={pick(proxy.valueUid)} onChange={(v: string) => setProxy({ ...proxy, valueUid: parse(v) })} options={options} />
+            </div>
+          )}
+          {hideValues && (
+            <p className='text-[11px] text-text-muted'>
+              Fields of type Secret are withheld. Text and Email fields, like the URL, stay readable.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

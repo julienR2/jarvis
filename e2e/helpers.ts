@@ -61,7 +61,7 @@ export const test = base.extend<{ consoleGuard: void }>({
       const apiCalls: string[] = []
       page.on('request', (r) => { if (/\/api\//.test(r.url())) apiCalls.push(`${r.method()} ${new URL(r.url()).pathname}`) })
       await use()
-      if (process.env.E2E_COUNT) appendFileSync('results/requests.log', `${testInfo.title}\n  ${apiCalls.join('\n  ')}\n`)
+      if (process.env.E2E_COUNT) appendFileSync(`${process.env.E2E_RESULTS_DIR || 'results'}/requests.log`, `${testInfo.title}\n  ${apiCalls.join('\n  ')}\n`)
       expect(problems, 'no console errors or failed requests during the test').toEqual([])
     },
     { auto: true },
