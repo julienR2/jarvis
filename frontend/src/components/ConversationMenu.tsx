@@ -3,7 +3,6 @@ import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Pencil, FolderInput, R
 import Popover from './Popover'
 import ShareDialog from './ShareDialog'
 import DeleteConversationDialog from './DeleteConversationDialog'
-import ChatRoutines from './ChatRoutines'
 import type { DeleteOptions } from '../api'
 import { useChatStore } from '../stores/chatStore'
 
@@ -105,13 +104,6 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
                     </div>
                   )}
                 </div>
-
-                {conversationId && (
-                  <>
-                    <div className='h-px bg-border my-1' />
-                    <ChatRoutines conversationId={conversationId} onNavigate={() => setOpen(false)} />
-                  </>
-                )}
 
                 <div className='h-px bg-border my-1' />
               </>

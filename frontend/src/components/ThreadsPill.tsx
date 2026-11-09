@@ -1,17 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronRight, Hash, Plus, Repeat, RotateCcw } from 'lucide-react'
-import type { Conversation, Message, Run } from '../api'
+import { Check, ChevronRight, Hash, Plus, RotateCcw } from 'lucide-react'
+import type { Conversation, Message } from '../api'
 import { relative } from '../lib/runs'
+import ChatRoutines from './ChatRoutines'
 import { isActiveThread } from '../lib/threads'
 import Popover from './Popover'
 
 interface Props {
+  conversationId: string
   /** The chat's sub-chats: threads opened from its passages, or blank from here. */
   threads: Conversation[]
   /** The threads of the routines reporting into this chat. */
   routines: Conversation[]
-  /** The chat's recent runs — a routine's row says how its last one went. */
-  runs: Run[]
   /** The chat's loaded messages, for the passage each thread came from. */
   messages: Message[]
   activeId: string | null
@@ -24,10 +24,10 @@ interface Props {
  * A chat's threads, in its title bar: the way back to a thread without
  * scrolling to the message it came from. Active ones first, most recent
  * first; put away (Done) or a week untouched, they fold under Archived. The
- * routines reporting into the chat are listed too — a routine is a thread of
- * the whole chat rather than of one message — with how their last run went.
+ * chat's routines follow (ChatRoutines): a routine is a thread of the whole
+ * chat rather than of one message.
  */
-export default function ThreadsPill({ threads, routines, runs, messages, activeId, onOpen, onNew, onArchive }: Props) {
+export default function ThreadsPill({ conversationId, threads, routines, messages, activeId, onOpen, onNew, onArchive }: Props) {
   const [open, setOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
@@ -50,7 +50,7 @@ export default function ThreadsPill({ threads, routines, runs, messages, activeI
         onClick={() => setOpen((o) => !o)}
         data-testid='threads-pill'
         aria-label={`Threads${active.length ? ` (${active.length})` : ''}${unread ? `, ${unread} new` : ''}`}
-        title='Threads of this chat'
+        title='Threads and routines of this chat'
         className={`relative flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${open ? 'border-accent/40 bg-accent-subtle text-accent' : 'border-border text-text-muted hover:border-accent/40 hover:text-text-primary'}`}
       >
         <Hash size={11} />
@@ -85,20 +85,7 @@ export default function ThreadsPill({ threads, routines, runs, messages, activeI
               action={{ label: `Reopen ${t.title}`, icon: <RotateCcw size={12} />, run: () => onArchive(t, false) }} />
           ))}
 
-          {routines.length > 0 && (
-            <>
-              <div className='mt-1 border-t border-border px-2.5 pb-0.5 pt-2 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted'>Routines</div>
-              {routines.map((r) => (
-                <button key={r.id} onClick={() => pick(r.id)} className={`flex w-full items-start gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-surface2 ${r.id === activeId ? 'bg-surface2' : ''}`}>
-                  <Repeat size={12} className='mt-0.5 shrink-0 text-text-muted' />
-                  <span className='min-w-0 flex-1'>
-                    <span className='block truncate text-[12.5px] text-text-primary'>{r.title}</span>
-                    <span className='block truncate text-[11px] text-text-muted'>{lastRun(runs, r.title)}</span>
-                  </span>
-                </button>
-              ))}
-            </>
-          )}
+          <ChatRoutines conversationId={conversationId} threads={routines} activeId={activeId} onOpenThread={onOpen} onNavigate={() => setOpen(false)} />
         </div>
       </Popover>
     </div>
@@ -135,17 +122,4 @@ function ThreadRow({ thread, messages, selected, muted, onOpen, action }: {
       </button>
     </div>
   )
-}
-
-/** "7:00 PM · nothing to report" — how the routine's last run in this chat went. */
-function lastRun(runs: Run[], name: string): string {
-  const last = runs.filter((r) => r.source_name === name).sort((a, b) => b.started_at - a.started_at)[0]
-  if (!last) return 'no run here yet'
-  const when = relative(last.ended_at ?? last.started_at)
-  const how = last.status === 'running' ? 'running'
-    : last.status === 'needs_you' ? 'waiting for you'
-    : last.status === 'error' ? 'failed'
-    : last.status === 'stopped' || last.status === 'interrupted' ? 'stopped'
-    : last.quiet ? 'nothing to report' : 'reported'
-  return `${when} · ${how}`
 }

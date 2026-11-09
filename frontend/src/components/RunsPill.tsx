@@ -8,7 +8,7 @@ import Popover from './Popover'
 /**
  * The chat's runs in flight, in the title bar — only while there are some.
  * A spinner and a count, opening to Stop for each. The routines themselves
- * live in the ⋯ menu (ChatRoutines).
+ * are in the # list (ChatRoutines).
  */
 export default function RunsPill({ conversationId }: { conversationId?: string }) {
   const runs = useChatStore((s) => (conversationId ? s.activeRuns[conversationId] : undefined)) ?? []

@@ -862,9 +862,9 @@ export default function ChatView({
   // The way back to this chat's threads, whatever was said since.
   const threadsPill = !isThread && !shared && !embedded && conversationId && (messages.length > 0 || subChats.length > 0 || routineThreads.length > 0) ? (
     <ThreadsPill
+      conversationId={conversationId}
       threads={subChats}
       routines={routineThreads}
-      runs={recentRuns ?? []}
       messages={messages}
       activeId={openThreadId}
       onOpen={openThread}
