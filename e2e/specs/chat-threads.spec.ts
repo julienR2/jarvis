@@ -33,7 +33,7 @@ test.describe('threads from a passage', () => {
     await expect(page.getByTestId('thread-marks')).toHaveCount(0)
     expect(page.url()).toBe(chatUrl)
 
-    const box = panel.getByPlaceholder('Reply in a thread…')
+    const box = panel.getByPlaceholder('Write in the side chat…')
     await box.fill('Can you shorten that?')
     await box.press('Enter')
     // Created: the panel shows the thread, the address names it, the chat marks it.
@@ -60,10 +60,10 @@ test.describe('threads from a passage', () => {
     await page.getByTestId('thread-selection').click()
     const tabs = page.getByRole('tablist')
     await expect(page.getByTestId('thread-panel')).toBeVisible()
-    await expect(tabs.getByRole('tab', { name: 'New thread' })).toHaveAttribute('aria-selected', 'true')
+    await expect(tabs.getByRole('tab', { name: 'New side chat' })).toHaveAttribute('aria-selected', 'true')
     // The app is still there, one tab away — and the draft thread goes when you leave it.
     await tabs.getByRole('tab', { name: 'App' }).click()
     await expect(app.getByTestId('fixture-app')).toBeVisible()
-    await expect(tabs.getByRole('tab', { name: 'New thread' })).toHaveCount(0)
+    await expect(tabs.getByRole('tab', { name: 'New side chat' })).toHaveCount(0)
   })
 })

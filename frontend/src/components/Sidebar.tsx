@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Plus,
@@ -40,7 +40,7 @@ import type { Conversation, DeleteOptions, Section } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { api } from '../api'
 import { startOfToday, useRecentRuns } from '../lib/runs'
-import { confirmThreadMove, isDraftThread, THREAD_GROUP } from '../lib/threads'
+import { confirmThreadMove, isDraftThread, isSubChat, THREAD_GROUP } from '../lib/threads'
 import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
@@ -114,7 +114,6 @@ export default function Sidebar({
   // Everything the Settings menu opens lights it up.
   const onSettings =
     location.pathname.startsWith('/settings') ||
-    location.pathname === '/routines' ||
     location.pathname === '/browser' ||
     location.pathname.startsWith('/code')
 
@@ -146,12 +145,22 @@ export default function Sidebar({
       convs: chats.filter((c) => !c.section_id),
     },
   ]
-  // The Threads group: those that had something worth seeing, or were opened,
-  // and have not been put away since. The open one always shows, so the
-  // sidebar says where you are.
+  const isOpen = (c: Conversation) => location.pathname === `/c/${c.id}`
+  // The Routines group: routines that report into no chat, while they had
+  // something worth seeing or are open, and have not been put away since.
   const threads = conversations.filter(
-    (c) => c?.kind === 'thread' && (!!c.surfaced_at || location.pathname === `/c/${c.id}`),
+    (c) => c?.kind === 'thread' && !c.parent_id && (!!c.surfaced_at || isOpen(c)),
   )
+  // Under a chat: its side chats with a reply you haven't seen, its routines
+  // waiting for you — a routine's news is already a report in the chat — and
+  // whichever of them is open full page, so the sidebar says where you are.
+  const children = new Map<string, Conversation[]>()
+  for (const c of conversations) {
+    if (c?.kind !== 'thread' || !c.parent_id) continue
+    const shown = isOpen(c) || (isSubChat(c) ? c.unread_count > 0 : !!c.pending_question)
+    if (shown) children.set(c.parent_id, [...(children.get(c.parent_id) ?? []), c])
+  }
+  const routineCount = useRoutineCount(conversations)
 
   return (
     <aside
@@ -206,27 +215,6 @@ export default function Sidebar({
           expanded group (see SectionGroup) so a run of collapsed headers reads as
           a compact list rather than a widely spaced one. */}
       <div className='flex-1 overflow-y-auto px-2 pb-2 flex flex-col'>
-        {threads.length > 0 && (
-          <ThreadsGroup
-            threads={threads}
-            collapsed={collapsed.includes(THREADS_ID)}
-            onToggle={() => toggleCollapsed(THREADS_ID)}
-            activePath={location.pathname}
-            onNav={handleNav}
-            onDelete={onDelete}
-            onRename={onRename}
-            onMove={onMove}
-            onDismiss={(id) => {
-              const store = useChatStore.getState()
-              // A routine never set up: nothing to keep, so putting it away
-              // cancels it.
-              if (isDraftThread(store.conversations[id])) store.deleteConversation(id)
-              else store.setThreadSurfaced(id, false)
-              if (location.pathname === `/c/${id}`) navigate('/')
-            }}
-          />
-        )}
-
         {chats.length === 0 && (
           <div className='px-3 py-6 text-text-muted text-xs text-center'>
             No conversations yet
@@ -247,8 +235,29 @@ export default function Sidebar({
             onDelete={onDelete}
             onRename={onRename}
             onMove={onMove}
+            childrenOf={children}
           />
         ))}
+
+        <ThreadsGroup
+          threads={threads}
+          routineCount={routineCount}
+          collapsed={collapsed.includes(THREADS_ID)}
+          onToggle={() => toggleCollapsed(THREADS_ID)}
+          activePath={location.pathname}
+          onNav={handleNav}
+          onDelete={onDelete}
+          onRename={onRename}
+          onMove={onMove}
+          onDismiss={(id) => {
+            const store = useChatStore.getState()
+            // A routine never set up: nothing to keep, so putting it away
+            // cancels it.
+            if (isDraftThread(store.conversations[id])) store.deleteConversation(id)
+            else store.setThreadSurfaced(id, false)
+            if (location.pathname === `/c/${id}`) navigate('/')
+          }}
+      />
 
       </div>
 
@@ -310,6 +319,7 @@ function SectionGroup({
   onDelete,
   onRename,
   onMove,
+  childrenOf,
 }: {
   section: Section | null
   convs: Conversation[]
@@ -322,6 +332,8 @@ function SectionGroup({
   onDelete: (id: string, opts: DeleteOptions) => void
   onRename: (id: string, title: string) => void
   onMove: (id: string, sectionId: string | null) => void
+  /** A chat's side chats and routines to show under it. */
+  childrenOf: Map<string, Conversation[]>
 }) {
   const renameSection = useChatStore((s) => s.renameSection)
   const deleteSection = useChatStore((s) => s.deleteSection)
@@ -333,7 +345,7 @@ function SectionGroup({
   // Collapsed groups still show the open conversation, so navigating into one
   // never makes it disappear.
   const visible = collapsed
-    ? convs.filter((c) => activePath === `/c/${c.id}`)
+    ? convs.filter((c) => activePath === `/c/${c.id}` || childrenOf.get(c.id)?.some((t) => activePath === `/c/${t.id}`))
     : convs
 
   return (
@@ -401,15 +413,30 @@ function SectionGroup({
         />
       )}
       {visible.map((conv) => (
-        <ConvItem
-          key={conv.id}
-          conv={conv}
-          active={activePath === `/c/${conv.id}`}
-          onNav={() => onNav(`/c/${conv.id}`)}
-          onDelete={(opts) => onDelete(conv.id, opts)}
-          onRename={(title) => onRename(conv.id, title)}
-          onMove={(sectionId) => onMove(conv.id, sectionId)}
-        />
+        <Fragment key={conv.id}>
+          <ConvItem
+            conv={conv}
+            active={activePath === `/c/${conv.id}`}
+            onNav={() => onNav(`/c/${conv.id}`)}
+            onDelete={(opts) => onDelete(conv.id, opts)}
+            onRename={(title) => onRename(conv.id, title)}
+            onMove={(sectionId) => onMove(conv.id, sectionId)}
+          />
+          {(childrenOf.get(conv.id) ?? [])
+            .filter((t) => !collapsed || activePath === `/c/${t.id}`)
+            .map((t) => (
+              <ConvItem
+                key={t.id}
+                conv={t}
+                nested
+                active={activePath === `/c/${t.id}`}
+                onNav={() => onNav(`/c/${t.id}`)}
+                onDelete={(opts) => onDelete(t.id, opts)}
+                onRename={(title) => onRename(t.id, title)}
+                onMove={(sectionId) => onMove(t.id, sectionId)}
+              />
+            ))}
+        </Fragment>
       ))}
       {!collapsed && convs.length === 0 && (
         <div className={`${CHILD_PAD} pr-3 py-1 text-[11px] text-text-muted/70 italic`}>
@@ -421,12 +448,16 @@ function SectionGroup({
 }
 
 /**
- * The automatic group: threads routines ran in, listed while they have
- * something worth seeing. Dimmed, so it reads as the machine's corner rather
- * than one of your topics; a row is put away by hand with its ✕.
+ * The Routines group, last: the way to the Routines page (its title), and
+ * under it the routines that report into no chat, while they have something
+ * worth seeing or are open — a routine of a chat shows under that chat
+ * instead. Dimmed, so it reads as the machine's corner rather than one of
+ * your topics; a row is put away by hand with its ✕. Not there at all until
+ * there is a routine.
  */
 function ThreadsGroup({
   threads,
+  routineCount,
   collapsed,
   onToggle,
   activePath,
@@ -437,6 +468,7 @@ function ThreadsGroup({
   onDismiss,
 }: {
   threads: Conversation[]
+  routineCount: number
   collapsed: boolean
   onToggle: () => void
   activePath: string
@@ -449,16 +481,23 @@ function ThreadsGroup({
   const unread = threads.reduce((n, c) => n + (c.unread_count || 0), 0)
   const visible = collapsed ? threads.filter((c) => activePath === `/c/${c.id}`) : threads
   return (
-    <div className={`gap-0.5 flex flex-col ${collapsed ? 'py-1.5' : 'pt-1.5 pb-4'}`} data-testid='threads-group'>
-      <div className='h-8 flex items-center pr-3 rounded-lg'>
+    <div className={`gap-0.5 flex flex-col ${collapsed || threads.length === 0 ? 'py-1.5' : 'pt-1.5 pb-4'}`} data-testid='threads-group'>
+      <div className={`h-8 flex items-center pr-3 rounded-lg ${activePath === '/routines' ? 'bg-selected' : ''}`}>
         <button
           onClick={onToggle}
-          aria-label={`${collapsed ? 'Expand' : 'Collapse'} Threads`}
-          className='flex-1 self-stretch flex items-center gap-1.5 pl-1.5 min-w-0 text-[11px] font-semibold uppercase tracking-wider text-text-muted/70 hover:text-text-secondary transition-colors'
+          aria-label={`${collapsed ? 'Expand' : 'Collapse'} Routines`}
+          className='self-stretch flex items-center pl-1.5 pr-1 text-text-muted/50 hover:text-text-secondary transition-colors'
         >
-          <ChevronRight size={11} className={`shrink-0 text-text-muted/50 transition-transform ${collapsed ? '' : 'rotate-90'}`} />
+          <ChevronRight size={11} className={`shrink-0 transition-transform ${collapsed ? '' : 'rotate-90'}`} />
+        </button>
+        <button
+          onClick={() => onNav('/routines')}
+          title='All your routines: what Jarvis does on its own'
+          className='flex-1 self-stretch flex items-center gap-1.5 min-w-0 text-[11px] font-semibold uppercase tracking-wider text-text-muted/70 hover:text-text-secondary transition-colors'
+        >
           <Repeat size={11} className='shrink-0' />
-          <span className='truncate'>Threads</span>
+          <span className='truncate'>Routines</span>
+          {routineCount > 0 && <span className='ml-auto font-normal normal-case tracking-normal text-text-muted/70'>{routineCount}</span>}
         </button>
         {collapsed && unread > 0 && (
           <span className='shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[11px] font-medium'>
@@ -604,8 +643,11 @@ function ConvItem({
   onRename,
   onMove,
   onDismiss,
+  nested,
 }: {
   conv: Conversation
+  /** Under its chat: a side chat or a routine of it. */
+  nested?: boolean
   active: boolean
   onNav: () => void
   onDelete: (opts: DeleteOptions) => void
@@ -654,15 +696,17 @@ function ConvItem({
         onClick={onNav}
         {...longPress}
         className={`
-          relative flex items-center ${CHILD_PAD} pr-3 py-1.5 rounded-lg cursor-pointer group select-none transition-colors gap-2
+          relative flex items-center ${nested ? 'pl-11' : CHILD_PAD} pr-3 ${nested ? 'py-1' : 'py-1.5'} rounded-lg cursor-pointer group select-none transition-colors gap-2
           ${active ? 'bg-selected text-text-primary' : 'text-text-secondary hover:bg-surface2'}
         `}
       >
         <span
-          className={`flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm min-w-0 ${unread ? 'font-medium text-text-primary' : ''}`}
+          className={`flex-1 overflow-hidden text-ellipsis whitespace-nowrap ${nested ? 'text-[13px]' : 'text-sm'} min-w-0 ${unread ? 'font-medium text-text-primary' : ''}`}
         >
-          {/* A thread reads like a channel: #name. */}
-          {conv.kind === 'thread' && <Hash size={12} className='inline -mt-0.5 mr-1 text-text-muted' />}
+          {/* A side chat reads like a channel, #name; a routine's own chat has its mark. */}
+          {conv.kind === 'thread' && (isSubChat(conv)
+            ? <Hash size={12} className='inline -mt-0.5 mr-1 text-accent' />
+            : <Repeat size={11} className='inline -mt-0.5 mr-1 text-text-muted' />)}
           {conv.title}
         </span>
         <span className='flex items-center gap-2 shrink-0'>
@@ -678,9 +722,9 @@ function ConvItem({
           )}
           {!!(conv.has_cron || conv.has_webhook) && (
             <span
-              title='Routines'
+              title='Its routines'
               className='hover:text-accent transition-colors cursor-pointer'
-              onClick={(e) => { e.stopPropagation(); navigate(`/routines?conversation_id=${conv.id}`) }}
+              onClick={(e) => { e.stopPropagation(); navigate(`/c/${conv.id}?threads=open`) }}
             >
               <Repeat size={11} className='text-text-muted hover:text-accent' />
             </span>
@@ -691,6 +735,9 @@ function ConvItem({
             </span>
           )}
         </span>
+        {nested && !!conv.pending_question && !active && (
+          <span className='shrink-0 h-2 w-2 rounded-full bg-warning' title='Waiting for you' data-testid='waiting-dot' />
+        )}
         {unread && (
           <span className='shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[11px] font-medium'>
             {conv.unread_count}
@@ -724,7 +771,6 @@ function ConvItem({
 const SETTINGS_ITEMS: { path: string; label: string; hint: string; icon: React.ReactNode }[] = [
   { path: '/settings', label: 'General', hint: 'Appearance, notifications, API keys', icon: <SlidersHorizontal size={14} /> },
   { path: '/settings/customize', label: 'Customize', hint: 'Models, connectors, skills', icon: <Blocks size={14} /> },
-  { path: '/routines', label: 'Routines', hint: 'Crons and webhooks', icon: <Repeat size={14} /> },
   { path: '/browser', label: 'Browser', hint: 'The logged-in Chromium', icon: <Globe size={14} /> },
   { path: '/code', label: 'Code', hint: "Jarvis's source and its changes", icon: <Code2 size={14} /> },
 ]
@@ -789,4 +835,21 @@ function StatusDot() {
   if (running) return <span className='ml-auto h-2 w-2 rounded-full bg-accent animate-pulse' title='Something is running' data-testid='activity-running' />
   if (failedToday) return <span className='ml-auto h-2 w-2 rounded-full bg-danger' title='Something failed today' data-testid='activity-failed' />
   return null
+}
+
+/**
+ * How many routines there are, for the Routines group's title — and whether
+ * to show the group at all. Asked again when a chat gains or loses one.
+ */
+function useRoutineCount(conversations: Conversation[]): number {
+  const [count, setCount] = useState(0)
+  const key = conversations.filter((c) => c && (c.has_cron || c.has_webhook || c.thread_of)).length
+  useEffect(() => {
+    let alive = true
+    Promise.all([api.getCrons(), api.getWebhooks()])
+      .then(([crons, hooks]) => { if (alive) setCount(crons.length + hooks.length) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [key])
+  return count
 }

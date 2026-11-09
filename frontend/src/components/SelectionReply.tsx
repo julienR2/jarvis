@@ -75,7 +75,7 @@ export default function SelectionReply({ paneRef, onQuote, onThread }: Props) {
         <Reply size={14} />
       </button>
       {onThread && (
-        <button type='button' data-testid='thread-selection' title='Start a thread from this passage' onClick={take(onThread)} className={round}>
+        <button type='button' data-testid='thread-selection' title='Start a side chat from this passage' onClick={take(onThread)} className={round}>
           <Hash size={14} />
         </button>
       )}

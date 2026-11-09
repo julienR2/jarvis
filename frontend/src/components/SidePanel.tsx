@@ -148,7 +148,7 @@ export default function SidePanel({ conversationId, tabs, active, onActivate, ap
               onSelect={() => onActivate(t.key)}
               icon={t.routine ? <Repeat size={13} /> : <Hash size={13} className='text-accent' />}
               title={t.title}
-              hint={t.key === 'thread:new' ? 'New thread' : `${t.routine ? 'Routine' : 'Thread'} — ${t.title} (double-click to rename)`}
+              hint={t.key === 'thread:new' ? 'New side chat' : `${t.routine ? 'Routine' : 'Side chat'} — ${t.title} (double-click to rename)`}
               badge={active !== t.key && t.unread > 0 ? t.unread : undefined}
               onRename={t.key !== 'thread:new' ? (title) => renameThread(t.key, title) : undefined}
               onClose={onCloseThread ? () => onCloseThread(t.key) : undefined}
@@ -177,7 +177,7 @@ export default function SidePanel({ conversationId, tabs, active, onActivate, ap
             </a>
           )}
           {threadId && onThreadDone && (
-            <button type='button' onClick={() => onThreadDone(threadId)} title='Done — put the thread away' aria-label='Done with this thread' className={ACTION}>
+            <button type='button' onClick={() => onThreadDone(threadId)} title='Done — put the side chat away' aria-label='Done with this side chat' className={ACTION}>
               <Check size={15} />
             </button>
           )}
@@ -244,7 +244,7 @@ function TabButton({
           onBlur={save}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setRenaming(null) }}
-          aria-label='Thread name'
+          aria-label='Side chat name'
           className='w-32 min-w-0 rounded border border-border bg-bg px-1 py-0.5 text-xs text-text-primary focus:border-accent focus:outline-none'
         />
       ) : (

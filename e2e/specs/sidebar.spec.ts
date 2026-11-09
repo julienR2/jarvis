@@ -37,7 +37,7 @@ test.describe('sidebar', () => {
     const side = page.getByRole('complementary')
     await side.getByTitle('Open the topic').filter({ hasText: 'Projects' }).hover()
     await side.locator('button[title="Topic options"]:visible').first().click()
-    await expect(page.getByRole('button', { name: 'Routines' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Routines', exact: true })).toHaveCount(0)
     await page.getByRole('button', { name: 'New chat' }).last().click()
     await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/)
     const id = page.url().match(/\/c\/([0-9a-f-]{36})$/)![1]

@@ -245,6 +245,8 @@ export default function ChatView({
   // message creates it.
   const [newThread, setNewThread] = useState<{ convId: string; quote: ReplyTo | null } | null>(null)
   const openThreadId = embedded ? null : searchParams.get('thread')
+  // `?threads=open` (the sidebar's routine mark): the # list opens once, and drops it from the address.
+  const listAsked = !embedded && searchParams.get('threads') === 'open'
   const pendingNew = !!newThread && newThread.convId === conversationId
   const [savedThreadTabs, setSavedThreadTabs] = useState(() => ({ id: conversationId, ids: conversationId && !embedded ? readThreadTabs(conversationId) : [] }))
   if (savedThreadTabs.id !== conversationId) setSavedThreadTabs({ id: conversationId, ids: conversationId && !embedded ? readThreadTabs(conversationId) : [] })
@@ -259,9 +261,9 @@ export default function ChatView({
       .filter((id) => knownThreads.has(id) || id === openThreadId)
       .map((id) => {
         const t = knownThreads.get(id)
-        return { key: `thread:${id}`, title: t?.title ?? 'Thread', unread: t?.unread_count ?? 0, routine: !!t && !t.parent_message_id }
+        return { key: `thread:${id}`, title: t?.title ?? 'Side chat', unread: t?.unread_count ?? 0, routine: !!t && !t.parent_message_id }
       }),
-    ...(pendingNew ? [{ key: 'thread:new', title: 'New thread', unread: 0 }] : []),
+    ...(pendingNew ? [{ key: 'thread:new', title: 'New side chat', unread: 0 }] : []),
   ]
   // The thread chosen to be shown: it brings the side pane into view.
   const threadKey: PanelKey | null = pendingNew ? 'thread:new' : openThreadId ? `thread:${openThreadId}` : null
@@ -852,7 +854,7 @@ export default function ChatView({
             aria-pressed={on}
             className={`px-3 py-1 text-xs rounded-md transition-colors ${on ? 'bg-bg text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}
           >
-            {pane === 'chat' ? 'Chat' : hasApp ? 'App' : tabs.length ? 'Docs' : 'Threads'}
+            {pane === 'chat' ? 'Chat' : hasApp ? 'App' : tabs.length ? 'Docs' : 'Side chats'}
           </button>
         )
       })}
@@ -870,6 +872,8 @@ export default function ChatView({
       onOpen={openThread}
       onNew={() => setNewThread({ convId: conversationId, quote: null })}
       onArchive={(t, archived) => archiveThread(t.id, archived)}
+      openSignal={listAsked}
+      onSignalHandled={() => setSearchParams((p) => { p.delete('threads'); return p }, { replace: true })}
     />
   ) : null
   // A thread that answered while you were here: one tap away, above the composer.
@@ -1122,7 +1126,7 @@ export default function ChatView({
             conversationId={conversationId}
             autoFocus={!showSkeleton && messages.length === 0}
             question={!shared?.readOnly && pending ? pending : undefined}
-            placeholder={isDraftThread(conv) ? 'Or describe the routine you want — Jarvis sets it up…' : embedded ? 'Reply in the thread…' : undefined}
+            placeholder={isDraftThread(conv) ? 'Or describe the routine you want — Jarvis sets it up…' : embedded ? 'Write in the side chat…' : undefined}
             initialText={initialMessage || undefined}
             initialFiles={initialFiles || undefined}
             onInitialFilesConsumed={onInitialFilesConsumed}

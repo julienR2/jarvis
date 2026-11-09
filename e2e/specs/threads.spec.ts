@@ -30,7 +30,8 @@ test.describe('threads', () => {
     const popover = page.getByTestId('threads-popover')
     await expect(popover.getByText('Routines', { exact: true })).toBeVisible()
     const routine = popover.getByTestId('chat-routines-row').filter({ hasText: 'surf-watch' })
-    await expect(routine).toContainText(/every hour · \d+ min ago · reported/)
+    await expect(routine).toContainText(/Every hour · had news last time/)
+    await expect(routine).toContainText(/\d+ min ago/)
     await page.keyboard.press('Escape')
     const report = page.getByTestId('run-report')
     await expect(report).toHaveCount(1)
@@ -39,51 +40,39 @@ test.describe('threads', () => {
     await expect(report.getByRole('button', { name: 'Mark unread from here' })).toHaveCount(1)
   })
 
-  test('the Threads group lists the standalone thread with news — and only that', async ({ page }) => {
+  test('the Routines group leads to the Routines page and lists the routine of no chat with news — and only that', async ({ page }) => {
     await page.goto('')
-    const threads = page.getByTestId('threads-group')
-    await expect(threads.getByText('price-watch', { exact: true })).toBeVisible()
-    await expect(threads.getByText('backup-check', { exact: true })).toHaveCount(0)
-    // A routine's thread is never filed with the chats.
+    const group = page.getByTestId('threads-group')
+    await expect(group.getByText('price-watch', { exact: true })).toBeVisible()
+    await expect(group.getByText('backup-check', { exact: true })).toHaveCount(0)
+    // A routine of a chat is never listed here, nor with the chats while it has nothing for you.
     const sidebar = page.locator('aside')
     await expect(sidebar.getByText('surf-watch', { exact: true })).toHaveCount(0)
     await expect(sidebar.getByText('backup-check', { exact: true })).toHaveCount(0)
+    // Its title is the way to every routine; Settings no longer lists them.
+    await group.getByTitle('All your routines: what Jarvis does on its own').click()
+    await expect(page).toHaveURL(/\/routines$/)
   })
 
-  test('a report opens its thread at that run, and the thread joins the Threads group', async ({ page }) => {
+  test('a report opens its routine’s chat at that run, shown under its chat while it is open', async ({ page }) => {
     await page.goto(`c/${SURF}`)
-    await page.getByTestId('run-report').getByTitle('Open the thread at this run').click()
+    await page.getByTestId('run-report').getByTitle('Open its chat at this run').click()
     await expect(page).toHaveURL(new RegExp(`/c/${SURF_THREAD}\\?run=`))
     const runId = new URL(page.url()).searchParams.get('run')!
     await expect(page.locator(`[data-run-id="${runId}"]`)).toBeInViewport()
-    await expect(page.getByTestId('threads-group').getByText('surf-watch', { exact: true })).toBeVisible()
-    // Navigating away does not put it back.
-    await page.goto('')
-    await expect(page.getByTestId('threads-group').getByText('surf-watch', { exact: true })).toBeVisible()
-    // Put away — not deleted: the chat's report still leads there.
-    await page.getByTestId('threads-group').getByText('surf-watch', { exact: true }).hover()
-    await page.getByRole('button', { name: 'Put away surf-watch' }).click()
+    // Under its chat, not in the Routines group.
+    const sidebar = page.locator('aside')
+    await expect(sidebar.getByText('surf-watch', { exact: true })).toBeVisible()
     await expect(page.getByTestId('threads-group').getByText('surf-watch', { exact: true })).toHaveCount(0)
-    await page.goto(`c/${SURF_THREAD}`)
-    await expect(page.getByTestId('run-card').first()).toBeVisible()
-    // Put away from where it is open: it goes, and stays gone.
-    await page.getByTestId('threads-group').getByText('surf-watch', { exact: true }).hover()
-    await page.getByRole('button', { name: 'Put away surf-watch' }).click()
-    await expect(page).toHaveURL(/\/$/)
-    await page.waitForTimeout(800)
-    await expect(page.getByTestId('threads-group').getByText('surf-watch', { exact: true })).toHaveCount(0)
-    await page.goto(`c/${SURF_THREAD}`)
-    await expect(page.getByTestId('run-card').first()).toBeVisible()
-    // Leave it as found.
+    // Its news is the chat's report: once you leave it, it goes.
     await page.goto('')
-    await page.getByTestId('threads-group').getByText('surf-watch', { exact: true }).hover()
-    await page.getByRole('button', { name: 'Put away surf-watch' }).click()
+    await expect(sidebar.getByText('surf-watch', { exact: true })).toHaveCount(0)
   })
 
   test('a routine’s runs open under it on the Routines page, each into its thread', async ({ page }) => {
     await page.goto('routines')
     const row = page.getByTestId('routine-row').filter({ hasText: 'price-watch' })
-    await expect(row.getByText('its own thread')).toBeVisible()
+    await expect(row.getByText('its own chat')).toBeVisible()
     await row.getByRole('button', { name: /last ran/ }).click()
     const runs = row.getByTestId('routine-runs').getByRole('button')
     await expect(runs).toHaveCount(2)

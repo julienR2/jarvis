@@ -153,7 +153,7 @@ export function RoutineCard({
 
   async function remove() {
     if (!routine) return
-    if (!window.confirm(`Delete the routine “${routine.row.name}”? It stops running; this thread and what it wrote stay.`)) return
+    if (!window.confirm(`Delete the routine “${routine.row.name}”? It stops running; its chat and what it wrote stay.`)) return
     if (routine.kind === 'cron') await api.deleteCron(routine.row.id)
     else await api.deleteWebhook(routine.row.id)
     await useChatStore.getState().loadConversations()
@@ -256,7 +256,7 @@ export function RoutineCard({
               aria-label='Reports into'
               value={draft.conversation_id ?? ''}
               options={[
-                { value: '', label: 'This thread only', icon: <Hash size={13} />, hint: 'Shows in Threads when a run is worth seeing' },
+                { value: '', label: 'Its own chat only', icon: <Hash size={13} />, hint: 'Shows under Routines in the sidebar when a run is worth seeing' },
                 ...sorted.map((c) => ({ value: c.id, label: c.title, icon: <MessageSquare size={13} />, hint: topicOf(c.section_id) })),
               ]}
               onChange={(id: string) => set({ conversation_id: id || null })}

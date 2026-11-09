@@ -172,7 +172,7 @@ export default function RoutinesPage() {
                         <MessageSquare size={10} /> {conv.title}{topic ? <span className='opacity-70'>· {topic}</span> : null}
                       </button>
                     ) : (
-                      <span>its own thread</span>
+                      <span>its own chat</span>
                     )}
                     <span>·</span>
                     <button
@@ -272,7 +272,7 @@ function RoutineRuns({ sourceId }: { sourceId: string }) {
         <button
           key={run.id}
           onClick={(e) => { e.stopPropagation(); navigate(`/c/${run.conversation_id}?run=${run.id}`) }}
-          title='Open the thread at this run'
+          title='Open its chat at this run'
           className='flex min-w-0 items-center gap-2 rounded py-1 text-left text-[12px] text-text-secondary transition-colors hover:text-text-primary'
         >
           <RunStatusIcon run={run} />

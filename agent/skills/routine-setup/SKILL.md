@@ -28,7 +28,8 @@ Find out, in as few turns as possible:
    expression yourself) or when called (a webhook).
 3. **Where it reports.** The `routine-thread` article says whether this thread
    was opened from a chat. If it was, default to reporting there. Otherwise the
-   thread stands alone and shows up in the sidebar when a run is worth seeing.
+   thread stands alone and shows up under the sidebar's Routines section when a
+   run is worth seeing.
 4. **Notifications**, only if it stands alone: `auto` (the default: notify when
    a run has something worth saying), `subscribe` (always), `unsubscribe` (never).
 

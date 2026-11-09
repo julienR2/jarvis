@@ -9,9 +9,11 @@ test.describe('settings', () => {
     const gear = page.getByRole('button', { name: 'Settings', exact: true })
     await gear.click()
     const menu = page.getByRole('menu')
-    for (const item of ['General', 'Customize', 'Routines', 'Browser', 'Code']) {
+    for (const item of ['General', 'Customize', 'Browser', 'Code']) {
       await expect(menu.getByRole('menuitem', { name: new RegExp(`^${item}`) })).toBeVisible()
     }
+    // Routines have their own section in the sidebar.
+    await expect(menu.getByRole('menuitem', { name: /^Routines/ })).toHaveCount(0)
     // Opened from the bottom edge: it goes up, and every pixel is on screen.
     const [m, g, vp] = [await menu.boundingBox(), await gear.boundingBox(), page.viewportSize()]
     expect(m && g && vp).toBeTruthy()

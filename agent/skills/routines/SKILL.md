@@ -22,8 +22,8 @@ the ⟳ control in a chat's title bar lists those reporting into that chat.
    `[quiet]` when there is nothing worth seeing (a silent line), or with
    `[push: <summary>]` when it is worth a phone notification. So the prompt only
    has to say **what counts** as worth reporting, and as worth a push.
-3. **Unattached**, the thread stands alone and appears in the sidebar's Threads
-   group when a run is worth seeing. Its `notify` mode decides push: `auto`
+3. **Unattached**, the thread stands alone and appears under the sidebar's
+   Routines section when a run is worth seeing. Its `notify` mode decides push: `auto`
    (when worth it), `subscribe` (always), `unsubscribe` (never).
 4. **A chat filed under a topic** passes the topic's brief to every routine
    reporting into it.

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, ChevronRight, Hash, MessageCircleQuestion, Repeat } from 'lucide-react'
+import { AlertCircle, ChevronRight, MessageCircleQuestion, Repeat } from 'lucide-react'
 import type { Message } from '../api'
 import type { RunReport as Report } from '../lib/transcript'
 import MessageBubble from './MessageBubble'
@@ -46,10 +46,10 @@ export function RunReportCard({ msg, report, onMarkUnread }: {
         <button
           type='button'
           onClick={() => navigate(runPath(report))}
-          title='Open the thread at this run'
+          title='Open its chat at this run'
           className='inline-flex items-center gap-1 transition-colors hover:text-text-primary'
         >
-          <Hash size={10} /> thread
+          details <ChevronRight size={10} />
         </button>
       </div>
       {failed ? (

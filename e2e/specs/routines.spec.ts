@@ -12,8 +12,9 @@ test.describe('routines', () => {
   })
 
   test('one list for crons and webhooks, each saying when it runs and where it posts', async ({ page }) => {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    await page.getByRole('menuitem', { name: /^Routines/ }).click()
+    // Reached from the sidebar's Routines section, not from Settings.
+    await page.goto('')
+    await page.getByTestId('threads-group').getByTitle('All your routines: what Jarvis does on its own').click()
     await expect(page).toHaveURL(/\/routines$/)
     const rows = page.getByTestId('routine-row')
     // Each fixture routine exactly once, by exact name — other rows may exist.

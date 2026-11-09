@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Clock, Link2, Loader2, Plus, Repeat, Settings2 } from 'lucide-react'
+import { Loader2, Pause, Play, Repeat, Settings2 } from 'lucide-react'
 import { api, type Conversation, type Run } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { describeSchedule, relative } from '../lib/runs'
 import { routinePath, type Routine } from '../lib/routines'
+import { isDraftThread } from '../lib/threads'
+import { CreateRow, ListHeading, SubChatRow } from './SubChatRow'
 
 /**
- * The chat's routines, in its # list beside its threads — a routine is a
- * thread of the whole chat rather than of one message. What posts here and
- * when, how the last run went, paused or not. Fetched when the list opens:
- * most visits to a chat never look. A row opens the routine's thread beside
- * the chat; the gear opens the routine itself; everything else lives on the
- * Routines page, filtered to this chat.
+ * The chat's routines, in its # list under its side chats — a routine is a
+ * side chat of the whole chat that Jarvis writes in on its own. Each row says
+ * when it runs and what it did last time; it opens beside the chat, pauses,
+ * and leads to its settings. Fetched when the list opens: most visits to a
+ * chat never look. "New routine" opens a side chat with Jarvis to set one up.
  */
 export default function ChatRoutines({ conversationId, threads, activeId, onOpenThread, onNavigate }: {
   conversationId: string
@@ -27,6 +28,7 @@ export default function ChatRoutines({ conversationId, threads, activeId, onOpen
   const [routines, setRoutines] = useState<Routine[] | null>(null)
   // Each routine's last run. They are filed under the routine's own thread,
   // not this chat, so the chat's runs don't have them.
+  const [starting, setStarting] = useState(false)
   const [lastRuns, setLastRuns] = useState<Record<string, Run | undefined>>({})
 
   const load = useCallback(async () => {
@@ -57,96 +59,94 @@ export default function ChatRoutines({ conversationId, threads, activeId, onOpen
     onNavigate()
     navigate(path)
   }
-  const known = new Set(threads.map((t) => t.id))
+  async function startNew() {
+    setStarting(true)
+    try {
+      // A routine starts as a side chat with Jarvis: say what you want, it sets it up.
+      const thread = await api.startRoutineSetup({ conversationId })
+      await useChatStore.getState().loadConversations()
+      onNavigate()
+      onOpenThread(thread.id)
+    } catch (e) {
+      window.__jarvisToast?.error((e as Error).message)
+    } finally {
+      setStarting(false)
+    }
+  }
+  const byId = new Map(threads.map((t) => [t.id, t]))
   // A thread whose routine is gone still holds its runs: listed, without a routine to manage.
-  const orphans = routines ? threads.filter((t) => !routines.some((r) => r.row.thread_id === t.id)) : []
+  const orphans = routines ? threads.filter((t) => !routines.some((r) => r.row.thread_id === t.id) && !isDraftThread(t)) : []
+  // A routine being set up has no routine yet: its side chat is the routine so far.
+  const drafts = threads.filter((t) => isDraftThread(t))
 
   return (
-    <div className='mt-1 border-t border-border pt-1' data-testid='chat-routines'>
-      <div className='flex items-center justify-between px-2.5 pb-0.5 pt-1'>
-        <span className='text-[10.5px] font-semibold uppercase tracking-wide text-text-muted'>Routines</span>
-        <button
-          onClick={() => go(`/routines/new?kind=cron&conversation_id=${conversationId}`)}
-          title='New routine here'
-          aria-label='New routine here'
-          className='rounded-md p-0.5 text-text-muted hover:bg-surface2 hover:text-text-primary'
-        >
-          <Plus size={12} />
-        </button>
-      </div>
+    <div data-testid='chat-routines'>
+      <ListHeading>Routines</ListHeading>
       {routines === null ? (
         <div className='flex items-center gap-2 px-2.5 py-1.5 text-[11px] text-text-muted'><Loader2 size={11} className='animate-spin' /> Loading…</div>
-      ) : routines.length === 0 && orphans.length === 0 ? (
-        <div className='px-2.5 py-1.5 text-[11px] text-text-muted'>None yet — ask Jarvis to check something on a schedule, or press +.</div>
       ) : (
         <>
           {routines.map((r) => {
-            const Icon = r.kind === 'webhook' ? Link2 : Clock
-            const thread = r.row.thread_id && known.has(r.row.thread_id) ? r.row.thread_id : null
-            const when = r.kind === 'cron' ? describeSchedule(r.row.schedule) : 'when called'
+            const thread = r.row.thread_id ? byId.get(r.row.thread_id) : undefined
+            const waiting = !!thread?.pending_question
+            const last = r.row.id in lastRuns ? lastRuns[r.row.id] : null
+            const when = r.kind === 'cron' ? capitalize(describeSchedule(r.row.schedule)) : 'When triggered'
             return (
-              <div key={`${r.kind}-${r.row.id}`} className={`group flex items-center gap-1 rounded-lg ${thread && thread === activeId ? 'bg-surface2' : 'hover:bg-surface2'}`} data-testid='chat-routines-row'>
-                <button
-                  onClick={() => (thread ? (onNavigate(), onOpenThread(thread)) : go(routinePath(r)))}
-                  title={thread ? 'Open its thread beside the chat' : 'Open this routine'}
-                  className={`flex min-w-0 flex-1 items-start gap-2 px-2.5 py-1.5 text-left ${r.row.enabled ? '' : 'opacity-60'}`}
-                >
-                  <Icon size={12} className='mt-0.5 shrink-0 text-text-muted' />
-                  <span className='min-w-0 flex-1'>
-                    <span className='block truncate text-[12.5px] text-text-primary'>{r.row.name}</span>
-                    <span className='block truncate text-[11px] text-text-muted'>{when} · {describeLast(r.row.id in lastRuns ? lastRuns[r.row.id] : null)}</span>
-                  </span>
-                </button>
-                <button
-                  onClick={() => go(routinePath(r))}
-                  title='Routine settings'
-                  aria-label={`Settings of ${r.row.name}`}
-                  className='rounded-md p-1 text-text-muted opacity-0 hover:bg-border hover:text-text-primary group-hover:opacity-100 [@media(hover:none)]:opacity-100'
-                >
-                  <Settings2 size={12} />
-                </button>
-                <button
-                  role='switch'
-                  aria-checked={!!r.row.enabled}
-                  aria-label={`${r.row.enabled ? 'Pause' : 'Resume'} ${r.row.name}`}
-                  onClick={() => toggle(r)}
-                  className={`relative mr-2 h-4 w-7 shrink-0 rounded-full transition-colors ${r.row.enabled ? 'bg-success' : 'bg-border'}`}
-                >
-                  <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${r.row.enabled ? 'left-[14px]' : 'left-0.5'}`} />
-                </button>
-              </div>
+              <SubChatRow
+                key={`${r.kind}-${r.row.id}`}
+                testId='chat-routines-row'
+                icon={<Repeat size={12} className='text-text-muted' />}
+                title={r.row.name}
+                tag={r.row.enabled ? undefined : 'Paused'}
+                muted={!r.row.enabled}
+                selected={!!thread && thread.id === activeId}
+                right={waiting ? <span className='rounded-full bg-warning px-1.5 font-medium text-white'>waiting for you</span> : last ? relative(last.ended_at ?? last.started_at) : ''}
+                sub={`${when} · ${outcome(last)}`}
+                openLabel={thread ? 'Open it beside the chat' : 'Open this routine'}
+                onOpen={() => (thread ? (onNavigate(), onOpenThread(thread.id)) : go(routinePath(r)))}
+                actions={[
+                  r.row.enabled
+                    ? { label: `Pause ${r.row.name}`, icon: <Pause size={12} />, run: () => toggle(r) }
+                    : { label: `Resume ${r.row.name}`, icon: <Play size={12} />, run: () => toggle(r) },
+                  { label: `Settings of ${r.row.name}`, icon: <Settings2 size={12} />, run: () => go(routinePath(r)) },
+                ]}
+              />
             )
           })}
-          {orphans.map((t) => (
-            <button key={t.id} onClick={() => { onNavigate(); onOpenThread(t.id) }} className={`flex w-full items-start gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-surface2 ${t.id === activeId ? 'bg-surface2' : ''}`}>
-              <Repeat size={12} className='mt-0.5 shrink-0 text-text-muted' />
-              <span className='min-w-0 flex-1'>
-                <span className='block truncate text-[12.5px] text-text-primary'>{t.title}</span>
-                <span className='block truncate text-[11px] text-text-muted'>{relative(t.updated_at)}</span>
-              </span>
-            </button>
+          {[...drafts, ...orphans].map((t) => (
+            <SubChatRow
+              key={t.id}
+              testId='chat-routines-row'
+              icon={<Repeat size={12} className='text-text-muted' />}
+              title={t.title}
+              tag={isDraftThread(t) ? 'Being set up' : undefined}
+              selected={t.id === activeId}
+              right={relative(t.updated_at)}
+              onOpen={() => { onNavigate(); onOpenThread(t.id) }}
+              actions={[]}
+            />
           ))}
-          <button
-            onClick={() => go(`/routines?conversation_id=${conversationId}`)}
-            className='w-full rounded-lg px-2.5 py-1.5 text-left text-[11px] text-text-muted hover:bg-surface2 hover:text-text-primary'
-          >
-            Open in Routines
-          </button>
         </>
       )}
+      <CreateRow
+        label='New routine'
+        hint='Jarvis checks or does something on its own: every morning, when an email arrives…'
+        onClick={startNew}
+        busy={starting}
+      />
     </div>
   )
 }
 
-/** "7:00 PM · nothing to report" — how the routine's last run went (null: still asking). */
-function describeLast(last: Run | undefined | null): string {
+/** How the routine's last run went, in plain words (null: still asking). */
+function outcome(last: Run | undefined | null): string {
   if (last === null) return '…'
-  if (!last) return 'no run yet'
-  const when = relative(last.ended_at ?? last.started_at)
-  const how = last.status === 'running' ? 'running'
+  if (!last) return 'not run yet'
+  return last.status === 'running' ? 'running now'
     : last.status === 'needs_you' ? 'waiting for you'
-    : last.status === 'error' ? 'failed'
-    : last.status === 'stopped' || last.status === 'interrupted' ? 'stopped'
-    : last.quiet ? 'nothing to report' : 'reported'
-  return `${when} · ${how}`
+    : last.status === 'error' ? 'failed last time'
+    : last.status === 'stopped' || last.status === 'interrupted' ? 'stopped last time'
+    : last.quiet ? 'nothing new last time' : 'had news last time'
 }
+
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)

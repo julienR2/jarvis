@@ -68,12 +68,17 @@ reports sit above. In a thread, the `<article data-jarvis="routine-thread">` at
 the top of the prompt says which routine it is; setting one up or changing it is
 the `routine-setup` skill (from anywhere else, the `routines` skill).
 
-**Threads from a passage.** A thread opened on a passage starts as a copy of
-the chat, then runs on its own session. Neither sees the other's later turns —
-so each is told, at the top of its next turn, what the other did meanwhile:
+**Side chats.** A thread opened on a passage (or blank, from the chat's #
+list) starts as a copy of the chat, then runs on its own session. Neither sees
+the other's later turns — so each is told, at the top of its next turn, what the other did meanwhile:
 `<article data-jarvis="thread-activity">` in the chat, `<article
 data-jarvis="parent-chat-activity">` in the thread. Build on that work; don't redo
 a document or re-ask a decision a thread already settled.
+
+**Words, with the user.** The interface calls a thread opened from a chat a
+**side chat**, and a routine's thread **the routine's chat**; both are listed in
+the chat's # list (side chats, then routines). Say it that way: "thread" is the
+API's word, not the user's.
 
 **Session restarts.** The transcript is also lost whenever the CLI restarts
 without resuming, and switching **provider** mid-conversation does exactly that
