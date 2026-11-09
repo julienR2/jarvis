@@ -1003,7 +1003,7 @@ export interface ConnectorField {
 
 export interface ConnectorProxy {
   baseUrlField: string
-  authHeader?: { name: string; valueField: string }
+  authHeader?: { name: string; valueField: string; prefix?: string }
   cookieField?: { name: string; valueField: string }
 }
 
@@ -1015,6 +1015,8 @@ export interface ConnectorInfo {
   icon: string
   fields: Array<Pick<ConnectorField, 'key' | 'label' | 'type'>>
   proxy?: ConnectorProxy
+  /** Secret values are withheld from Jarvis; it calls the service through the proxy. */
+  hideValues?: boolean
   created_at: number
   updated_at: number
 }
@@ -1060,6 +1062,7 @@ export interface ConnectorInput {
   icon?: string
   fields?: Array<{ key?: string; label: string; value: string; type?: ConnectorField['type'] }>
   proxy?: ConnectorProxy | null
+  hideValues?: boolean
 }
 
 /** A tab beside a chat: a document (a file Jarvis can keep editing) or a link. */

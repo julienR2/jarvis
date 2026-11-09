@@ -17,14 +17,13 @@ import { getSection, setSectionContext, topicConversations, MAX_CONTEXT_CHARS } 
 import { emitConversationEvent, emitGlobalEvent } from '../sse.js'
 import { pushForConversation } from '../push.js'
 import { config } from '../config.js'
-import { secureEquals } from '../security.js'
+import { hasInternalSecret } from '../security.js'
 import type { CronRow, WebhookRow, ConvRow } from '../types.js'
 import { afterRoutineWrite, checkRoutineRefs, routineOfThread } from '../threads.js'
 import { addTopicDoc, closeTab, emitTabs, getTab, listTabs, listTopicDocs, openTab, removeTopicDoc } from '../tabs.js'
 
-function checkSecret(req: any, reply: any): boolean {
-  const auth = req.headers['x-internal-secret']
-  if (typeof auth !== 'string' || !secureEquals(auth, config.internalSecret)) {
+export function checkSecret(req: any, reply: any): boolean {
+  if (!hasInternalSecret(req)) {
     reply.code(403).send({ error: 'Forbidden' })
     return false
   }
@@ -715,6 +714,9 @@ export async function internalRoutes(app: FastifyInstance) {
       name: c.name,
       description: c.description,
       hasProxy: !!c.proxy,
+      // 'values': read them with GET /connectors/:id. 'proxy': the secret ones
+      // are withheld; call the service through the proxy, which adds them.
+      access: c.hideValues ? ('proxy' as const) : ('values' as const),
       fields: c.fields.map(({ key, label }) => ({ key, label })),
     }))
     if (!oneActive()) return own
@@ -739,18 +741,34 @@ export async function internalRoutes(app: FastifyInstance) {
 
   // GET /connectors/:id — one connector's field values, plus a flat `env`
   // convenience map keyed by field key (e.g. `jq -r .env.GMAIL_APP_PASSWORD`).
+  //
+  // A connector set to hide its values from Jarvis keeps its secret fields
+  // here: they come back as `hidden`, left out of `env`, and the answer says
+  // how to reach the service instead — through the proxy, which attaches them.
   app.get<{ Params: { id: string } }>('/connectors/:id', async (req, reply) => {
     if (!checkSecret(req, reply)) return
     const conn = getConnector(req.params.id)
     if (!conn) return reply.code(404).send({ error: 'Unknown connector' })
+    const hidden = (f: { type?: string }) => conn.hideValues && (f.type ?? 'password') === 'password'
     const env: Record<string, string> = {}
-    for (const f of conn.fields) env[f.key] = f.value
+    for (const f of conn.fields) if (!hidden(f)) env[f.key] = f.value
     return {
       id: conn.id,
       name: conn.name,
       description: conn.description,
-      fields: conn.fields.map(({ key, label, value }) => ({ key, label, value })),
+      access: conn.hideValues ? 'proxy' : 'values',
+      fields: conn.fields.map((f) =>
+        hidden(f) ? { key: f.key, label: f.label, hidden: true } : { key: f.key, label: f.label, value: f.value },
+      ),
       env,
+      ...(conn.hideValues
+        ? conn.proxy
+          ? {
+              proxy: `${config.internalUrl}/api/connectors/${conn.id}/proxy/`,
+              note: 'Secret values are withheld. Call the service through `proxy` + the API path, with the X-Internal-Secret header; the credential is added for you.',
+            }
+          : { note: 'Secret values are withheld and this connector has no proxy set up, so it cannot be used. Ask the user to configure its proxy in Settings → Connectors.' }
+        : {}),
     }
   })
 }

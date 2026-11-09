@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { join, extname, sep } from 'path'
 import { mkdirSync, createReadStream, readFileSync, statSync } from 'fs'
+import { resolveInside } from '../safe-path.js'
 import { config } from '../config.js'
 import { conversationForAppToken } from '../app-tokens.js'
 import { withSwipeBridge } from '../app-swipe-bridge.js'
@@ -80,9 +81,13 @@ export async function appRoutes(app: FastifyInstance) {
     if (!fullPath.startsWith(root + sep)) {
       return reply.code(404).send('Not found')
     }
+    // ...and again once symlinks are resolved: the agent writes this tree, and
+    // a link it plants can point into the backend's data (see safe-path.ts).
+    const realPath = resolveInside(root, fullPath)
+    if (!realPath) return reply.code(404).send('Not found')
 
     try {
-      const stat = statSync(fullPath)
+      const stat = statSync(realPath)
       if (!stat.isFile()) return reply.code(404).send('Not found')
     } catch {
       return reply.code(404).send('Not found')
@@ -92,7 +97,7 @@ export async function appRoutes(app: FastifyInstance) {
     reply.type(mime)
     // Pages carry the bridges: a swipe on the app opens the sidebar, and
     // `window.jarvis` talks to the chat through the page around the frame.
-    if (mime === 'text/html') return reply.send(withJarvisBridge(withSwipeBridge(readFileSync(fullPath, 'utf8'))))
-    return reply.send(createReadStream(fullPath))
+    if (mime === 'text/html') return reply.send(withJarvisBridge(withSwipeBridge(readFileSync(realPath, 'utf8'))))
+    return reply.send(createReadStream(realPath))
   })
 }

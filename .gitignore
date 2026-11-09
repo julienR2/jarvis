@@ -1,8 +1,10 @@
-node_modules/
+# Anchored: an unanchored pattern would also hide a node_modules the agent
+# plants inside frontend/src, where vite would resolve it first.
+/node_modules/
+/*/node_modules/
 dist/
 # pnpm content-addressable store (created at repo root by some installs)
 .pnpm-store/
-frontend/src/**/*.js
 .env
 whisper-cache/
 
@@ -37,7 +39,7 @@ agent/skills/*
 !agent/skills/linear/
 !agent/skills/connectors/
 !agent/skills/jarvis/
-!agent/skills/deploy/
+!agent/skills/skills/
 !agent/skills/slack/
 !agent/skills/github/
 !agent/skills/elevenlabs/

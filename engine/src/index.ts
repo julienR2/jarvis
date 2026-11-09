@@ -262,9 +262,8 @@ app.post<{
 })
 
 // POST /restart — exit so the container's restart policy brings the process
-// back on the current source. What deploy.sh does to prod with a pkill from
-// inside; this is the same thing reachable over HTTP, for the `next` engine
-// (a separate container the agent cannot signal). Every live session ends.
+// back on the current source. How scripts/deploy.sh (run from the host, in the
+// `deploy` container) restarts the engine. Every live session ends.
 app.post('/restart', async () => {
   console.warn('[engine] restart requested — exiting')
   setTimeout(() => process.exit(0), 300).unref()

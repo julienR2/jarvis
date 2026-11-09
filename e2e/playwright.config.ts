@@ -16,7 +16,9 @@ const baseURL = (process.env.E2E_BASE_URL || 'http://127.0.0.1:5273').replace(/\
 
 export default defineConfig({
   testDir: './specs',
-  outputDir: './results',
+  // Overridable: in the engine container e2e/ is read-only, and the runner
+  // empties this directory before each run.
+  outputDir: process.env.E2E_RESULTS_DIR || './results',
   globalSetup: './setup.ts',
   // One throwaway database; the rows tests create (a chat, a key, a toggle)
   // don't collide, so two workers are safe and halve the run.

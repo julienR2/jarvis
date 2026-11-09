@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { execFileSync, spawnSync } from 'child_process'
-import { readFileSync, readdirSync, statSync } from 'fs'
+import { lstatSync, readFileSync, readdirSync, readlinkSync, statSync } from 'fs'
 import { dirname, join, relative, resolve } from 'path'
 
 const REPO_DIR = process.env.JARVIS_REPO_DIR || '/jarvis'
@@ -303,6 +303,13 @@ export async function gitRoutes(app: FastifyInstance) {
     let content: string | null = null
     let binary = false
     let tooLarge = false
+    // Symlinks are not followed: the agent can plant one in frontend/src that
+    // points at secrets.json under an innocent name.
+    try {
+      if (lstatSync(abs).isSymbolicLink()) {
+        return reply.code(403).send({ error: `Symbolic link to ${readlinkSync(abs)}; not followed.` })
+      }
+    } catch { /* missing: handled below */ }
     try {
       const stat = statSync(abs)
       if (!stat.isFile()) return reply.code(400).send({ error: 'Not a file' })

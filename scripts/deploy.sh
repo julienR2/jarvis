@@ -3,21 +3,24 @@
 #
 # Prod runs without file watchers, so a saved edit is inert until this runs.
 # It works out which services changed since the last deploy, typechecks them,
-# and applies each the cheapest safe way:
+# runs the e2e suite, and applies each the cheapest safe way:
 #
-#   frontend  build from here, copy hashed assets in, swap index.html last
+#   frontend  build, copy hashed assets in, swap index.html last
 #   backend   POST /internal/restart, wait for /health
-#   engine    kill its node process after a delay (only with --engine: it ends the
-#             conversation's Claude process; --resume brings the context back).
-#             This is also how a `claude` CLI bump lands — it is a pinned
+#   engine    POST /restart to the engine (only with --engine: it ends every
+#             running conversation's Claude process; --resume brings the context
+#             back). This is also how a `claude` CLI bump lands — it is a pinned
 #             dependency in engine/package.json, installed on the engine's start.
-#   Dockerfile / compose / frontend deps   cannot be applied from inside a
-#             container — reported for the host to run
+#   Dockerfile / compose / frontend deps   reported for the host to run
 #
-# Runs inside the engine container, as the agent. Needs BACKEND_URL and
-# INTERNAL_SECRET, both already in the agent's environment.
+# Run it FROM THE HOST, never from inside Jarvis:
 #
-#   deploy.sh [--fast] [--dry-run] [--allow-dirty] [--engine] [--all]
+#   docker compose run --rm deploy [--fast] [--dry-run] [--allow-dirty] [--engine] [--all]
+#
+# The `deploy` service mounts the whole repo, data included, and is not running
+# otherwise. The agent cannot start it: its container has no Docker, and it
+# mounts neither this script nor the backend/engine source writably. That is the
+# point — what gets deployed is reviewed and committed by a person first.
 set -euo pipefail
 
 REPO=/jarvis
@@ -35,12 +38,31 @@ for a in "$@"; do
   esac
 done
 
+# The backend's secret, for its /internal/restart and the engine's /restart.
+# From .env when pinned there, else the file the backend generated.
+: "${INTERNAL_SECRET:=$(python3 -c "import json;print(json.load(open('$REPO/agent/data/secrets.json'))['internal'])" 2>/dev/null || true)}"
+: "${BACKEND_URL:=http://backend:3005}"
+: "${ENGINE_URL:=http://engine:3010}"
+
 cd "$REPO"
 trap 'rm -rf "$REPO/frontend/dist-build"' EXIT
 HEAD=$(git rev-parse HEAD)
 SHORT=$(git rev-parse --short HEAD)
 DIRTY_FILES=$(git status --porcelain | awk '{print $NF}')
 DIRTY=$(printf '%s' "$DIRTY_FILES" | grep -c . || true)
+
+# The agent can write frontend/src, and vite bundles whatever sits there — an
+# `api.js` beside `api.ts` wins the import. A file git ignores never shows in
+# the review; an untracked one is easy to miss. So frontend/src must hold
+# exactly what git tracks, even with --allow-dirty (which covers edits to
+# tracked files, the ones a review shows as a diff).
+STRAY_SRC=$(git status --porcelain --ignored --untracked-files=all -- frontend/src | grep -E '^(!!|\?\?)' || true)
+if [ -n "$STRAY_SRC" ]; then
+  echo "✗ files in frontend/src that git does not track — they would be bundled unreviewed:"
+  printf '%s\n' "$STRAY_SRC" | sed -E 's/^(!!|\?\?) /    /'
+  echo "  Look at them, then delete them, or commit them after review."
+  exit 1
+fi
 
 if [ "$DIRTY" -gt 0 ] && [ "$ALLOW_DIRTY" = 0 ]; then
   echo "✗ $DIRTY uncommitted change(s). Commit first, or pass --allow-dirty."
@@ -71,7 +93,7 @@ else
       # Backend and engine install their dependencies on start too, but the
       # typecheck below runs against the modules already installed — so a new
       # dependency fails it until the service has restarted once. Say so.
-      backend/package.json|backend/package-lock.json) BE=1; NOTES+=("backend dependencies changed — they install on its restart; if the typecheck fails on a missing module, restart it first (curl -X POST -H \"X-Internal-Secret: \$INTERNAL_SECRET\" \$BACKEND_URL/internal/restart) and rerun deploy") ;;
+      backend/package.json|backend/package-lock.json) BE=1; NOTES+=("backend dependencies changed — they install on its restart; if the typecheck fails on a missing module, restart it first (docker compose restart backend) and rerun deploy") ;;
       # The `claude` CLI is one of these dependencies, so a version bump takes
       # this same path: an engine restart, no image rebuild, no Docker.
       engine/package.json|engine/package-lock.json) EN=1; NOTES+=("engine dependencies changed (the claude CLI is one of them) — they install on its restart; if the engine typecheck fails on a missing module, deploy with --engine (it restarts) and rerun deploy afterwards") ;;
@@ -81,13 +103,13 @@ else
       frontend/*) FE=1 ;;
       backend/*) BE=1 ;;
       engine/*) EN=1 ;;
-      */Dockerfile|docker-compose*.yml|*/docker-compose*.yml) HOST+=("$f — image/compose change, which only the host can apply: docker compose up -d (add --build for a Dockerfile change). It restarts the containers whose definition changed, this conversation included") ;;
+      */Dockerfile|docker-compose*.yml|*/docker-compose*.yml) HOST+=("$f — image/compose change: docker compose up -d (add --build for a Dockerfile change). It restarts the containers whose definition changed") ;;
       *) ;;  # agent/, docs, site, README: read at runtime or irrelevant
     esac
   done <<< "$CHANGED"
 fi
 
-# The frontend container builds dist/ as root; the engine deploys as uid 1000.
+# The frontend container builds dist/ as root; this deploys as uid 1000.
 # The compose command chowns dist on start, but until that container has been
 # recreated with it, nothing from here can write there — say so, don't half-copy.
 if [ "$FE" = 1 ] && [ -d "$REPO/frontend/dist" ] && ! { [ -w "$REPO/frontend/dist" ] && [ -w "$REPO/frontend/dist/index.html" ]; }; then
@@ -112,6 +134,12 @@ fi
 # ── checks ───────────────────────────────────────────────────────────────────
 [ "$BE" = 1 ] && { echo "· typecheck backend";  npm --prefix "$REPO/backend"  run -s typecheck >/dev/null || { echo "✗ backend typecheck failed"; npm --prefix "$REPO/backend" run -s typecheck 2>&1 | tail -15; exit 1; }; }
 [ "$FE" = 1 ] && { echo "· typecheck frontend"; npm --prefix "$REPO/frontend" run -s typecheck >/dev/null || { echo "✗ frontend typecheck failed"; npm --prefix "$REPO/frontend" run -s typecheck 2>&1 | tail -15; exit 1; }; }
+if [ "$EN" = 1 ]; then
+  # Into this container's own volume, from the lockfile: never the engine's
+  # node_modules, which the agent can write.
+  echo "· installing engine dependencies"
+  npm --prefix "$REPO/engine" ci --no-audit --no-fund --silent >/dev/null || { echo "✗ engine npm ci failed"; exit 1; }
+fi
 if [ "$EN" = 1 ] && [ -x "$REPO/engine/node_modules/.bin/tsc" ]; then
   echo "· typecheck engine"; "$REPO/engine/node_modules/.bin/tsc" --noEmit -p "$REPO/engine" >/dev/null || { echo "✗ engine typecheck failed"; "$REPO/engine/node_modules/.bin/tsc" --noEmit -p "$REPO/engine" 2>&1 | tail -15; exit 1; }
 fi
@@ -140,6 +168,9 @@ fi
 [ "$DRY" = 1 ] && { echo "· dry run — stopping here"; for h in "${HOST[@]:-}"; do [ -n "$h" ] && echo "  host: $h"; done; exit 0; }
 
 DONE=()
+if [ "$BE" = 1 ] || [ "$EN" = 1 ]; then
+  [ -n "$INTERNAL_SECRET" ] || { echo "✗ no internal secret (agent/data/secrets.json unreadable?)"; exit 1; }
+fi
 
 # ── frontend ─────────────────────────────────────────────────────────────────
 if [ "$FE" = 1 ]; then
@@ -204,22 +235,23 @@ if [ "$BE" = 1 ]; then
     DONE+=(backend)
     echo "✓ backend back in $((MS/1000)).$(( (MS%1000)/100 ))s (uptime now ${U1}s)"
   else
-    echo "✗ backend did not answer /health within 30s — ask the user for its logs (docker compose logs backend, on the host)"; exit 1
+    echo "✗ backend did not answer /health within 30s — see docker compose logs backend"; exit 1
   fi
 fi
 
 # ── engine ───────────────────────────────────────────────────────────────────
 if [ "$EN" = 1 ]; then
   if [ "$ENGINE_OK" = 1 ]; then
-    # Detached and delayed so the reply that announces it is persisted first.
-    # Kill the node process, not PID 1: a non-interactive sh as init ignores
-    # SIGTERM. With no watcher above it, node ending ends the `sh -c` chain and
-    # the restart policy brings the container back on the new code.
-    setsid sh -c 'sleep 10; pkill -TERM -f "tsx src/index.ts" || kill 1' >/dev/null 2>&1 &
-    DONE+=(engine)
-    echo "✓ engine restarts in 10s — this conversation's Claude process ends; the next message resumes it with the new code"
+    # The engine exits and its restart policy brings it back on the new code,
+    # reinstalling its dependencies on the way.
+    if curl -fsS -m 5 -X POST -H "Authorization: Bearer $INTERNAL_SECRET" "$ENGINE_URL/restart" >/dev/null; then
+      DONE+=(engine)
+      echo "✓ engine restarting — running conversations' Claude processes end; their next message resumes them"
+    else
+      echo "✗ engine did not accept the restart — docker compose restart engine"; exit 1
+    fi
   else
-    echo "! engine changed but not restarted — rerun with --engine (it ends the running conversation for a few seconds)"
+    echo "! engine changed but not restarted — rerun with --engine (it ends running conversations for a few seconds)"
   fi
 fi
 
