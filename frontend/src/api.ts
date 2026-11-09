@@ -188,7 +188,7 @@ export const api = {
     ),
   updateConversation: (
     id: string,
-    data: { title?: string; notify?: string; section_id?: string | null; surfaced?: boolean; archived?: boolean },
+    data: { title?: string; notify?: string; section_id?: string | null; surfaced?: boolean; archived?: boolean; shortcut?: boolean },
   ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
   // Files are archived and routines kept unless told otherwise — the delete
   // dialog's two checkboxes, both off by default.
@@ -690,6 +690,8 @@ export interface Conversation {
   parent_message_id?: string | null
   /** A passage thread put away with Done (it leaves its chat's active list); cleared by its next message. */
   archived_at?: number | null
+  /** Offered as a launcher shortcut of the installed app since then; null = not. */
+  shortcut_at?: number | null
   created_at: number
   updated_at: number
 }

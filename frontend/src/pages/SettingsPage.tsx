@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
-import { Bell, BellOff, Check, Copy, LogOut, RefreshCw, Send, Sparkles } from 'lucide-react'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { Bell, BellOff, Check, Copy, LogOut, RefreshCw, Send, Smartphone, Sparkles, X } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import ContentLayout from '../components/ContentLayout'
 import ApiKeysPanel from '../components/ApiKeysPage'
 import { ShareSheetSettings } from '../components/ShareTargets'
@@ -8,7 +9,8 @@ import { useTheme, type Preference } from '../hooks/useTheme'
 import { useNotifications } from '../hooks/useNotifications'
 import { reloadApp } from '../lib/reload'
 import { BASE_PATH } from '../base'
-import { api } from '../api'
+import { api, type Conversation } from '../api'
+import { useChatStore } from '../stores/chatStore'
 
 /**
  * Settings › General: how the app looks and behaves, API keys, the account.
@@ -41,6 +43,11 @@ export default function SettingsPage() {
         <section>
           <SectionTitle>Share sheet</SectionTitle>
           <ShareSheetSettings />
+        </section>
+
+        <section>
+          <SectionTitle>Home screen shortcuts</SectionTitle>
+          <ShortcutsSettings />
         </section>
 
         <section>
@@ -89,6 +96,52 @@ function AccountCard() {
       <Row label='Signed in on this device'>
         <SmallButton onClick={logout} icon={<LogOut size={13} />}>Log out</SmallButton>
       </Row>
+    </Card>
+  )
+}
+
+/** The backend refuses more (MAX_SHORTCUTS in backend/src/shortcuts.ts). */
+const MAX_SHORTCUTS = 4
+
+/**
+ * The chats a long-press on the installed Jarvis icon offers — added from a
+ * chat's menu, removed here or there. Listed in the launcher's order.
+ */
+function ShortcutsSettings() {
+  const shortcuts = useChatStore(useShallow((s) =>
+    Object.values(s.conversations)
+      .filter((c): c is Conversation & { shortcut_at: number } => !!c.shortcut_at)
+      .sort((a, b) => a.shortcut_at - b.shortcut_at),
+  ))
+  const setShortcut = useChatStore((s) => s.setShortcut)
+
+  return (
+    <Card>
+      <div className='px-4 py-3 text-xs text-text-muted'>
+        Long-press the installed Jarvis icon to see these, then drag one onto the home screen.
+        Add a chat from its menu ({shortcuts.length} of {MAX_SHORTCUTS}). Changes can take up to a day to reach the launcher.
+      </div>
+      {shortcuts.length === 0 ? (
+        <div className='px-4 py-3 text-sm text-text-muted'>No shortcuts yet.</div>
+      ) : (
+        <div className='px-2 py-1.5 flex flex-col'>
+          {shortcuts.map((c) => (
+            <div key={c.id} className='flex items-center gap-2 pl-2 rounded-lg'>
+              <Smartphone size={14} className='text-text-muted shrink-0' />
+              <Link to={`/c/${c.id}`} className='flex-1 min-w-0 text-sm text-text-primary truncate py-1.5 hover:underline'>
+                {c.title}
+              </Link>
+              <button
+                onClick={() => setShortcut(c.id, false)}
+                className='p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'
+                aria-label={`Remove ${c.title} from shortcuts`}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   )
 }
