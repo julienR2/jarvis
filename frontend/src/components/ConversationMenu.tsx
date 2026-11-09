@@ -1,10 +1,11 @@
 import { useState, useRef, forwardRef, useImperativeHandle } from 'react'
-import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Pencil, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2 } from 'lucide-react'
+import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Pencil, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2, Smartphone } from 'lucide-react'
 import Popover from './Popover'
 import ShareDialog from './ShareDialog'
 import DeleteConversationDialog from './DeleteConversationDialog'
 import ChatRoutines from './ChatRoutines'
 import type { DeleteOptions } from '../api'
+import { useChatStore } from '../stores/chatStore'
 
 type NotifyMode = 'subscribe' | 'unsubscribe' | 'auto'
 
@@ -50,6 +51,7 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
     const [sharing, setSharing] = useState(false)
     const [deleting, setDeleting] = useState(false)
     const btnRef = useRef<HTMLButtonElement>(null)
+    const isShortcut = useChatStore((s) => !!(conversationId && s.conversations[conversationId]?.shortcut_at))
 
     useImperativeHandle(ref, () => ({
       open() { setOpen(true) },
@@ -184,6 +186,23 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
               >
                 <Share2 size={14} />
                 Share conversation
+              </button>
+            )}
+
+            {conversationId && !compact && (
+              <button
+                onClick={async () => {
+                  setOpen(false)
+                  const ok = await useChatStore.getState().setShortcut(conversationId, !isShortcut)
+                  if (ok && !isShortcut) {
+                    // Chrome re-reads the manifest only now and then, so say when to look.
+                    window.__jarvisToast?.success('Added. Long-press the Jarvis icon to find it — it can take up to a day to show up.')
+                  }
+                }}
+                className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg whitespace-nowrap'
+              >
+                <Smartphone size={14} />
+                {isShortcut ? 'Remove from shortcuts' : 'Add to shortcuts'}
               </button>
             )}
 

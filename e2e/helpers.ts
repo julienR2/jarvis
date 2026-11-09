@@ -31,6 +31,8 @@ const EXPECTED_RESPONSES: Array<{ status: number; path: RegExp }> = [
   { status: 404, path: new RegExp(MISSING_CONVERSATION) },
   // The bridge spec's app firing a routine of another chat, which is refused.
   { status: 404, path: /\/api\/conversations\/00000000-0000-4000-8000-000000000016\/run$/ },
+  // The shortcuts spec's fifth chat, refused because the list is full.
+  { status: 409, path: /\/api\/conversations\/00000000-0000-4000-8000-000000000005$/ },
 ]
 
 export const test = base.extend<{ consoleGuard: void }>({

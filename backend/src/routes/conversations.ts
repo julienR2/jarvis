@@ -38,6 +38,7 @@ import {
 import { config } from '../config.js'
 import { getConnectorValues } from '../connectors.js'
 import { topicContextFor } from '../topics.js'
+import { MAX_SHORTCUTS } from '../shortcuts.js'
 import { detachThreadsOf, notifyTarget, parentActivityPrompt, reportQuestion, routineRunPrompt, surfaceThread, threadActivityPrompt, threadContextPrompt, unseenReportsPrompt } from '../threads.js'
 import { SILENT_MARK, splitNotify } from '../runs.js'
 import type { ConvRow, MessageRow, EffortLevel, PendingQuestion } from '../types.js'
@@ -1608,6 +1609,8 @@ export async function conversationRoutes(app: FastifyInstance) {
       surfaced?: boolean
       /** Passage threads: put away (Done), or bring back. */
       archived?: boolean
+      /** Offer it as a launcher shortcut of the installed app, or stop. */
+      shortcut?: boolean
     }
     const { title, notify } = body
 
@@ -1640,6 +1643,17 @@ export async function conversationRoutes(app: FastifyInstance) {
     if (body.surfaced !== undefined && target.kind === 'thread') {
       sets.push(body.surfaced ? 'surfaced_at = unixepoch()' : 'surfaced_at = NULL')
     }
+    if (body.shortcut === false) sets.push('shortcut_at = NULL')
+    if (body.shortcut === true) {
+      const taken = getDb()
+        .prepare('SELECT COUNT(*) AS n FROM conversations WHERE shortcut_at IS NOT NULL AND id != ?')
+        .get(req.params.id) as { n: number }
+      if (taken.n >= MAX_SHORTCUTS) {
+        return reply.code(409).send({ error: `Already ${MAX_SHORTCUTS} shortcuts — remove one in Settings first` })
+      }
+      // Kept if already set: re-adding must not move it to the end of the list.
+      sets.push('shortcut_at = COALESCE(shortcut_at, unixepoch())')
+    }
     // null moves the conversation back to the default "Chats" group.
     if ('section_id' in body) {
       const sectionId = body.section_id ?? null
@@ -1661,8 +1675,8 @@ export async function conversationRoutes(app: FastifyInstance) {
 
     // Filing a chat isn't activity: bumping updated_at here would shuffle it to
     // the top of its new section, since sections sort by most recent activity.
-    // Neither is putting a thread away.
-    const onlyMoved = sets.every((s) => s === 'section_id = ?' || s.startsWith('surfaced_at') || s.startsWith('archived_at'))
+    // Neither is putting a thread away, nor offering it as a shortcut.
+    const onlyMoved = sets.every((s) => s === 'section_id = ?' || s.startsWith('surfaced_at') || s.startsWith('archived_at') || s.startsWith('shortcut_at'))
     if (!onlyMoved) sets.push('updated_at = unixepoch()')
     params.push(req.params.id)
 

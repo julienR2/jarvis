@@ -96,6 +96,8 @@ interface ChatState {
   patchConversation: (id: string, patch: Partial<PatchableFields>) => Promise<void>
   /** List a thread in the sidebar's Threads group, or put it away. */
   setThreadSurfaced: (id: string, surfaced: boolean) => Promise<void>
+  /** Offer it as a launcher shortcut of the installed app, or stop. False when refused (the list is full). */
+  setShortcut: (id: string, on: boolean) => Promise<boolean>
   /** Mirror what the backend records on send: the model the input starts on next. */
   rememberModel: (id: string, model: string, effort: Conversation['effort']) => void
 
@@ -516,6 +518,21 @@ export const useChatStore = create<ChatState>()(
           s.conversations[id] = before
         })
         throw err
+      }
+    },
+
+    async setShortcut(id, on) {
+      // Not optimistic: adding is refused once the list is full, and the
+      // menu says so instead of flashing the item on and off again.
+      try {
+        const updated = await api.updateConversation(id, { shortcut: on })
+        set((s) => {
+          if (s.conversations[id]) s.conversations[id].shortcut_at = updated.shortcut_at ?? null
+        })
+        return true
+      } catch (err) {
+        toast('error', err instanceof Error ? err.message : 'Failed to save changes')
+        return false
       }
     },
 

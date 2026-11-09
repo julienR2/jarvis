@@ -568,6 +568,11 @@ export function initDb(): void {
   try {
     db.exec('ALTER TABLE conversations ADD COLUMN archived_at INTEGER DEFAULT NULL')
   } catch { /* already exists */ }
+  // Offered as a launcher shortcut of the installed app since then (long-press
+  // the Jarvis icon); null = not offered. See backend/src/shortcuts.ts.
+  try {
+    db.exec('ALTER TABLE conversations ADD COLUMN shortcut_at INTEGER DEFAULT NULL')
+  } catch { /* already exists */ }
 
   // Documents pinned to a topic: a tab in every chat of the topic, listed on
   // its page and in the brief its chats are given. `docs_updated_at` tells a

@@ -1,10 +1,43 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { getDb } from '../db.js'
+import { readCookie, SESSION_COOKIE } from '../request-auth.js'
+import { listShortcuts } from '../shortcuts.js'
+
+/**
+ * The manifest is public — a browser fetches it before anyone logs in — but
+ * the shortcuts are chat titles, so they are only listed for a signed-in
+ * session. index.html links it with `crossorigin="use-credentials"`, without
+ * which the browser leaves the session cookie off this request.
+ */
+async function signedIn(app: FastifyInstance, req: FastifyRequest): Promise<boolean> {
+  const token = readCookie(req, SESSION_COOKIE)
+  if (!token) return false
+  try {
+    const { id } = app.jwt.verify<{ id?: unknown }>(token)
+    return typeof id === 'number' && !!getDb().prepare('SELECT 1 FROM users WHERE id = ?').get(id)
+  } catch {
+    return false
+  }
+}
 
 export async function manifestRoutes(app: FastifyInstance) {
-  app.get('/manifest.webmanifest', async (_req, reply) => {
-    // No `shortcuts` member: launcher shortcuts used to be generated from pinned
-    // conversations, which no longer exist (pinning became sidebar sections) and
-    // which nobody used.
+  app.get('/manifest.webmanifest', async (req, reply) => {
+    // Chats chosen from their menu (backend/src/shortcuts.ts). Android shows
+    // them on a long-press of the installed icon, and each can be dragged onto
+    // the home screen. Chrome re-reads the manifest only now and then (on a
+    // launch, about once a day), so a new one takes a while to show up.
+    // They open the chat on whatever pane it was last left showing.
+    const shortcuts = (await signedIn(app, req))
+      ? listShortcuts().map((c) => ({
+          name: c.title,
+          short_name: c.title,
+          url: `/c/${c.id}`,
+          icons: [
+            { src: '/icons/icon-96.png', sizes: '96x96', type: 'image/png' },
+            { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+          ],
+        }))
+      : []
     const manifest = {
       name: 'Jarvis',
       short_name: 'Jarvis',
@@ -49,6 +82,7 @@ export async function manifestRoutes(app: FastifyInstance) {
         { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
         { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
       ],
+      ...(shortcuts.length ? { shortcuts } : {}),
       share_target: {
         action: '/share',
         method: 'POST',
