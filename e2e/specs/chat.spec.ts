@@ -274,10 +274,18 @@ test.describe('chat rendering', () => {
     await expect(app).toBeVisible()
     await expect(composer).toBeVisible()
 
-    // Both on by default; switching one off leaves the other alone…
+    // Both on by default, the app under its own bar with refresh and open…
+    const previewBar = main.getByTitle('Refresh preview', { exact: true })
+    await expect(previewBar).toBeVisible()
+    // …switching one off leaves the other alone, and the app alone has only
+    // the title bar, its actions in the ⋯ menu, as on a phone.
     await main.getByRole('button', { name: 'Chat', exact: true }).click()
     await expect(composer).toBeHidden()
     await expect(app).toBeVisible()
+    await expect(previewBar).toBeHidden()
+    await main.locator('[title="Conversation options"]:visible').click()
+    await expect(page.getByRole('button', { name: 'Refresh preview' })).toBeVisible()
+    await page.keyboard.press('Escape')
     // …and the last pane standing can't be switched off.
     await main.getByRole('button', { name: 'App', exact: true }).click()
     await expect(app).toBeVisible()

@@ -884,7 +884,7 @@ export default function ChatView({
           {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <>{threadsPill}<RunsPill conversationId={conversationId} /></>}
           <ShareIcon shareMode={shareMode} />
           <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-          <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={notifiesThroughParent ? undefined : handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} />
+          <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={notifiesThroughParent ? undefined : handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
         </span>
       ) : undefined}
     >
@@ -1174,6 +1174,8 @@ export default function ChatView({
                 onRefresh={bumpApp}
                 shareIntent={shareIntent}
                 onShareIntentConsumed={onShareIntentConsumed}
+                // Alone, the title bar above it is its bar: refresh and open are in its ··· menu, as on a phone.
+                toolbar={chatShown}
                 conversationId={conversationId}
                 onCall={withTabs ? handleAppCall : undefined}
               />
