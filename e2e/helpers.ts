@@ -29,6 +29,8 @@ const EXPECTED_RESPONSES: Array<{ status: number; path: RegExp }> = [
   { status: 401, path: /\/api\/auth\/login$/ }, // the wrong-password test
   // The deep-link spec's chat that does not exist: every call about it 404s.
   { status: 404, path: new RegExp(MISSING_CONVERSATION) },
+  // The bridge spec's app firing a routine of another chat, which is refused.
+  { status: 404, path: /\/api\/conversations\/00000000-0000-4000-8000-000000000016\/run$/ },
 ]
 
 export const test = base.extend<{ consoleGuard: void }>({

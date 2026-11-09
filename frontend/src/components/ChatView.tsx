@@ -445,6 +445,10 @@ export default function ChatView({
         const { answer } = await api.askFromApp(conversationId, String(args.prompt ?? ''))
         return answer
       }
+      case 'run': {
+        const { answer } = await api.runFromApp(conversationId, String(args.name ?? ''), args.payload ?? {}, args.sync === true)
+        return answer ?? true
+      }
       case 'openDoc':
         openFile(String(args.path ?? ''))
         return true

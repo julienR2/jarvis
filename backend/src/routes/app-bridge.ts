@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { getDb, normalizeEffort } from '../db.js'
 import { invokeAndWait } from '../engine.js'
 import { config } from '../config.js'
-import type { ConvRow } from '../types.js'
+import type { ConvRow, WebhookRow } from '../types.js'
+import { fireWebhook, fireWebhookSync } from '../webhooks.js'
 
 /** Past this an app is sending a document, not asking a question. */
 const MAX_PROMPT = 20_000
@@ -56,5 +57,30 @@ export async function appBridgeRoutes(app: FastifyInstance) {
     if (answer === null) return reply.code(504).send({ error: 'No answer in time' })
     if (!answer.trim()) return reply.code(502).send({ error: 'No answer' })
     return { answer: answer.trim() }
+  })
+
+  // `window.jarvis.run(name, payload)`: fire one of the routines that report
+  // into this chat — and only those, so an app reaches its own automations and
+  // nothing else of the owner's. `sync` waits for the run's answer.
+  app.post<{ Params: { id: string } }>('/:id/run', {
+    ...auth,
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+  }, async (req, reply) => {
+    const { name, payload, sync } = (req.body ?? {}) as { name?: unknown; payload?: unknown; sync?: unknown }
+    if (typeof name !== 'string' || !name) return reply.code(400).send({ error: 'name is required' })
+    const row = getDb()
+      .prepare('SELECT * FROM webhooks WHERE name = ? AND conversation_id = ? AND enabled = 1')
+      .get(name, req.params.id) as WebhookRow | undefined
+    if (!row) return reply.code(404).send({ error: `No enabled webhook "${name}" reports into this chat` })
+    const body = payload && typeof payload === 'object' && Object.keys(payload).length > 0 ? payload : undefined
+    if (sync === true) {
+      try {
+        return { ok: true, answer: await fireWebhookSync(row, body) }
+      } catch {
+        return reply.code(504).send({ error: 'No answer in time' })
+      }
+    }
+    fireWebhook(row, body)
+    return { ok: true }
   })
 }

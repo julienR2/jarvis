@@ -275,6 +275,9 @@ export const api = {
   /** `window.jarvis.ask` from the chat's app: a one-off answer that stays out of the chat. */
   askFromApp: (conversationId: string, prompt: string) =>
     request<{ answer: string }>('POST', `/conversations/${conversationId}/ask`, { prompt }),
+  /** `window.jarvis.run`: fire a routine that reports into this chat. */
+  runFromApp: (conversationId: string, name: string, payload: unknown, sync: boolean) =>
+    request<{ ok: boolean; answer?: string }>('POST', `/conversations/${conversationId}/run`, { name, payload, sync }),
   /** A document tab's text, for the kinds the pane renders itself (markdown, plain text). */
   getTabText: async (conversationId: string, tabId: string): Promise<string> => {
     const res = await fetch(`${BASE}/conversations/${conversationId}/tabs/${tabId}/content`, { headers: headers(false) })
