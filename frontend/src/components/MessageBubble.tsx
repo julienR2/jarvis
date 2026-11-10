@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import { openablePath, usePanelOpener } from '../lib/panelOpener'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { FileText, ChevronRight, Copy, Check, Mail } from 'lucide-react'
+import { FileText, ChevronRight, Copy, Check, Mail, Hash } from 'lucide-react'
 import { withMediaToken } from '../api'
 import type { Message, Attachment, ReplyTo } from '../api'
 import type { Components, ExtraProps } from 'react-markdown'
@@ -17,6 +17,8 @@ interface Props {
   modelLabel?: string
   /** Offered on a finished answer: unread again from here, so on Today. */
   onMarkUnread?: (messageId: string) => void
+  /** A side chat from the whole message — the # a selection offers, without selecting. */
+  onThread?: (quote: ReplyTo) => void
 }
 
 function formatTime(ts: number): string {
@@ -51,6 +53,25 @@ function MarkUnreadButton({ onClick }: { onClick: () => void }) {
       data-testid='mark-unread'
     >
       <Mail size={10} />
+    </button>
+  )
+}
+
+function ThreadButton({ msg, fallback, onThread }: { msg: Message; fallback: string; onThread: (quote: ReplyTo) => void }) {
+  return (
+    <button
+      onClick={(e) => {
+        // What is on screen, as a selection would quote it — not the markdown.
+        const bubble = e.currentTarget.closest('[data-message-id]')
+        const shown = [...(bubble?.querySelectorAll<HTMLElement>('.markdown') ?? [])].map((el) => el.innerText.trim()).join('\n\n')
+        onThread({ message_id: msg.id, text: (shown || fallback).trim().slice(0, 2000) })
+      }}
+      className='inline-flex items-center opacity-0 group-hover:opacity-60 [@media(hover:none)]:opacity-40 hover:!opacity-100 transition-opacity'
+      title='Start a side chat from this message'
+      aria-label='Start a side chat from this message'
+      data-testid='thread-message'
+    >
+      <Hash size={10} />
     </button>
   )
 }
@@ -265,7 +286,7 @@ export function liveStatus(msg: Message): { note: string | null; tool: string | 
   return { note: cycle.notes[cycle.notes.length - 1] ?? null, tool: cycle.tools[cycle.tools.length - 1] ?? null }
 }
 
-function ActivityBubble({ msg, live, modelLabel, onMarkUnread }: Omit<Props, 'msg'> & { msg: Message }) {
+function ActivityBubble({ msg, live, modelLabel, onMarkUnread, onThread }: Omit<Props, 'msg'> & { msg: Message }) {
   const groups = useMemo(
     () => buildGroups(parseActivityContent(msg.content).activityLines, msg.result),
     [msg.content, msg.result],
@@ -298,6 +319,7 @@ function ActivityBubble({ msg, live, modelLabel, onMarkUnread }: Omit<Props, 'ms
             {modelLabel && <span>· {modelLabel}</span>}
             <CopyButton getText={() => getAssistantCopyText(msg)} />
             {onMarkUnread && msg.result != null && <MarkUnreadButton onClick={() => onMarkUnread(msg.id)} />}
+            {onThread && <ThreadButton msg={msg} fallback={getAssistantCopyText(msg)} onThread={onThread} />}
           </div>
         )}
       </div>
@@ -313,7 +335,7 @@ function ActivityBubble({ msg, live, modelLabel, onMarkUnread }: Omit<Props, 'ms
  */
 export default memo(MessageBubble)
 
-function MessageBubble({ msg, live, modelLabel, onMarkUnread }: Props) {
+function MessageBubble({ msg, live, modelLabel, onMarkUnread, onThread }: Props) {
   const isUser = msg.role === 'user'
   // Above the early return — a hook must not sit on one side of a conditional
   // return, or the first message whose content grows into activity lines takes
@@ -326,7 +348,7 @@ function MessageBubble({ msg, live, modelLabel, onMarkUnread }: Props) {
 
   // Assistant message with [tool]/[chunk]/[note] lines → activity bubble
   if (!isUser && hasActivityLines(msg.content)) {
-    return <ActivityBubble msg={msg} live={live} modelLabel={modelLabel} onMarkUnread={onMarkUnread} />
+    return <ActivityBubble msg={msg} live={live} modelLabel={modelLabel} onMarkUnread={onMarkUnread} onThread={onThread} />
   }
 
   return (
@@ -380,6 +402,7 @@ function MessageBubble({ msg, live, modelLabel, onMarkUnread }: Props) {
             {!isUser && modelLabel && <span>· {modelLabel}</span>}
             <CopyButton getText={() => msg.content} />
             {!isUser && onMarkUnread && msg.result != null && <MarkUnreadButton onClick={() => onMarkUnread(msg.id)} />}
+            {onThread && msg.content && <ThreadButton msg={msg} fallback={msg.content} onThread={onThread} />}
           </div>
         )}
       </div>

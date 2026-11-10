@@ -693,6 +693,10 @@ export default function ChatView({
     }
   }, [conversationId])
   const canMarkUnread = !shared && !embedded
+  // A side chat from a passage: a selection's #, or the whole message's.
+  const startThread = embedded || shared || !conversationId
+    ? undefined
+    : (quote: ReplyTo) => setNewThread({ convId: conversationId, quote })
 
   function dismissUnread() {
     if (!conversationId) return
@@ -990,7 +994,7 @@ export default function ChatView({
               <SelectionReply
                 paneRef={paneRef}
                 onQuote={setQuote}
-                onThread={embedded || shared ? undefined : (q) => conversationId && setNewThread({ convId: conversationId, quote: q })}
+                onThread={startThread}
               />
             )}
             {/* Back to the latest messages, with what landed while reading up
@@ -1080,6 +1084,7 @@ export default function ChatView({
                             live={isProcessing && item.msg.id === lastMessageId}
                             modelLabel={modelLabels.get(item.msg.id)}
                             onMarkUnread={canMarkUnread ? markUnread : undefined}
+                            onThread={startThread}
                           />
                           {threadMarks([item.msg.id])}
                         </Fragment>

@@ -21,6 +21,20 @@ test.describe('threads from a passage', () => {
     await signIn(page)
   })
 
+  test('# under a message opens a thread from the whole of it, no selection needed', async ({ page }) => {
+    await openConversation(page, 'Markdown showcase')
+    const bubble = page.locator('[data-message-id]').filter({ hasText: 'A paragraph with' }).first()
+    await bubble.hover()
+    await bubble.getByTestId('thread-message').click()
+    const panel = page.getByTestId('thread-panel')
+    await expect(panel).toBeVisible()
+    // Quoted as it reads on screen, like a selection — not its markdown.
+    const quote = panel.locator('blockquote')
+    await expect(quote).toContainText('A paragraph with bold, italic, inline code and a link.')
+    await expect(quote).not.toContainText('**')
+    await expect(page.getByRole('tablist').getByRole('tab', { name: 'New side chat' })).toHaveAttribute('aria-selected', 'true')
+  })
+
   test('# opens a thread beside the chat; its first message creates it, marked under the message', async ({ page }) => {
     await openConversation(page, 'Markdown showcase')
     const chatUrl = page.url()
