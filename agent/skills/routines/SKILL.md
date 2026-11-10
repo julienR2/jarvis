@@ -20,7 +20,9 @@ the ⟳ control in a chat's title bar lists those reporting into that chat.
 2. **It can report into a chat** (`conversation_id`). Each finished run posts its
    answer there. Every run is told, without you writing it, to open with
    `[quiet]` when there is nothing worth seeing (a silent line), or with
-   `[push: <summary>]` when it is worth a phone notification. So the prompt only
+   `[push: <summary>]` when it is worth a phone notification — or with both,
+   `[quiet] [push: <summary>]`, when the work shows elsewhere (an app it
+   updated) and only the notification should reach the user. So the prompt only
    has to say **what counts** as worth reporting, and as worth a push.
 3. **Unattached**, the thread stands alone and appears under the sidebar's
    Routines section when a run is worth seeing. Its `notify` mode decides push: `auto`

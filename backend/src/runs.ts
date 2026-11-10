@@ -154,20 +154,24 @@ export function splitSilent(text: string): { silent: boolean; text: string } {
  * badge, no push; `[push: <one line>]` — worth a notification now, that line
  * its text (the summary is optional); no marker — a badge, nothing more.
  * Only Auto asks for a marker; the chat's mode decides what it is worth.
+ *
+ * A routine's run may carry both: its work landed somewhere else (an app's
+ * data, a file), so the chat has nothing to read, but the news still rings —
+ * one push per email filed, say. `push` is that ask, whatever the level.
  */
 export type NotifyLevel = 'silent' | 'badge' | 'push'
 
 const PUSH_RE = /(^|\n)([ \t]*)\[push(?::[ \t]*([^\]\n]*))?\][ \t]*/gi
 
-/** A reply's notify level and push summary, and its text without the markers. */
-export function splitNotify(raw: string): { level: NotifyLevel; summary: string | null; text: string } {
+/** A reply's notify level and push ask, and its text without the markers. */
+export function splitNotify(raw: string): { level: NotifyLevel; push: { summary: string | null } | null; text: string } {
   const { silent, text: unquiet } = splitSilent(raw)
   const match = new RegExp(PUSH_RE.source, 'i').exec(unquiet)
   const text = match ? unquiet.replace(PUSH_RE, '$1$2').trim() : unquiet
-  // Both markers is a confused answer; the quieter one wins.
-  if (silent) return { level: 'silent', summary: null, text }
-  if (match) return { level: 'push', summary: match[3]?.trim() || null, text }
-  return { level: 'badge', summary: null, text }
+  const push = match ? { summary: match[3]?.trim() || null } : null
+  if (silent) return { level: 'silent', push, text }
+  if (push) return { level: 'push', push, text }
+  return { level: 'badge', push, text }
 }
 
 const QUIET_OPENERS = /^(?:\[quiet\]|ras\b|rien à signaler|nothing to report|no news|⏭️)/iu

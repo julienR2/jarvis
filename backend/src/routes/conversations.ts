@@ -1010,7 +1010,7 @@ export function attachConversationStream(
       if (ev.type === 'done') {
         dropLive()
         // The notify markers are an instruction to us, not text for the person.
-        const { level, summary, text: resultText } = splitNotify(ev.result || '')
+        const { level, push, text: resultText } = splitNotify(ev.result || '')
         const silent = level === 'silent'
         console.log(`[msg] done — result: ${resultText.length} chars`)
 
@@ -1079,7 +1079,7 @@ export function attachConversationStream(
         closeQuestions()
         const wasRoutine = !!options?.routine
         if (attached.runIds.size > 0) {
-          quietTurn = !ev.pending && closeRuns('done', { result: resultText, quiet: silent, push: level === 'push' ? { summary } : undefined })
+          quietTurn = !ev.pending && closeRuns('done', { result: resultText, quiet: silent, push: push ?? undefined })
         } else if (silent && !ev.pending) {
           // A person's turn the model judged not worth coming back for: it
           // stays on screen, but raises no badge and no push.
@@ -1115,7 +1115,7 @@ export function attachConversationStream(
             .replace(/\n+/g, ' ')
             .trim()
             .slice(0, 200)
-          pushForConversation(conversationId, conv.title, summary || plain).catch(
+          pushForConversation(conversationId, conv.title, push?.summary || plain).catch(
             (err) => console.error('[push] pushForConversation failed:', err),
           )
         }

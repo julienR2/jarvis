@@ -16,7 +16,8 @@
 //
 // Either way the mode that decides reads the same: Always pushes whatever was
 // worth a badge, No push (unsubscribe) never pushes, and Auto pushes what the
-// run marked [push] — and failures, which the person has to know about.
+// run marked [push] — and failures, which the person has to know about. A run
+// marked both [quiet] and [push] leaves a silent line yet still rings.
 
 import { getDb, uuid } from './db.js'
 import { emitConversationEvent, emitGlobalEvent } from './sse.js'
@@ -126,6 +127,8 @@ export function routineRunPrompt(
     'begin your final answer with the marker [quiet] followed by a one-line summary. Otherwise answer normally and lead with what matters:',
     'it shows as unread, without a phone notification. When it is worth interrupting them for — time-sensitive, or something they must act on —',
     'begin your final answer with [push: <one-line summary>] instead; that line becomes the notification.',
+    'When your work already shows somewhere else (an app you updated, a file) and the chat needs no message, yet the user should still be told,',
+    'begin with both: [quiet] [push: <one-line summary>] — no line in the chat, just the notification.',
     'Errors and questions always reach the user; do not mark those [quiet].',
     '</article>',
   ].join('\n')
@@ -168,14 +171,16 @@ export function reportRun(run: RunRow, quiet: boolean, push: { summary: string |
   const text = failed
     ? run.error || 'The run failed.'
     : (run.result ?? '').trim() || 'Done.'
+  // A [push] rings even on a quiet run: the run asked, and only No push
+  // overrules it. Always adds whatever was worth a badge.
+  const asked = failed || !!push
   const pushes = (mode: ConvRow['notify']) =>
-    mode === 'subscribe' || (mode === 'auto' && (failed || !!push))
+    mode === 'subscribe' ? worthy || asked : mode === 'auto' && asked
   const pushText = push?.summary || plain(text)
 
   const parent = getConv(thread.parent_id)
   if (parent) {
     postReport(parent, thread, run, text, !worthy)
-    if (!worthy) return
     if (pushes(parent.notify)) {
       pushForConversation(parent.id, `${parent.title} · ${run.source_name}`, pushText).catch((err) =>
         console.error('[push] report push failed:', err),
@@ -184,9 +189,10 @@ export function reportRun(run: RunRow, quiet: boolean, push: { summary: string |
     return
   }
 
-  if (!worthy) return
-  surfaceThread(thread.id)
-  emitGlobalEvent({ type: 'new_message', conversation_id: thread.id })
+  if (worthy) {
+    surfaceThread(thread.id)
+    emitGlobalEvent({ type: 'new_message', conversation_id: thread.id })
+  }
   if (!pushes(thread.notify)) return
   pushForConversation(thread.id, thread.title, pushText).catch((err) =>
     console.error('[push] thread push failed:', err),
