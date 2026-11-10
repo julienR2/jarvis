@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Mic, Send, X, Type } from 'lucide-react'
+import { Mic, Send, X, PenLine } from 'lucide-react'
 import { listen, type Microphone, type Recording } from '../lib/dictation'
 
 interface Props {
@@ -7,6 +7,9 @@ interface Props {
   onTranscribeReady?: (recording: Recording) => Promise<void>
   onActiveChange?: (active: boolean) => void
   disabled?: boolean
+  /** Something is typed already: the recording can only become more text in
+   *  the box, not be sent as it is. */
+  textOnly?: boolean
 }
 
 type State = 'idle' | 'recording'
@@ -21,7 +24,7 @@ type State = 'idle' | 'recording'
  * the time the recording is handed over most of it is already transcribed.
  */
 
-export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveChange, disabled }: Props) {
+export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveChange, disabled, textOnly }: Props) {
   const [state, setState] = useState<State>('idle')
   const [duration, setDuration] = useState(0)
   const stateRef = useRef<State>('idle')
@@ -136,22 +139,34 @@ export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveC
           <span className="w-2 h-2 rounded-full bg-danger animate-pulse" />
           {fmt(duration)}
         </span>
-        {onTranscribeReady && (
+        {onTranscribeReady && textOnly ? (
           <button
             onClick={stopTranscribeOnly}
-            className="p-1.5 rounded-xl text-text-muted hover:text-text-primary hover:bg-bg transition-colors"
+            className="p-2 rounded-xl bg-accent text-white hover:opacity-90 transition-opacity"
             title="Transcribe to text"
           >
-            <Type size={14} />
+            <PenLine size={16} />
           </button>
+        ) : (
+          <>
+            {onTranscribeReady && (
+              <button
+                onClick={stopTranscribeOnly}
+                className="p-1.5 rounded-xl text-text-muted hover:text-text-primary hover:bg-bg transition-colors"
+                title="Transcribe to text"
+              >
+                <PenLine size={14} />
+              </button>
+            )}
+            <button
+              onClick={stop}
+              className="p-2 rounded-xl bg-accent text-white hover:opacity-90 transition-opacity"
+              title="Send voice message"
+            >
+              <Send size={16} />
+            </button>
+          </>
         )}
-        <button
-          onClick={stop}
-          className="p-2 rounded-xl bg-accent text-white hover:opacity-90 transition-opacity"
-          title="Send voice message"
-        >
-          <Send size={16} />
-        </button>
       </div>
     )
   }

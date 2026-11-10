@@ -111,9 +111,24 @@ export const drafts = {
 
   setText: (key: string, text: string) => update(key, () => ({ text })),
 
-  /** Dictated words join what is already typed, never replace it. */
-  appendText: (key: string, words: string) =>
-    update(key, (d) => ({ text: d.text + (d.text && !/\s$/.test(d.text) ? ' ' : '') + words })),
+  /**
+   * Dictated words join what is already typed, never replace it: where the
+   * cursor was when recording started, if the text is still what it was then,
+   * at the end otherwise. Returns where the words end, to put the cursor there.
+   */
+  insertText: (key: string, words: string, at?: { start: number; end: number; text: string }): number => {
+    let caret = 0
+    update(key, (d) => {
+      const { start, end } = at && at.text === d.text ? at : { start: d.text.length, end: d.text.length }
+      const before = d.text.slice(0, start)
+      const after = d.text.slice(end)
+      const lead = before && !/\s$/.test(before) ? ' ' : ''
+      const trail = after && !/^\s/.test(after) ? ' ' : ''
+      caret = before.length + lead.length + words.length
+      return { text: before + lead + words + trail + after }
+    })
+    return caret
+  },
 
   /** Starts each upload; it lands in this chat's draft whenever it ends. */
   addFiles: (key: string, files: File[], conversationId?: string) => {

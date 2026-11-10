@@ -83,6 +83,48 @@ test.describe('composer drafts', () => {
     await composer(page).fill('')
   })
 
+  test('with text typed, the mic stays; what is said goes where the cursor was, and the box grows to show it', async ({ page }) => {
+    const id = await newChat(page, `Dictate into text ${Date.now()}`)
+    await page.goto(`c/${id}`)
+    const long = Array.from({ length: 12 }, (_, i) => `Spoken sentence number ${i + 1} about the pasted text.`).join(' ')
+    await page.route('**/api/dictation/*/finish*', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ transcript: long }) }))
+
+    await composer(page).fill('Before. After.')
+    // The cursor between the two sentences.
+    await composer(page).evaluate((t: HTMLTextAreaElement) => t.setSelectionRange(7, 7))
+    await expect(page.getByTitle('Send')).toBeVisible()
+    const heightBefore = await composer(page).evaluate((t) => t.getBoundingClientRect().height)
+
+    await page.getByTitle('Tap to record').click()
+    await page.waitForTimeout(500)
+    // Recording over typed text can't be sent as a voice message: only turned into text.
+    await expect(page.getByTitle('Send voice message')).toHaveCount(0)
+    await expect(page.getByTitle('Send')).toHaveCount(0)
+    await page.getByTitle('Transcribe to text').click()
+
+    await expect(composer(page)).toHaveValue(`Before. ${long} After.`)
+    await expect(composer(page)).toBeFocused()
+    await expect.poll(() => composer(page).evaluate((t) => t.getBoundingClientRect().height)).toBeGreaterThan(heightBefore * 2)
+    await composer(page).fill('')
+  })
+
+  test('dictated into an empty box, a long transcript grows the box to show it', async ({ page }) => {
+    const id = await newChat(page, `Dictate long ${Date.now()}`)
+    await page.goto(`c/${id}`)
+    const long = Array.from({ length: 12 }, (_, i) => `Spoken sentence number ${i + 1}.`).join(' ')
+    await page.route('**/api/dictation/*/finish*', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ transcript: long }) }))
+    const heightBefore = await composer(page).evaluate((t) => t.getBoundingClientRect().height)
+
+    await page.getByTitle('Tap to record').click()
+    await page.waitForTimeout(500)
+    await page.getByTitle('Transcribe to text').click()
+    await expect(composer(page)).toHaveValue(long)
+    await expect.poll(() => composer(page).evaluate((t) => t.getBoundingClientRect().height)).toBeGreaterThan(heightBefore * 2)
+    await composer(page).fill('')
+  })
+
   test('a dictation outlasts the connection dropping: what did not get through is sent again', async ({ page }) => {
     const id = await newChat(page, `Dictate offline ${Date.now()}`)
     await page.goto(`c/${id}`)

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion, Reply, ChevronLeft, ArrowRight, Loader2 } from 'lucide-react'
 import AudioButton from './AudioButton'
 import AnswerCard, { OptionList, hasOptions } from './AnswerCard'
@@ -71,6 +71,8 @@ interface Props {
 export default function ChatInput({ onSend, onSendNow, transcribing: transcribingElsewhere, onSendAudio, onCancel, isProcessing, conversationId, draftKey, autoFocus, focusKey, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange }: Props) {
   const [ownKey] = useState(() => `tmp:${Math.random().toString(36).slice(2)}`)
   const key = draftKey ?? conversationId ?? ownKey
+  const keyRef = useRef(key)
+  keyRef.current = key
   // Text, files and transcriptions are the chat's, not the composer's: they
   // stay with it when another chat is opened, and what finishes meanwhile
   // lands there.
@@ -152,13 +154,29 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
 
   // The box fits what it holds, up to a cap — typed, dictated, or a draft
   // come back to. Hidden (its pane switched off) it measures nothing, and is
-  // left at its natural height rather than pinned to 0.
-  useLayoutEffect(() => {
+  // left at its natural height rather than pinned to 0 — then measured again
+  // once it shows, or whenever its width changes (a pane opening, the phone
+  // turning), which rewraps the same text onto more or fewer lines.
+  const fit = useCallback(() => {
     const t = textareaRef.current
     if (!t) return
     t.style.height = 'auto'
     if (t.scrollHeight) t.style.height = `${Math.min(t.scrollHeight, 200)}px`
-  }, [input])
+  }, [])
+  useLayoutEffect(fit, [input, fit])
+  useEffect(() => {
+    const t = textareaRef.current
+    if (!t || typeof ResizeObserver === 'undefined') return
+    let width = -1
+    const observer = new ResizeObserver(([entry]) => {
+      // Only the width: the height is ours to set, and reacting to it would loop.
+      if (entry.contentRect.width === width) return
+      width = entry.contentRect.width
+      fit()
+    })
+    observer.observe(t)
+    return () => observer.disconnect()
+  }, [fit])
 
   // Handle initial files from share intent
   useEffect(() => {
@@ -220,12 +238,28 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
     }
   }
 
+  // Where the cursor was in this chat's text when recording started — a
+  // textarea keeps its selection after losing focus to the mic — which is
+  // where the words go.
+  const caretRef = useRef<{ key: string; start: number; end: number; text: string } | null>(null)
+  const onAudioActive = useCallback((active: boolean) => {
+    const t = textareaRef.current
+    if (active && t) caretRef.current = { key: keyRef.current, start: t.selectionStart, end: t.selectionEnd, text: t.value }
+    setAudioActive(active)
+  }, [])
+
   async function handleTranscribeOnly(recording: Recording) {
     const k = key
+    const caret = caretRef.current?.key === k ? caretRef.current : undefined
     const res = await drafts.track(k, api.transcribeAudio(recording))
     if (!res?.transcript?.trim()) return
-    drafts.appendText(k, res.transcript.trim())
-    setTimeout(() => textareaRef.current?.focus(), 0)
+    const end = drafts.insertText(k, res.transcript.trim(), caret)
+    setTimeout(() => {
+      const t = textareaRef.current
+      if (!t || keyRef.current !== k) return
+      t.focus()
+      t.setSelectionRange(end, end)
+    }, 0)
   }
 
   function handlePaste(e: React.ClipboardEvent) {
@@ -276,10 +310,11 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
     setInput(v)
     setTimeout(() => textareaRef.current?.focus(), 0)
   })
-  // Mic shows when no text typed, OR when files are attached (even with text).
+  // Mic shows beside Send even with text typed: what is said then goes into
+  // the box where the cursor was (textOnly), to be read over and sent.
   // Send stays available while Claude works: the message is steered into the
   // running turn (Stop shows to its left in that case).
-  const showMic = !audioActive && !transcribing && (!input.trim() || hasFiles)
+  const showMic = !audioActive && !transcribing
   // Before the last of several questions, the same button (and Enter) moves on.
   const showSend = !audioActive && !transcribing && hasContent && (!hasFiles || allUploaded || !!onSendNow)
   const showCancel = isProcessing && !audioActive
@@ -449,7 +484,8 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
                 <AudioButton
                   onAudioReady={multi ? handleTranscribeOnly : handleVoice}
                   onTranscribeReady={handleTranscribeOnly}
-                  onActiveChange={setAudioActive}
+                  onActiveChange={onAudioActive}
+                  textOnly={!!input.trim()}
                 />
               </div>
               {/* Stop sits left of Send, never the other way round: Send has to
