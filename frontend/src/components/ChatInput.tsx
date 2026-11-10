@@ -7,6 +7,7 @@ import { SlashMenu, useSlashMenu } from './SlashMenu'
 import { api, questionsOf, type Attachment, type Effort, type PendingQuestion, type ReplyTo } from '../api'
 import type { OutgoingUpload } from '../lib/outbox'
 import { drafts, revoke, useDraft, type DraftFile } from '../lib/drafts'
+import type { Recording } from '../lib/dictation'
 
 /** What the composer held when a voice message was sent: it goes along. */
 export interface VoiceExtras {
@@ -28,7 +29,7 @@ interface Props {
   /** The voice message and whatever else was in the composer — typed text,
    *  attachments (uploads possibly still running) — which the draft gives up
    *  for it. A rejection hands them back to the draft. */
-  onSendAudio: (blob: Blob, extras: VoiceExtras) => Promise<void>
+  onSendAudio: (recording: Recording, extras: VoiceExtras) => Promise<void>
   onCancel: () => void
   isProcessing: boolean
   conversationId?: string
@@ -206,11 +207,11 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
   // Both are bound to this chat's draft when the recording stops: a
   // transcription still running when another chat is opened finishes into
   // this one, never into the composer on screen.
-  async function handleVoice(blob: Blob) {
+  async function handleVoice(recording: Recording) {
     const k = key
     const taken = drafts.take(k)
     try {
-      await drafts.track(k, onSendAudio(blob, taken))
+      await drafts.track(k, onSendAudio(recording, taken))
       revoke(taken.files)
     } catch (err) {
       drafts.restore(k, taken)
@@ -219,9 +220,9 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
     }
   }
 
-  async function handleTranscribeOnly(blob: Blob) {
+  async function handleTranscribeOnly(recording: Recording) {
     const k = key
-    const res = await drafts.track(k, api.transcribeAudio(blob))
+    const res = await drafts.track(k, api.transcribeAudio(recording))
     if (!res?.transcript?.trim()) return
     drafts.appendText(k, res.transcript.trim())
     setTimeout(() => textareaRef.current?.focus(), 0)

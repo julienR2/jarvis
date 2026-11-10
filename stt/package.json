@@ -1,0 +1,17 @@
+{
+  "name": "jarvis-stt",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "sherpa-onnx-node": "2.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25",
+    "typescript": "^5"
+  }
+}

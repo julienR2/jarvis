@@ -37,17 +37,49 @@ const ROUTES = [
   }, 200],
 ]
 
-// Whisper, too (the backend's WHISPER_URL points here): every recording says
-// the same line, after a beat long enough for the composer's "Transcribing…" to
-// be seen — and for a spec to tell whether the bubble waited for it.
+// The speech service, too (the backend's STT_URL points here): every
+// recording says the same line, after a beat long enough for the composer's
+// "Transcribing…" to be seen — and for a spec to tell whether the bubble waited
+// for it. A dictation is held to the same offsets the real one checks.
 const TRANSCRIPT = 'Voice note from the e2e microphone'
 const ASR_DELAY_MS = 1500
+const dictations = new Map()
 
 const ASK_ANSWER = 'Answer from the stub engine'
 const prompts = new Map()
 
 createServer((req, res) => {
   const path = new URL(req.url, 'http://localhost').pathname
+  const dictation = path.match(/^\/dictation\/([^/]+)(\/finish)?$/)
+  if (dictation) {
+    const [, id, finish] = dictation
+    const url = new URL(req.url, 'http://localhost')
+    const json = (status, body) => {
+      res.writeHead(status, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(body))
+    }
+    if (req.method === 'DELETE') {
+      dictations.delete(id)
+      req.resume()
+      return json(200, { ok: true })
+    }
+    if (finish) {
+      req.resume()
+      const received = dictations.get(id) ?? 0
+      if (received !== Number(url.searchParams.get('length'))) return json(409, { received })
+      setTimeout(() => json(200, { transcript: TRANSCRIPT }), ASR_DELAY_MS)
+      return
+    }
+    let size = 0
+    req.on('data', (c) => { size += c.length })
+    req.on('end', () => {
+      const offset = Number(url.searchParams.get('offset'))
+      const received = dictations.get(id) ?? 0
+      if (offset <= received && offset + size > received) dictations.set(id, offset + size)
+      json(200, { received: dictations.get(id) ?? 0 })
+    })
+    return
+  }
   if (path === '/asr') {
     req.resume()
     setTimeout(() => {

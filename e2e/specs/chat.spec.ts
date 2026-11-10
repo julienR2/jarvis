@@ -380,7 +380,7 @@ test.describe('chat rendering', () => {
     await page.waitForTimeout(500)
     await page.getByTitle('Send voice message').click()
 
-    // The stub's Whisper takes 1.5 s: all that time the composer says so and
+    // The stub's speech service takes 1.5 s: all that time the composer says so and
     // the chat has no bubble yet…
     const transcribing = page.getByText('Transcribing…')
     const bubble = page.getByText('Voice note from the e2e microphone')

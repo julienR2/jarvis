@@ -30,6 +30,7 @@ import { watchOpenDocs } from './tabs.js'
 import { webhookRoutes, webhookTriggerRoute } from './routes/webhooks.js'
 import { shareTargetRoutes } from './routes/share-targets.js'
 import { uploadRoutes, UPLOADS_DIR, MAX_FILE_SIZE } from './routes/uploads.js'
+import { dictationRoutes } from './routes/dictation.js'
 import { pushRoutes } from './routes/push.js'
 import { appRoutes } from './routes/apps.js'
 import { internalRoutes } from './routes/internal.js'
@@ -211,6 +212,7 @@ await app.register(webhookRoutes, { prefix: '/api/webhooks' })
 await app.register(webhookTriggerRoute, { prefix: '/api/hooks' })
 await app.register(shareTargetRoutes, { prefix: '/api/share-targets' })
 await app.register(uploadRoutes)
+await app.register(dictationRoutes, { prefix: '/api/dictation' })
 await app.register(pushRoutes, { prefix: '/api/push' })
 await app.register(appRoutes, { prefix: '/api/apps' })
 await app.register(internalRoutes, { prefix: '/internal' })

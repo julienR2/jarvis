@@ -1,4 +1,5 @@
 import { API_BASE, BASE_PATH } from './base'
+import type { Recording } from './lib/dictation'
 
 const BASE = API_BASE
 
@@ -95,6 +96,48 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   })
   if (res.status === 401) {
     handleUnauthorized()
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new ApiError(err.error || res.statusText, res.status)
+  }
+  return res.json()
+}
+
+async function upload<T>(path: string, form: FormData): Promise<T> {
+  const token = getToken()
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  })
+  if (res.status === 401) handleUnauthorized()
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new ApiError(err.error || res.statusText, res.status)
+  }
+  return res.json()
+}
+
+/** What the server answers a dictation lacking audio: the offset to resume from. */
+export interface Missing { missing: number }
+
+export function isMissing(x: unknown): x is Missing {
+  return typeof x === 'object' && x !== null && 'missing' in x
+}
+
+/** A dictation request, where a 409 is an answer: the server lacks the audio from `received` on. */
+async function dictationRequest<T>(method: string, path: string, body?: BodyInit, type?: string): Promise<T | Missing> {
+  const token = getToken()
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: { ...(type ? { 'Content-Type': type } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body,
+  })
+  if (res.status === 401) handleUnauthorized()
+  if (res.status === 409) {
+    const { received } = (await res.json()) as { received: number }
+    return { missing: received }
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
@@ -340,53 +383,62 @@ export const api = {
   // saved row — the composer shows "Transcribing…" until then. The server
   // finishes the job even if the client navigates away meanwhile.
   // What else the composer held goes with it — typed text ahead of the
-  // transcript, the attachments, the quote — as fields before the file, which
-  // is where the server reads them from.
+  // transcript, the attachments, the quote.
+  //
+  // The recording streamed to the server while it was spoken (lib/dictation),
+  // so this mostly waits on its last few seconds. Should that keep failing,
+  // the recording is uploaded whole instead, as before.
   sendAudio: async (
     conversationId: string,
-    audioBlob: Blob,
+    recording: Recording,
     opts: { model?: string; effort?: Effort; text?: string; attachments?: Attachment[]; replyTo?: ReplyTo | null } = {},
   ): Promise<{ message: Message }> => {
     const { model, effort, text, attachments, replyTo } = opts
-    const form = new FormData()
-    if (text?.trim()) form.append('text', text)
-    if (attachments?.length) form.append('attachments', JSON.stringify(attachments))
-    if (replyTo) form.append('reply_to', JSON.stringify(replyTo))
-    form.append('file', audioBlob, 'audio.webm')
-    const token = getToken()
     const query = new URLSearchParams()
     if (model) query.set('model', model)
     if (effort) query.set('effort', effort)
     const qs = query.size ? `?${query}` : ''
-    const res = await fetch(`${BASE}/conversations/${conversationId}/audio${qs}`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      body: form,
-    })
-    if (res.status === 401) handleUnauthorized()
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error(err.error || res.statusText)
+    try {
+      return await recording.deliver((dictation, length) =>
+        dictationRequest<{ message: Message }>('POST', `/conversations/${conversationId}/dictation${qs}`, JSON.stringify({
+          dictation,
+          length,
+          text: text?.trim() || undefined,
+          attachments: attachments?.length ? attachments : undefined,
+          reply_to: replyTo ?? undefined,
+        }), 'application/json'),
+      )
+    } catch (err) {
+      if (err instanceof ApiError && err.status < 500) throw err
+      console.warn('Streamed voice message failed, uploading it whole:', err)
     }
-    return res.json()
+    const form = new FormData()
+    if (text?.trim()) form.append('text', text)
+    if (attachments?.length) form.append('attachments', JSON.stringify(attachments))
+    if (replyTo) form.append('reply_to', JSON.stringify(replyTo))
+    form.append('file', recording.wav(), 'audio.wav')
+    return upload(`/conversations/${conversationId}/audio${qs}`, form)
   },
 
-  transcribeAudio: async (audioBlob: Blob): Promise<{ transcript: string }> => {
-    const form = new FormData()
-    form.append('file', audioBlob, 'audio.webm')
-    const token = getToken()
-    const res = await fetch(`${BASE}/conversations/audio`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      body: form,
-    })
-    if (res.status === 401) handleUnauthorized()
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error(err.error || res.statusText)
+  transcribeAudio: async (recording: Recording): Promise<{ transcript: string }> => {
+    try {
+      return await recording.deliver((id, length) =>
+        dictationRequest<{ transcript: string }>('POST', `/dictation/${id}/finish?length=${length}`))
+    } catch (err) {
+      if (err instanceof ApiError && err.status < 500) throw err
+      console.warn('Streamed dictation failed, uploading it whole:', err)
     }
-    return res.json()
+    const form = new FormData()
+    form.append('file', recording.wav(), 'audio.wav')
+    return upload('/conversations/audio', form)
   },
+
+  /** Audio from byte `offset` of a dictation on; answers with how much the server holds. */
+  appendDictation: async (id: string, offset: number, pcm16: Uint8Array<ArrayBuffer>): Promise<{ received: number }> => {
+    const answer = await dictationRequest<{ received: number }>('PUT', `/dictation/${id}?offset=${offset}`, pcm16, 'application/octet-stream')
+    return isMissing(answer) ? { received: answer.missing } : answer
+  },
+  dropDictation: (id: string) => request<{ ok: boolean }>('DELETE', `/dictation/${id}`),
 
   // Crons
   getCrons: () => request<Cron[]>('GET', '/crons'),

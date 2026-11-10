@@ -35,7 +35,7 @@ services:
 
   # No container_name anywhere: Compose prefixes containers with the project
   # (directory) name, so several clones can run side by side on one host.
-  # Services reach each other by service name (backend, engine, whisper, ...).
+  # Services reach each other by service name (backend, engine, stt, ...).
   # Pin names in docker-compose.override.yml if something external (e.g. a
   # reverse proxy) routes by container name.
   backend:
@@ -66,7 +66,7 @@ services:
       WORKSPACE_DIR: /jarvis/agent/workspace
       SECRETS_PATH: /jarvis/agent/data/secrets.json
       JARVIS_REPO_DIR: /jarvis
-      WHISPER_URL: http://whisper:9000
+      STT_URL: http://stt:9000
       ENGINE_URL: http://engine:3010
       TZ: ${TZ:-UTC}
     ports:
@@ -209,14 +209,19 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
-  whisper:
-    image: onerahmet/openai-whisper-asr-webservice:latest
+  # Speech-to-text on this machine's CPU: NVIDIA Parakeet v3 through
+  # sherpa-onnx, the model Paseo dictates with (25 European languages, detected
+  # on its own). Voice messages stream into it while they are spoken; see
+  # stt/src/index.ts. The model (~490 MB) downloads into stt-models on first
+  # start. The code is baked into the image, so a change to stt/ goes live with
+  # docker compose up -d --build stt.
+  stt:
+    build: ./stt
     restart: unless-stopped
     environment:
-      ASR_MODEL: small
-      ASR_ENGINE: faster_whisper
+      STT_THREADS: ${STT_THREADS:-4}
     volumes:
-      - whisper-cache:/root/.cache
+      - stt-models:/models
     logging: *default-logging
 
   playwright:
@@ -321,7 +326,7 @@ services:
     logging: *default-logging
 
 volumes:
-  whisper-cache:
+  stt-models:
   # One per service, each populated by that service's own `npm install` on boot.
   # Named rather than anonymous so the engine can mount the backend's and the
   # frontend's read-only — that is what lets the agent typecheck its own edits.

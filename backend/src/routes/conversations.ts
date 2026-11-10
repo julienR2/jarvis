@@ -36,6 +36,7 @@ import {
   emitGlobalEvent,
 } from '../sse.js'
 import { config } from '../config.js'
+import { DICTATION_ID_RE, dropDictation, finishDictation, transcribeFile } from '../stt.js'
 import { getConnectorValues } from '../connectors.js'
 import { topicContextFor } from '../topics.js'
 import { MAX_SHORTCUTS } from '../shortcuts.js'
@@ -2108,12 +2109,21 @@ export async function conversationRoutes(app: FastifyInstance) {
 
   // Throws on failure so callers can either send an HTTP error (transcribe-only)
   // or surface it into the conversation (background transcribe + send).
+  // The local model first: it is the fast one. ElevenLabs, when connected,
+  // stands in if it fails.
   async function transcribeAudioBuffer(buffer: Buffer): Promise<string> {
     const audioBlob = new Blob([new Uint8Array(buffer)], { type: 'audio/webm' })
     let transcript = ''
+    let failure: Error | null = null
+
+    try {
+      transcript = await transcribeFile(audioBlob, 'audio.webm')
+    } catch (err) {
+      failure = err as Error
+    }
 
     const elSecrets = getConnectorValues('elevenlabs')
-    if (elSecrets?.ELEVENLABS_API_KEY) {
+    if (failure && elSecrets?.ELEVENLABS_API_KEY) {
       try {
         const form = new FormData()
         form.append('audio', audioBlob, 'audio.webm')
@@ -2126,23 +2136,12 @@ export async function conversationRoutes(app: FastifyInstance) {
         if (elRes.ok) {
           const data = await elRes.json() as { text?: string }
           transcript = (data.text ?? '').trim()
+          failure = null
         }
-      } catch { /* fall through to Whisper */ }
+      } catch { /* report the local failure */ }
     }
 
-    if (!transcript) {
-      const form = new FormData()
-      form.append('audio_file', audioBlob, 'audio.webm')
-      const whisperRes = await fetch(
-        `${config.whisperUrl}/asr?task=transcribe&output=txt`,
-        { method: 'POST', body: form },
-      )
-      if (!whisperRes.ok) {
-        throw new TranscriptionError(`Transcription failed: ${whisperRes.status}`, 502)
-      }
-      transcript = (await whisperRes.text()).trim()
-    }
-
+    if (failure) throw new TranscriptionError(failure.message, 502)
     if (!transcript) {
       throw new TranscriptionError('No speech detected', 400)
     }
@@ -2213,13 +2212,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       // doesn't stop the handler — the message is still posted.
       try {
         const transcript = await transcribeAudioBuffer(buffer)
-        const content = typed ? `${typed}\n\n${transcript}` : transcript
-        const userMsgId = processMessage(id, conv, content, attachments, {
-          transcribed: true,
-          replyTo: quoted,
-          ...messageModel(req, conv, req.query.model, req.query.effort),
-        })
-        return { message: getMessageRow(userMsgId!) }
+        return { message: postTranscript(id, conv, typed, transcript, attachments, quoted, req) }
       } catch (err) {
         console.error('[audio] transcription failed:', err)
         const message = `Audio transcription failed: ${(err as Error)?.message ?? err}`
@@ -2229,4 +2222,60 @@ export async function conversationRoutes(app: FastifyInstance) {
       }
     },
   )
+
+  function postTranscript(
+    id: string,
+    conv: ConvRow,
+    typed: string,
+    transcript: string,
+    attachments: Attachment[],
+    quoted: ReplyTo | undefined,
+    req: { query: { model?: string; effort?: string } },
+  ) {
+    const content = typed ? `${typed}\n\n${transcript}` : transcript
+    const userMsgId = processMessage(id, conv, content, attachments, {
+      transcribed: true,
+      replyTo: quoted,
+      ...messageModel(req, conv, req.query.model, req.query.effort),
+    })
+    return getMessageRow(userMsgId!)
+  }
+
+  // A voice message that streamed to the speech service while it was spoken
+  // (POST /api/dictation): the service already has the audio, and most of it
+  // transcribed. A 409 tells the client the service lacks part of it — it
+  // sends the rest and asks again, nothing is posted meanwhile. Any other
+  // failure isn't posted either: the client still holds the recording and
+  // falls back to uploading it to /:id/audio, which reports its own.
+  app.post<{
+    Params: { id: string }
+    Querystring: { model?: string; effort?: string }
+    Body: { dictation?: string; length?: number; text?: string; attachments?: Attachment[]; reply_to?: unknown }
+  }>('/:id/dictation', auth, async (req, reply) => {
+    const { id } = req.params
+    const conv = getDb()
+      .prepare('SELECT * FROM conversations WHERE id = ?')
+      .get(id) as ConvRow | undefined
+    if (!conv) return reply.code(404).send({ error: 'Not found' })
+
+    const { dictation, length, text, attachments = [], reply_to } = req.body ?? {}
+    if (typeof dictation !== 'string' || !DICTATION_ID_RE.test(dictation) || !Number.isInteger(length)) {
+      return reply.code(400).send({ error: 'dictation and length are required' })
+    }
+    if (!Array.isArray(attachments)) return reply.code(400).send({ error: 'attachments must be a list' })
+    const quoted = checkReplyTo(id, reply_to as { message_id?: unknown; text?: unknown } | undefined)
+    if (typeof quoted === 'string') return reply.code(400).send({ error: quoted })
+
+    let answer
+    try {
+      answer = await finishDictation(dictation, length!)
+    } catch (err) {
+      return reply.code(502).send({ error: (err as Error).message })
+    }
+    if (answer.status === 409) return reply.code(409).send(answer.body)
+    const transcript = 'transcript' in answer.body ? answer.body.transcript : ''
+    if (!transcript) return reply.code(400).send({ error: 'No speech detected' })
+    void dropDictation(dictation)
+    return { message: postTranscript(id, conv, text?.trim() ?? '', transcript, attachments, quoted, req) }
+  })
 }

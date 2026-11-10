@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { Mic, Send, X, Type } from 'lucide-react'
+import { listen, type Microphone, type Recording } from '../lib/dictation'
 
 interface Props {
-  onAudioReady: (blob: Blob) => Promise<void>
-  onTranscribeReady?: (blob: Blob) => Promise<void>
+  onAudioReady: (recording: Recording) => Promise<void>
+  onTranscribeReady?: (recording: Recording) => Promise<void>
   onActiveChange?: (active: boolean) => void
   disabled?: boolean
 }
@@ -11,23 +12,25 @@ interface Props {
 type State = 'idle' | 'recording'
 
 /**
- * Records, then hands the audio over and is ready again at once: the
+ * Records, then hands the recording over and is ready again at once: the
  * transcription that follows belongs to the chat it was recorded for, and the
  * composer shows it from the draft (lib/drafts) — still there after leaving
  * the chat and coming back, which state in here could not be.
+ *
+ * The audio streams to the server while it is spoken (lib/dictation), so by
+ * the time the recording is handed over most of it is already transcribed.
  */
 
 export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveChange, disabled }: Props) {
   const [state, setState] = useState<State>('idle')
   const [duration, setDuration] = useState(0)
   const stateRef = useRef<State>('idle')
-  const mediaRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
+  const startingRef = useRef(false)
+  const micRef = useRef<Microphone | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const startTimeRef = useRef(0)
-  const cancelledRef = useRef(false)
-  const modeRef = useRef<'send' | 'transcribe'>('send')
   const wakeLockRef = useRef<WakeLockSentinel | null>(null)
+  const mountedRef = useRef(true)
 
   function updateState(s: State) {
     stateRef.current = s
@@ -38,61 +41,33 @@ export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveC
     onActiveChange?.(state !== 'idle')
   }, [state, onActiveChange])
 
+  const onAudioRef = useRef(onAudioReady)
+  onAudioRef.current = onAudioReady
   const onTranscribeRef = useRef(onTranscribeReady)
   onTranscribeRef.current = onTranscribeReady
   // Unmounted mid-recording — another chat opened: the words are kept, as
   // text in the draft of the chat they were spoken for, not sent and not lost.
   useEffect(() => () => {
+    mountedRef.current = false
     if (stateRef.current === 'recording' && onTranscribeRef.current) {
-      modeRef.current = 'transcribe'
-      doStop()
+      finish('transcribe')
     } else {
-      cleanup()
+      micRef.current?.recording.discard()
+      halt()
     }
   }, [])
 
   async function start() {
-    if (stateRef.current !== 'idle' || disabled) return
-
+    if (stateRef.current !== 'idle' || startingRef.current || disabled) return
+    startingRef.current = true
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
-      mediaRef.current = recorder
-      chunksRef.current = []
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data)
+      const mic = await listen()
+      if (!mountedRef.current) {
+        mic.stop()
+        mic.recording.discard()
+        return
       }
-
-      recorder.onstop = async () => {
-        recorder.stream.getTracks().forEach((t) => t.stop())
-
-        if (cancelledRef.current) {
-          cancelledRef.current = false
-          chunksRef.current = []
-          updateState('idle')
-          return
-        }
-
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        chunksRef.current = []
-        const mode = modeRef.current
-        modeRef.current = 'send'
-        updateState('idle')
-        if (blob.size === 0) return
-        try {
-          if (mode === 'transcribe' && onTranscribeReady) {
-            await onTranscribeReady(blob)
-          } else {
-            await onAudioReady(blob)
-          }
-        } catch (err) {
-          console.error('Audio processing failed:', err)
-        }
-      }
-
-      recorder.start(250)
+      micRef.current = mic
       navigator.wakeLock?.request('screen').then((lock) => { wakeLockRef.current = lock }).catch(() => {})
       updateState('recording')
       startTimeRef.current = Date.now()
@@ -102,60 +77,45 @@ export default function AudioButton({ onAudioReady, onTranscribeReady, onActiveC
       }, 1000)
     } catch (err) {
       console.error('Recording failed:', err)
-      cleanup()
+      halt()
+    } finally {
+      startingRef.current = false
     }
   }
 
-  function releaseWakeLock() {
+  /** Stops the microphone and the timer, and forgets the recording. */
+  function halt() {
     wakeLockRef.current?.release().catch(() => {})
     wakeLockRef.current = null
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    micRef.current?.stop()
+    micRef.current = null
+    updateState('idle')
+    setDuration(0)
   }
 
-  function doStop() {
-    if (stateRef.current !== 'recording') return
-    releaseWakeLock()
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
-    if (mediaRef.current && mediaRef.current.state !== 'inactive') {
-      mediaRef.current.stop()
-    }
-    mediaRef.current = null
+  function finish(mode: 'send' | 'transcribe') {
+    if (stateRef.current !== 'recording' || !micRef.current) return
+    const { recording } = micRef.current
+    halt()
+    if (recording.bytes === 0) return
+    recording.end()
+    const handOver = mode === 'transcribe' && onTranscribeRef.current ? onTranscribeRef.current : onAudioRef.current
+    handOver(recording).catch((err) => console.error('Audio processing failed:', err))
   }
 
   function stop() {
-    modeRef.current = 'send'
-    doStop()
+    finish('send')
   }
 
   function stopTranscribeOnly() {
-    modeRef.current = 'transcribe'
-    doStop()
+    finish('transcribe')
   }
 
   function cancel() {
     if (stateRef.current !== 'recording') return
-    cancelledRef.current = true
-    releaseWakeLock()
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
-    if (mediaRef.current && mediaRef.current.state !== 'inactive') {
-      mediaRef.current.stop()
-    }
-    mediaRef.current = null
-    setDuration(0)
-  }
-
-  function cleanup() {
-    releaseWakeLock()
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
-    if (mediaRef.current) {
-      mediaRef.current.stream.getTracks().forEach((t) => t.stop())
-      if (mediaRef.current.state !== 'inactive') {
-        try { mediaRef.current.stop() } catch { /* already stopped */ }
-      }
-      mediaRef.current = null
-    }
-    chunksRef.current = []
-    updateState('idle')
-    setDuration(0)
+    micRef.current?.recording.discard()
+    halt()
   }
 
   function fmt(s: number) {

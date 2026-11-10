@@ -183,7 +183,7 @@ test.describe('today', () => {
     await page.waitForTimeout(500)
     await landing.getByTitle('Send voice message').click()
 
-    // The stub's Whisper takes 1.5 s; the chat is open well before it ends,
+    // The stub's speech service takes 1.5 s; the chat is open well before it ends,
     // its own composer saying what is going on, no bubble yet.
     await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/, { timeout: 1_000 })
     const transcribing = page.getByTestId('composer-transcribing')

@@ -72,7 +72,7 @@ test.describe('composer drafts', () => {
     await page.getByTitle('Transcribe to text').click()
     await expect(page.getByText('Transcribing…')).toBeVisible()
 
-    // Leave while the stub's Whisper is still at it (1.5 s).
+    // Leave while the stub's speech service is still at it (1.5 s).
     await openConversation(page, b)
     await expect(page.getByText('Transcribing…')).toHaveCount(0)
     await page.waitForTimeout(2_000)
@@ -80,6 +80,32 @@ test.describe('composer drafts', () => {
 
     await openConversation(page, a)
     await expect(composer(page)).toHaveValue('Voice note from the e2e microphone')
+    await composer(page).fill('')
+  })
+
+  test('a dictation outlasts the connection dropping: what did not get through is sent again', async ({ page }) => {
+    const id = await newChat(page, `Dictate offline ${Date.now()}`)
+    await page.goto(`c/${id}`)
+    // Offline for the whole recording and a moment after: every piece fails.
+    let dropped = 0
+    await page.route('**/api/dictation/**', (route) => {
+      dropped++
+      return route.abort('internetdisconnected')
+    })
+    const uploads: string[] = []
+    page.on('request', (r) => { if (r.url().endsWith('/conversations/audio')) uploads.push(r.url()) })
+
+    await page.getByTitle('Tap to record').click()
+    await page.waitForTimeout(2_500)
+    await page.getByTitle('Transcribe to text').click()
+    await expect(page.getByText('Transcribing…')).toBeVisible()
+    await page.waitForTimeout(1_000)
+    expect(dropped).toBeGreaterThan(0)
+    await page.unroute('**/api/dictation/**')
+
+    await expect(composer(page)).toHaveValue('Voice note from the e2e microphone', { timeout: 15_000 })
+    // Resent as a stream, not given up on and uploaded whole.
+    expect(uploads).toHaveLength(0)
     await composer(page).fill('')
   })
 })

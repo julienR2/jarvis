@@ -5,6 +5,7 @@ import AnswerCard, { answerFromComposer } from './AnswerCard'
 import ChatInput, { type VoiceExtras } from './ChatInput'
 import { settleUploads, spoken } from '../lib/drafts'
 import StatusPill from './StatusPill'
+import type { Recording } from '../lib/dictation'
 
 /**
  * One thing waiting on you, on Today, as a small embedded chat.
@@ -58,9 +59,9 @@ export default function NeedsYouCard({
   async function answer(text: string, attachments: Parameters<typeof answerFromComposer>[3], answers?: Record<string, string>) {
     if (pending) await answerFromComposer(conversation.id, pending, text, attachments, answers)
   }
-  async function answerAudio(blob: Blob, { text, files }: VoiceExtras) {
+  async function answerAudio(recording: Recording, { text, files }: VoiceExtras) {
     if (!pending) return
-    const [{ transcript }, attachments] = await Promise.all([api.transcribeAudio(blob), settleUploads(files)])
+    const [{ transcript }, attachments] = await Promise.all([api.transcribeAudio(recording), settleUploads(files)])
     const words = spoken(text, transcript)
     if (words || attachments.length) await answerFromComposer(conversation.id, pending, words, attachments)
   }

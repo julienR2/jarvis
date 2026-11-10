@@ -66,6 +66,7 @@ function readAppPct(): number {
 
 import ConversationMenu from './ConversationMenu'
 import SectionPicker from './SectionPicker'
+import type { Recording } from '../lib/dictation'
 
 const EMPTY_MESSAGES: readonly Message[] = []
 
@@ -743,13 +744,13 @@ export default function ChatView({
     setQuote(null)
   }
 
-  async function sendAudio(audioBlob: Blob, { text, files }: VoiceExtras) {
+  async function sendAudio(recording: Recording, { text, files }: VoiceExtras) {
     if (!conversationId) return
     const attachments = await settleUploads(files)
     if (attachments.length < files.length) window.__jarvisToast?.error("A file couldn't be uploaded — sent without it.")
     if (composerAnswers && pending) {
       // Dictated answer: transcribe here, then answer with the words.
-      const { transcript } = await api.transcribeAudio(audioBlob)
+      const { transcript } = await api.transcribeAudio(recording)
       const words = spoken(text, transcript)
       if (words || attachments.length) await answerFromComposer(conversationId, pending, words, attachments)
       return
@@ -757,7 +758,7 @@ export default function ChatView({
     const replyTo = quote
     setQuote(null)
     // The bubble lands as the transcription ends, without waiting on the stream.
-    const { message } = await api.sendAudio(conversationId, audioBlob, { model, effort, text, attachments, replyTo })
+    const { message } = await api.sendAudio(conversationId, recording, { model, effort, text, attachments, replyTo })
     useChatStore.getState().upsertMessage(conversationId, message)
     useChatStore.getState().rememberModel(conversationId, model, effort)
   }

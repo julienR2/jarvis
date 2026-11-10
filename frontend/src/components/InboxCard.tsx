@@ -16,6 +16,7 @@ import RunBlock from './RunBlock'
 import { RunReportCard, RunReportStack } from './RunReport'
 import { useChatStore } from '../stores/chatStore'
 import { dropQuietRuns, groupMessagesByDay } from '../lib/transcript'
+import type { Recording } from '../lib/dictation'
 
 export type InboxReason = 'action' | 'notified' | 'unread'
 
@@ -104,9 +105,9 @@ export default function InboxCard({
   async function answer(text: string, attachments: Parameters<typeof answerFromComposer>[3], answers?: Record<string, string>) {
     if (pending) await answerFromComposer(conversation.id, pending, text, attachments, answers)
   }
-  async function answerAudio(blob: Blob, { text, files }: VoiceExtras) {
+  async function answerAudio(recording: Recording, { text, files }: VoiceExtras) {
     if (!pending) return
-    const [{ transcript }, attachments] = await Promise.all([api.transcribeAudio(blob), settleUploads(files)])
+    const [{ transcript }, attachments] = await Promise.all([api.transcribeAudio(recording), settleUploads(files)])
     const words = spoken(text, transcript)
     if (words || attachments.length) await answerFromComposer(conversation.id, pending, words, attachments)
   }
@@ -116,8 +117,8 @@ export default function InboxCard({
     await api.sendMessage(conversation.id, text, attachments.length ? attachments : undefined)
     useChatStore.getState().markRead(conversation.id)
   }
-  async function replyAudio(blob: Blob, { text, files }: VoiceExtras) {
-    await api.sendAudio(conversation.id, blob, { text, attachments: await settleUploads(files) })
+  async function replyAudio(recording: Recording, { text, files }: VoiceExtras) {
+    await api.sendAudio(conversation.id, recording, { text, attachments: await settleUploads(files) })
     useChatStore.getState().markRead(conversation.id)
   }
   async function act(fn?: (run: RunListItem) => Promise<void>, run?: RunListItem) {

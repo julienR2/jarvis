@@ -15,7 +15,7 @@ Uses the **`elevenlabs`** connector → sets `$ELEVENLABS_API_KEY`. Load it per 
 - **API base:** `https://api.elevenlabs.io/v1`
 - **Auth header:** `xi-api-key: ${ELEVENLABS_API_KEY}`
 
-ElevenLabs replaces Whisper for STT in this Jarvis instance — the backend's `/ws/audio` endpoint already routes to it. This skill is for ad-hoc transcription / synthesis work outside that flow.
+Voice input in Jarvis is transcribed locally (the `stt` service — see the `whisper` skill); the backend falls back to ElevenLabs only when that fails. This skill is for ad-hoc transcription / synthesis work outside that flow.
 
 ---
 

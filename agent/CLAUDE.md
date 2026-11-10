@@ -41,7 +41,7 @@ around any of this. When something genuinely needs it, say so plainly and tell
 the user what to do on their side.
 
 From in here you can reach the other containers over HTTP by service name
-(`backend:3005`, `whisper:9000`, the Playwright MCP server) — that is how the
+(`backend:3005`, `stt:9000`, the Playwright MCP server) — that is how the
 parts talk anyway.
 
 ## User context & memory

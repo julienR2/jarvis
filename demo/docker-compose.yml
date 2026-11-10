@@ -17,7 +17,7 @@
 #   • env        → demo/.env, with its own JWT and internal secrets
 #   • ports      → 5273 / 3105
 #   • network    → its own; no DNS collision with the instance you're using
-#   • whisper    → off; a second ASR model in RAM buys nothing for screenshots
+#   • stt        → off; a second ASR model in RAM buys nothing for screenshots
 #
 # What read-only costs: the demo cannot commit, and cannot demo self-editing.
 # Screenshot that flow on your own instance, where you'd review the diff anyway.
@@ -124,7 +124,7 @@ services:
       - ./demo/instance/agent/workspace/uploads:/uploads
 
   # Not started: `profiles` keeps a service out of `up` unless the profile is
-  # asked for, and nothing depends_on whisper. Voice input is a button in the
+  # asked for, and nothing depends_on stt. Voice input is a button in the
   # UI — screenshotting it doesn't need the model loaded a second time.
-  whisper:
+  stt:
     profiles: [ voice ]

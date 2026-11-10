@@ -41,7 +41,7 @@ The idea is less "deploy and use" and more "deploy and shape." You start with a 
 | **Webhooks** | HTTP endpoints that trigger the agent with arbitrary payloads. Pairs well with n8n, Home Assistant, iOS Shortcuts. |
 | **Skills** | Markdown instruction sets that auto-activate on context. The agent can write new skills for itself. |
 | **Browser** | A real Chromium the agent drives through Playwright, for sites that need clicking rather than fetching. |
-| **Voice input** | Audio transcribed by a bundled Whisper and injected into the conversation. |
+| **Voice input** | Audio streamed while you speak to a bundled speech model (Parakeet), transcribed by the time you stop, and injected into the conversation. |
 | **Sharing** | Send someone a link to a conversation, read-only or with replies. No account needed on their side. |
 | **API keys** | One header, and a script talks to the same API the web UI does — list chats, send a message, read the stream. |
 | **Any model** | Claude by default, or any OpenRouter model that can run the agent. Both providers live at once. |
@@ -251,7 +251,7 @@ jarvis/
 | frontend | 5173 | Web UI |
 | backend | 3005 | REST API + SSE streaming |
 | engine | — | Internal: owns Claude CLI process |
-| whisper | — | Internal: speech-to-text |
+| stt | — | Internal: speech-to-text (Parakeet, streamed while you speak) |
 | playwright | — | Internal: Chromium the agent drives via MCP |
 
 - **Backend**: Fastify 5, better-sqlite3 (WAL mode), TypeScript

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { api, type Attachment, type Effort } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { revoke, settleUploads, type DraftFile } from './drafts'
+import type { Recording } from './dictation'
 
 /**
  * A chat started from Today opens the moment Send is pressed — before the
@@ -38,7 +39,7 @@ export type OutgoingUpload = Pick<DraftFile, 'name' | 'preview' | 'uploaded' | '
 
 /** A voice message takes along what was typed and attached with it. */
 type What =
-  | { kind: 'voice'; audio: Blob; text: string; files: OutgoingUpload[] }
+  | { kind: 'voice'; audio: Recording; text: string; files: OutgoingUpload[] }
   | { kind: 'message'; text: string; files: OutgoingUpload[] }
 
 /**
