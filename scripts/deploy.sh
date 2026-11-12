@@ -9,8 +9,8 @@
 #   backend   POST /internal/restart, wait for /health
 #   engine    POST /restart to the engine (only with --engine: it ends every
 #             running conversation's Claude process; --resume brings the context
-#             back). This is also how a `claude` CLI bump lands — it is a pinned
-#             dependency in engine/package.json, installed on the engine's start.
+#             back). This is also how a `claude` CLI bump lands — it ships in the
+#             Agent SDK, pinned in engine/package.json, installed on the engine's start.
 #   Dockerfile / compose / frontend deps   reported for the host to run
 #
 # Run it FROM THE HOST, never from inside Jarvis:
@@ -94,9 +94,9 @@ else
       # typecheck below runs against the modules already installed — so a new
       # dependency fails it until the service has restarted once. Say so.
       backend/package.json|backend/package-lock.json) BE=1; NOTES+=("backend dependencies changed — they install on its restart; if the typecheck fails on a missing module, restart it first (docker compose restart backend) and rerun deploy") ;;
-      # The `claude` CLI is one of these dependencies, so a version bump takes
+      # The `claude` CLI ships in one of these (the Agent SDK), so a version bump takes
       # this same path: an engine restart, no image rebuild, no Docker.
-      engine/package.json|engine/package-lock.json) EN=1; NOTES+=("engine dependencies changed (the claude CLI is one of them) — they install on its restart; if the engine typecheck fails on a missing module, deploy with --engine (it restarts) and rerun deploy afterwards") ;;
+      engine/package.json|engine/package-lock.json) EN=1; NOTES+=("engine dependencies changed (the claude CLI ships in the Agent SDK) — they install on its restart; if the engine typecheck fails on a missing module, deploy with --engine (it restarts) and rerun deploy afterwards") ;;
       # The preview server reads its proxy table once, at start — a build alone
       # does not carry a change here. Still built below, for the bundle side.
       frontend/vite.config.ts) FE=1; HOST+=("frontend/vite.config.ts changed — the preview proxy only reloads on \`docker compose up -d frontend\`") ;;

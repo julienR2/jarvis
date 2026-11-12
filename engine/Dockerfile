@@ -21,11 +21,11 @@ RUN groupmod -g ${GID} node && usermod -u ${UID} -g ${GID} node
 RUN mkdir -p /jarvis/engine/node_modules && chown -R node:node /jarvis
 WORKDIR /jarvis/engine
 
-# The Claude CLI is a pinned dependency in engine/package.json, not a global
-# install baked into this image. The engine runs `npm install` on every start,
-# so bumping that pin and restarting the engine is the whole upgrade — no image
-# rebuild, and nothing here that needs Docker. This PATH entry is what makes the
-# installed `claude` the one spawn() finds.
+# The Claude CLI ships inside the Agent SDK, a pinned dependency in
+# engine/package.json, not a global install baked into this image. The engine
+# runs `npm install` on every start, so bumping that pin and restarting the
+# engine is the whole upgrade — no image rebuild, and nothing here that needs
+# Docker. This PATH entry puts the engine's own tools (tsx, tsc) first.
 ENV PATH=/jarvis/engine/node_modules/.bin:$PATH
 
 USER node

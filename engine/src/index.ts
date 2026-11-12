@@ -1,6 +1,5 @@
 import Fastify from 'fastify'
-import { forkSession } from '@anthropic-ai/claude-agent-sdk'
-import { spawn } from 'child_process'
+import { forkSession, query } from '@anthropic-ai/claude-agent-sdk'
 import { WORKSPACE_DIR, internalSecret, secureEquals } from './shared.js'
 import {
   ensureSession,
@@ -188,10 +187,10 @@ app.get<{ Params: { conversationId: string } }>(
 
 // POST /verify-connection — does this credential actually work?
 //
-// The only trustworthy check is the real thing: spawn `claude` exactly the way
-// a turn does, with the candidate credentials, and see whether it answers. A
-// format check would happily accept the expired/mistyped token that leaves an
-// instance failing every turn with no way back (the CLI only reports it at
+// The only trustworthy check is the real thing: run the CLI through the SDK,
+// as a turn does, with the candidate credentials, and see whether it answers.
+// A format check would happily accept the expired/mistyped token that leaves
+// an instance failing every turn with no way back (the CLI only reports it at
 // spawn time, which the chat surfaces as an opaque exit code).
 app.post<{
   Body: { baseUrl?: string; authToken?: string; oauthToken?: string }
@@ -215,50 +214,42 @@ app.post<{
   const { JWT_SECRET, ADMIN_PASSWORD, ADMIN_EMAIL, ...inherited } = process.env
   void JWT_SECRET; void ADMIN_PASSWORD; void ADMIN_EMAIL
 
-  return await new Promise<{ ok: boolean; error?: string }>((resolve) => {
-    let settled = false
-    const finish = (r: { ok: boolean; error?: string }) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      try { proc.kill('SIGKILL') } catch { /* already gone */ }
-      resolve(r)
-    }
+  const abort = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => { timedOut = true; abort.abort() }, 45_000)
+  let stderr = ''
+  const tail = (text: string) => text.trim().split('\n').slice(-4).join('\n').slice(0, 500)
 
-    // No tools, no MCP config, no session state — just enough to force an
-    // authenticated round-trip to the provider.
-    const proc = spawn('claude', ['-p', '--output-format', 'text'], {
-      env: { ...inherited, ...credentials },
+  // No tools, no saved session, one turn — just enough to force an
+  // authenticated round-trip to the provider.
+  const q = query({
+    prompt: 'Reply with the single word: ok',
+    options: {
       cwd: WORKSPACE_DIR,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-
-    const timer = setTimeout(
-      () => finish({ ok: false, error: 'Timed out after 45s waiting for a reply.' }),
-      45_000,
-    )
-
-    let stderr = ''
-    let stdout = ''
-    proc.stdout?.on('data', (d) => { stdout += d.toString() })
-    proc.stderr?.on('data', (d) => { stderr += d.toString().slice(0, 2000) })
-
-    proc.on('error', (err) =>
-      finish({ ok: false, error: `Could not start claude: ${err.message}` }),
-    )
-    proc.on('close', (code) => {
-      if (code === 0 && stdout.trim()) return finish({ ok: true })
-      const detail = stderr.trim() || stdout.trim() || `exit code ${code}`
-      finish({ ok: false, error: detail.split('\n').slice(-4).join('\n').slice(0, 500) })
-    })
-
-    try {
-      proc.stdin?.write('Reply with the single word: ok')
-      proc.stdin?.end()
-    } catch (err: any) {
-      finish({ ok: false, error: `Could not write to claude: ${err?.message ?? err}` })
-    }
+      env: { ...inherited, ...credentials },
+      tools: [],
+      maxTurns: 1,
+      persistSession: false,
+      abortController: abort,
+      stderr: (d) => { stderr = (stderr + d).slice(-2000) },
+    },
   })
+
+  try {
+    for await (const msg of q) {
+      if (msg.type !== 'result') continue
+      if (msg.subtype === 'success' && !msg.is_error && msg.result.trim()) return { ok: true }
+      const detail = msg.subtype === 'success' ? msg.result : msg.errors.join('\n')
+      return { ok: false, error: tail(detail || stderr || msg.subtype) }
+    }
+    return { ok: false, error: tail(stderr || 'The CLI ended without a reply.') }
+  } catch (err: any) {
+    if (timedOut) return { ok: false, error: 'Timed out after 45s waiting for a reply.' }
+    return { ok: false, error: tail(stderr || `Could not start claude: ${err?.message ?? err}`) }
+  } finally {
+    clearTimeout(timer)
+    q.close()
+  }
 })
 
 // POST /restart — exit so the container's restart policy brings the process

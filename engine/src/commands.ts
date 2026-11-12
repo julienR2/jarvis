@@ -1,7 +1,7 @@
 // The slash commands a chat can run — what the composer's `/` menu offers.
 //
 // The list is a property of the CLI and its config dir, not of the model: every
-// conversation, Anthropic or gateway, runs the same pinned `claude` with the
+// conversation, Anthropic or gateway, runs the same `claude` (the SDK's) with the
 // same skills, so one list serves them all. It is asked of the CLI itself — a
 // throwaway query that initialises and closes without a prompt, so no API call
 // and no cost (~200ms) — rather than rebuilt from the skills directory, so it
@@ -9,7 +9,6 @@
 
 import { query, type SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import { WORKSPACE_DIR } from './shared.js'
-import { CLAUDE_BIN } from './sessions.js'
 
 export interface Command {
   name: string
@@ -69,7 +68,6 @@ async function probe(): Promise<Command[]> {
   const q = query({
     prompt: nothing(),
     options: {
-      pathToClaudeCodeExecutable: CLAUDE_BIN,
       cwd: WORKSPACE_DIR,
       systemPrompt: { type: 'preset', preset: 'claude_code' },
     },

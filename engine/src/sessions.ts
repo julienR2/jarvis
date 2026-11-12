@@ -1,7 +1,7 @@
 // Persistent Claude sessions — one long-lived Agent SDK `query()` per
 // conversation, fed user messages through an input queue.
 //
-// The SDK runs the pinned `claude` CLI (see CLAUDE_BIN) and owns the protocol:
+// The SDK runs the `claude` CLI it ships with and owns the protocol:
 // framing, permission prompts, interrupts. Messages sent mid-turn reach the CLI
 // immediately (it steers or queues them), background subagents survive between
 // turns, and model/effort changes apply in place.
@@ -14,9 +14,8 @@
 
 import { randomUUID } from 'crypto'
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'fs'
-import { createRequire } from 'module'
 import { tmpdir } from 'os'
-import { dirname, join } from 'path'
+import { join } from 'path'
 import {
   query,
   type EffortLevel,
@@ -36,16 +35,6 @@ import {
 } from './shared.js'
 
 export type SessionEvent = ClaudeEvent | { type: 'end' }
-
-// The CLI pinned in engine/package.json, not the one the SDK bundles — left
-// alone the SDK runs whichever of the two is newer, and the pin stops meaning
-// anything.
-export const CLAUDE_BIN = (() => {
-  const require = createRequire(import.meta.url)
-  const pkgPath = require.resolve('@anthropic-ai/claude-code/package.json')
-  const bin = JSON.parse(readFileSync(pkgPath, 'utf8')).bin
-  return join(dirname(pkgPath), typeof bin === 'string' ? bin : bin.claude)
-})()
 
 /**
  * A prompt the CLI parked its turn on, waiting for the person: a question it
@@ -478,7 +467,6 @@ function startQuery(sess: Session, resumeSessionId: string | null): void {
   const q = query({
     prompt: input,
     options: {
-      pathToClaudeCodeExecutable: CLAUDE_BIN,
       cwd: WORKSPACE_DIR,
       // Left unset, the SDK sends an EMPTY system prompt, not Claude Code's.
       systemPrompt: { type: 'preset', preset: 'claude_code' },
