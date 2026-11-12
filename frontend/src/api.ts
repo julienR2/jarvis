@@ -688,9 +688,10 @@ export interface ConnectionStatus {
   defaultProvider: 'anthropic' | 'gateway'
 }
 
-/** A passage of an earlier message the person is replying to. */
+/** A passage the person is replying to: of an earlier message of the chat or,
+ *  with no `message_id`, handed over by the chat's app (`jarvis.prefill`). */
 export interface ReplyTo {
-  message_id: string
+  message_id?: string
   text: string
 }
 

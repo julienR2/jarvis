@@ -10,6 +10,9 @@
  *   jarvis.available          inside Jarvis (false on a share link)
  *   jarvis.send(text)         post into the chat as the user; the chat answers
  *   jarvis.ask(prompt)        a one-off answer for the app, kept out of the chat
+ *   jarvis.prefill({quote, text})  stage a message the user finishes and sends:
+ *                             quote above the composer, text in it, the chat
+ *                             brought into view and the input focused
  *   jarvis.run(name, payload, {sync})  fire a routine that reports into this chat
  *   jarvis.openDoc(path)      open a document beside the chat, as a tab
  *   jarvis.context()          { conversationId, title, topic }
@@ -45,6 +48,14 @@ const SCRIPT = `(function () {
     available: inside,
     send: function (text) { return call('send', { text: String(text) }) },
     ask: function (prompt) { return call('ask', { prompt: String(prompt) }) },
+    prefill: function (opts) {
+      if (typeof opts === 'string') opts = { text: opts }
+      opts = opts || {}
+      return call('prefill', {
+        quote: opts.quote == null ? undefined : String(opts.quote),
+        text: opts.text == null ? undefined : String(opts.text),
+      })
+    },
     run: function (name, payload, opts) { return call('run', { name: String(name), payload: payload || {}, sync: !!(opts && opts.sync) }) },
     openDoc: function (path) { return call('openDoc', { path: String(path) }) },
     context: function () { return call('context', {}) },

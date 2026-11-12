@@ -289,10 +289,17 @@ function parentSectionId(conv: ConvRow): string | null {
   return row?.section_id ?? null
 }
 
+/** A passage the message replies to: of an earlier message of the chat, or —
+ *  with no `message_id` — handed over by the chat's app (`jarvis.prefill`). */
 export interface ReplyTo {
-  message_id: string
+  message_id?: string
   text: string
 }
+
+/** A quote from a message stays a passage; one from the app may carry a whole
+ *  item (an email, a record), which is the point of handing it over. */
+const QUOTE_MAX = 2000
+const APP_QUOTE_MAX = 8000
 
 export function processMessage(
   conversationId: string,
@@ -406,12 +413,16 @@ export function processMessage(
   // and not new text to act on. The saved message stays the person's text.
   const replyTo = options?.replyTo
   if (replyTo && !isCommand) {
-    const quote = [
-      `<article data-jarvis="reply-to" message="${replyTo.message_id}">`,
-      'The user is replying to this passage of an earlier message in the conversation:',
-      replyTo.text,
-      '</article>',
-    ].join('\n')
+    const quote = (replyTo.message_id
+      ? [
+          `<article data-jarvis="reply-to" message="${replyTo.message_id}">`,
+          'The user is replying to this passage of an earlier message in the conversation:',
+        ]
+      : [
+          '<article data-jarvis="app-context">',
+          "The user's message is about this, handed over by the chat's app (what it showed them):",
+        ]
+    ).concat(replyTo.text, '</article>').join('\n')
     claudePrompt = `${quote}\n${claudePrompt}`
   }
 
@@ -1519,7 +1530,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       .run(id, title, model ?? null, effort ?? 'default', parent.id, anchor, forked)
     const conv = getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id) as ConvRow
     processMessage(id, conv, content, body.attachments ?? [], {
-      ...(quote ? { replyTo: { message_id: quote.message_id, text: quote.text.slice(0, 2000) } } : {}),
+      ...(quote ? { replyTo: { message_id: quote.message_id, text: quote.text.slice(0, QUOTE_MAX) } } : {}),
       model,
       effort,
     })
@@ -2068,19 +2079,21 @@ export async function conversationRoutes(app: FastifyInstance) {
     },
   )
 
-  // A quote must point at a message of this very conversation and stay a
-  // passage, not a pasted document. A string is what is wrong with it.
+  // A quote of a message must point at a message of this very conversation
+  // and stay a passage, not a pasted document. Without a message it is what
+  // the chat's app handed over (`jarvis.prefill`), and may be longer. A
+  // string is what is wrong with it.
   function checkReplyTo(conversationId: string, raw: { message_id?: unknown; text?: unknown } | undefined): ReplyTo | undefined | string {
     if (!raw) return undefined
     const { message_id, text } = raw
-    if (typeof message_id !== 'string' || typeof text !== 'string' || !text.trim()) {
-      return 'reply_to needs message_id and text'
-    }
+    if (typeof text !== 'string' || !text.trim()) return 'reply_to needs text'
+    if (message_id === undefined || message_id === null) return { text: text.trim().slice(0, APP_QUOTE_MAX) }
+    if (typeof message_id !== 'string') return 'reply_to.message_id must be a string'
     const owned = getDb()
       .prepare('SELECT 1 FROM messages WHERE id = ? AND conversation_id = ?')
       .get(message_id, conversationId)
     if (!owned) return 'reply_to.message_id is not in this conversation'
-    return { message_id, text: text.trim().slice(0, 2000) }
+    return { message_id, text: text.trim().slice(0, QUOTE_MAX) }
   }
 
   // ── Answer a question / approve a tool call ────────────────────────────────

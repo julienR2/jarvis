@@ -88,7 +88,8 @@ function parseReplyTo(metadata?: string | null): ReplyTo | null {
   if (!metadata) return null
   try {
     const r = JSON.parse(metadata).reply_to
-    return r && typeof r.message_id === 'string' && typeof r.text === 'string' ? r : null
+    // No message_id: the quote came from the chat's app (`jarvis.prefill`).
+    return r && typeof r.text === 'string' && (r.message_id === undefined || typeof r.message_id === 'string') ? r : null
   } catch {
     return null
   }
@@ -99,6 +100,18 @@ function parseReplyTo(metadata?: string | null): ReplyTo | null {
  * back to the source message when it is loaded — a brief highlight says which.
  */
 function ReplyCitation({ quote }: { quote: ReplyTo }) {
+  // Handed over by the app: nothing in the chat to lead back to.
+  if (!quote.message_id) {
+    return (
+      <p
+        data-testid='reply-citation'
+        title='From the app'
+        className='mb-2 border-l-2 border-accent/50 pl-2.5 text-[13px] leading-snug text-text-secondary line-clamp-3 whitespace-pre-line'
+      >
+        {quote.text}
+      </p>
+    )
+  }
   function jump() {
     const el = document.querySelector<HTMLElement>(`[data-message-id="${quote.message_id}"]`)
     if (!el) return

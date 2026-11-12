@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
-import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion, Reply, ChevronLeft, ArrowRight, Loader2 } from 'lucide-react'
+import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion, Reply, AppWindow, ChevronLeft, ArrowRight, Loader2 } from 'lucide-react'
 import AudioButton from './AudioButton'
 import AnswerCard, { OptionList, hasOptions } from './AnswerCard'
 import ModelSelector from './ModelSelector'
@@ -140,7 +140,13 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
     }
   }, [autoFocus])
   useEffect(() => {
-    if (focusKey) setTimeout(() => textareaRef.current?.focus(), 50)
+    if (!focusKey) return
+    setTimeout(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(el.value.length, el.value.length)
+    }, 50)
   }, [focusKey])
 
   // Text handed over (a share, "Edit in chat") joins a draft already there
@@ -367,7 +373,10 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
           )}
           {quote && (
             <div data-testid='composer-quote' className='flex items-start gap-2.5 border-b border-border px-4 pt-3 pb-2.5'>
-              <Reply size={14} className='mt-0.5 shrink-0 text-accent' />
+              {/* From a message of the chat, or handed over by its app. */}
+              {quote.message_id
+                ? <Reply size={14} className='mt-0.5 shrink-0 text-accent' />
+                : <AppWindow size={14} className='mt-0.5 shrink-0 text-accent' aria-label='From the app' />}
               <p className='min-w-0 flex-1 border-l-2 border-accent/50 pl-2.5 text-[13px] leading-snug text-text-secondary line-clamp-3'>
                 {quote.text}
               </p>

@@ -646,7 +646,7 @@ const FIXTURE_BRIDGE_HTML = `<!doctype html><html><head><meta charset="utf-8"><t
 <h1>Bridge app</h1>
 <p id="available"></p>
 <button id="send">Send</button> <button id="ask">Ask</button> <button id="context">Context</button>
-<button id="run">Run</button> <button id="run-other">Run other</button>
+<button id="run">Run</button> <button id="run-other">Run other</button> <button id="prefill">Prefill</button>
 <pre id="out"></pre>
 <script>
   var out = document.getElementById('out')
@@ -655,6 +655,7 @@ const FIXTURE_BRIDGE_HTML = `<!doctype html><html><head><meta charset="utf-8"><t
   document.getElementById('ask').onclick = function () { jarvis.ask('What is the answer?').then(function (a) { out.textContent = 'answer: ' + a }, function (e) { out.textContent = 'error: ' + e.message }) }
   document.getElementById('run').onclick = function () { jarvis.run('bridge-hook', { from: 'app' }).then(function () { out.textContent = 'ran' }, function (e) { out.textContent = 'error: ' + e.message }) }
   document.getElementById('run-other').onclick = function () { jarvis.run('fixture-hook', {}).then(function () { out.textContent = 'ran' }, function (e) { out.textContent = 'refused: ' + e.message }) }
+  document.getElementById('prefill').onclick = function () { jarvis.prefill({ quote: 'Invoice 42 from the bridge app, due Friday', text: 'Can we pay it' }).then(function () { out.textContent = 'prefilled' }, function (e) { out.textContent = 'error: ' + e.message }) }
   document.getElementById('context').onclick = function () { jarvis.context().then(function (c) { out.textContent = 'chat: ' + c.title }) }
 </script>
 </body></html>

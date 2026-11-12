@@ -78,7 +78,7 @@ function NewThread({ parentId, quote, onOpened }: { parentId: string; quote: Rep
           {quote && <blockquote
             className='cursor-pointer rounded-xl border-l-[3px] border-accent/60 bg-surface2/60 px-3.5 py-2.5 text-[13.5px] leading-relaxed text-text-secondary hover:bg-surface2'
             title='Show it in the chat'
-            onClick={() => document.querySelector(`[data-message-id="${CSS.escape(quote.message_id)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })}
+            onClick={() => document.querySelector(`[data-message-id="${CSS.escape(quote.message_id ?? '')}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })}
           >
             <span className='line-clamp-6 whitespace-pre-wrap'>{quote.text}</span>
           </blockquote>}

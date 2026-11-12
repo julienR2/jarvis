@@ -150,6 +150,45 @@ test.describe('tabs beside a chat', () => {
     await expect(page.locator('[data-message-id]').filter({ hasText: 'Hello from the bridge app' })).toBeVisible()
   })
 
+  test('jarvis.prefill stages a message: the quote above the composer, text in it, the chat brought back — nothing sent', async ({ page }) => {
+    await openConversation(page, 'Bridge app')
+    const main = page.getByRole('main')
+    const composer = page.getByPlaceholder('How can I help you today?')
+    // The app alone, the chat put away…
+    await main.getByRole('button', { name: 'Chat', exact: true }).click()
+    await expect(composer).toBeHidden()
+    const app = page.frameLocator('iframe[title="App preview"]')
+    await app.getByRole('button', { name: 'Prefill' }).click()
+    await expect(app.getByText('prefilled')).toBeVisible()
+    // …comes back, holding the app's quote and text, the cursor in it.
+    await expect(page.getByTestId('composer-quote')).toContainText('Invoice 42 from the bridge app')
+    await expect(composer).toBeVisible()
+    await expect(composer).toHaveValue('Can we pay it')
+    await expect(composer).toBeFocused()
+    await expect(page.locator('[data-message-id]').filter({ hasText: 'Can we pay it' })).toHaveCount(0)
+    // Sent, the bubble carries the quote — nothing in the chat to jump to.
+    await composer.pressSequentially('?')
+    await composer.press('Enter')
+    const sent = page.locator('[data-message-id]').filter({ hasText: 'Can we pay it?' })
+    await expect(sent).toBeVisible()
+    await expect(sent.getByTestId('reply-citation')).toContainText('Invoice 42 from the bridge app')
+    await expect(page.getByTestId('composer-quote')).toHaveCount(0)
+  })
+
+  test('jarvis.prefill on a phone switches from the app to the chat, focused', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('c/00000000-0000-4000-8000-000000000016')
+    const composer = page.getByPlaceholder('How can I help you today?')
+    const frame = page.locator('iframe[title="App preview"]')
+    await expect(frame).toBeVisible()
+    await expect(composer).toBeHidden()
+    await page.frameLocator('iframe[title="App preview"]').getByRole('button', { name: 'Prefill' }).click()
+    await expect(composer).toBeVisible()
+    await expect(frame).toBeHidden()
+    await expect(composer).toBeFocused()
+    await expect(page.getByTestId('composer-quote')).toContainText('Invoice 42 from the bridge app')
+  })
+
   test('opened on its own, as a share link is, an app has no bridge', async ({ page }) => {
     await page.goto(`${API}/api/apps/fixture-bridge/index.html?token=${process.env.E2E_TOKEN}`)
     await expect(page.getByText('bridge: off')).toBeVisible()

@@ -42,7 +42,7 @@ import SelectionReply from './SelectionReply'
 import { dropQuietRuns, groupMessagesByDay, isFinishedReply } from '../lib/transcript'
 import { answerFromComposer } from './AnswerCard'
 import { useOutbox, type Outgoing } from '../lib/outbox'
-import { settleUploads, spoken } from '../lib/drafts'
+import { drafts, settleUploads, spoken } from '../lib/drafts'
 import { readPaneView, savePaneView, type PaneView } from '../lib/paneView'
 
 /** Shared so the jump button can find the divider without threading a ref
@@ -314,6 +314,8 @@ export default function ChatView({
   // The passage the next message replies to, picked from a selection.
   const [quote, setQuote] = useState<ReplyTo | null>(null)
   useEffect(() => { setQuote(null) }, [conversationId])
+  // Bumped when the chat's app stages a message (`jarvis.prefill`): focus.
+  const [composeFocus, setComposeFocus] = useState(0)
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [floatingLabel, setFloatingLabel] = useState<string | null>(null)
   const [showFloating, setShowFloating] = useState(false)
@@ -438,6 +440,11 @@ export default function ChatView({
     setPane({ id: conversationId, view: next })
     if (conversationId) savePaneView(conversationId, next)
   }
+  // For the app's `jarvis.prefill`, which brings the chat into view.
+  const chatShownRef = useRef(chatShown)
+  chatShownRef.current = chatShown
+  const togglePaneRef = useRef(togglePane)
+  togglePaneRef.current = togglePane
   // Which tab the side pane shows: the app unless something else was picked
   // (or opened) in this chat — and back to it when that tab closes.
   const [activeTab, setActiveTab] = useState<{ id: string | undefined; key: PanelKey } | null>(null)
@@ -509,6 +516,23 @@ export default function ChatView({
       case 'openDoc':
         openFile(String(args.path ?? ''))
         return true
+      // A message for the person to finish and send themselves: what the app
+      // shows goes above the composer as a quote (sent along as context), any
+      // text under what is already typed, and the chat comes into view with
+      // the cursor in it. Nothing is sent.
+      case 'prefill': {
+        const quoted = typeof args.quote === 'string' ? args.quote.trim() : ''
+        const text = typeof args.text === 'string' ? args.text : ''
+        if (!quoted && !text.trim()) throw new Error('Nothing to prefill: give a quote or text')
+        if (quoted) setQuote({ text: quoted })
+        if (text.trim()) {
+          const current = drafts.get(conversationId).text
+          drafts.setText(conversationId, current.trim() ? `${current.trimEnd()}\n${text}` : text)
+        }
+        if (!chatShownRef.current) togglePaneRef.current('chat')
+        setComposeFocus((n) => n + 1)
+        return true
+      }
       case 'context':
         return { conversationId, title: conv?.title ?? '', topicId: conv?.section_id ?? null }
       default:
@@ -1138,6 +1162,7 @@ export default function ChatView({
             onInitialFilesConsumed={onInitialFilesConsumed}
             quote={quote}
             onClearQuote={() => setQuote(null)}
+            focusKey={composeFocus || undefined}
             // A share link talks to the chat but doesn't choose what it runs
             // on (the backend ignores its pick too).
             model={shared ? undefined : model}
