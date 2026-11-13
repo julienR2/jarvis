@@ -378,7 +378,10 @@ function SectionGroup({
             was more noise than signal. An empty group still reads as empty via
             its "Empty — move a chat here" row, which a collapsed one never shows. */}
         {collapsed && unread > 0 && (
-          <span className='shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[11px] font-medium'>
+          <span
+            className='shrink-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-accent text-white text-[10px] font-semibold tabular-nums'
+            title={`${unread} unread`}
+          >
             {unread}
           </span>
         )}
@@ -499,8 +502,13 @@ function ThreadsGroup({
           <span className='truncate'>Routines</span>
           {routineCount > 0 && <span className='ml-auto font-normal normal-case tracking-normal text-text-muted/70'>{routineCount}</span>}
         </button>
+        {/* Its own gap from the routine count, so "15" and the badge read as two
+            numbers rather than one run together. */}
         {collapsed && unread > 0 && (
-          <span className='shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[11px] font-medium'>
+          <span
+            className='shrink-0 ml-2 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-accent text-white text-[10px] font-semibold tabular-nums'
+            title={`${unread} unread`}
+          >
             {unread}
           </span>
         )}
