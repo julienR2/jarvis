@@ -149,7 +149,16 @@ export function oneMcpServer(): { command: string; args: string[]; env: Record<s
  * configured at once and the chosen model decide where the turn is sent.
  */
 export function isGatewayModel(model?: string | null): boolean {
-  return !!model && model.includes('/')
+  return !!model && !isLocalModel(model) && model.includes('/')
+}
+
+/**
+ * A model of the Local provider (`local:gemma-4-e4b`). The backend runs those
+ * directly against the local server; the engine must never see one (see
+ * POST /message). Tested before the `/` rule: a local id may contain a slash.
+ */
+export function isLocalModel(model?: string | null): boolean {
+  return !!model && model.startsWith('local:')
 }
 
 // The credential env for a claude spawn, given the model being run. Callers

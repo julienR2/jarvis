@@ -1,6 +1,6 @@
 import Fastify from 'fastify'
 import { forkSession, query } from '@anthropic-ai/claude-agent-sdk'
-import { WORKSPACE_DIR, internalSecret, secureEquals } from './shared.js'
+import { WORKSPACE_DIR, internalSecret, isLocalModel, secureEquals } from './shared.js'
 import {
   ensureSession,
   getSession,
@@ -51,6 +51,13 @@ app.post<{
 
   if (!prompt || !conversationId) {
     return reply.code(400).send({ error: 'prompt and conversationId are required' })
+  }
+  // The backend runs local models itself and never sends one here. If it ever
+  // did, the bare id would reach the CLI, which treats an id it doesn't know
+  // as an Anthropic one — a private conversation's text sent to Anthropic.
+  // Refused rather than trusted to the caller.
+  if (isLocalModel(model)) {
+    return reply.code(400).send({ error: 'Local models are not run by the engine' })
   }
 
   const sess = ensureSession({
