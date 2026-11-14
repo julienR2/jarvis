@@ -2,9 +2,10 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react
 import { Send, Square, Paperclip, X, FileText, MessageCircleQuestion, Reply, AppWindow, ChevronLeft, ArrowRight, Loader2 } from 'lucide-react'
 import AudioButton from './AudioButton'
 import AnswerCard, { OptionList, hasOptions } from './AnswerCard'
+import ReviewCard from './ReviewCard'
 import ModelSelector from './ModelSelector'
 import { SlashMenu, useSlashMenu } from './SlashMenu'
-import { api, questionsOf, type Attachment, type Effort, type PendingQuestion, type ReplyTo } from '../api'
+import { api, questionsOf, reviewOf, type Attachment, type Effort, type PendingQuestion, type ReplyTo } from '../api'
 import type { OutgoingUpload } from '../lib/outbox'
 import { drafts, revoke, useDraft, type DraftFile } from '../lib/drafts'
 import type { Recording } from '../lib/dictation'
@@ -304,11 +305,14 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
   // and the composer's own Send confirms it. While nothing is picked or typed
   // the input dims, so the options read as the first way to answer.
   const asksQuestion = questions.length > 0
+  // A text to send, editable above (ReviewCard): typing here asks for changes.
+  const reviewing = !!question && !!reviewOf(question)
   // A tool call waiting for a yes: typing is the other way to answer it.
-  const approval = !!question && !asksQuestion
+  const approval = !!question && !asksQuestion && !reviewing
   const dimInput = asksQuestion && hasOptions(question!) && !input.trim() && !hasFiles && !audioActive
   const effectivePlaceholder =
     asksQuestion ? (hasOptions(question!) ? 'Or type your own answer…' : 'Your answer…')
+    : reviewing ? 'Or tell Jarvis what to change…'
     : approval ? 'Or tell Jarvis what to do instead…'
     : placeholder ?? 'How can I help you today?'
   // Commands start a message; an answer to what Jarvis asked is not one.
@@ -368,8 +372,11 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
               />
             </div>
           )}
-          {question && !asksQuestion && conversationId && (
-            <AnswerCard conversationId={conversationId} question={question} variant='strip' />
+          {reviewing && conversationId && (
+            <ReviewCard conversationId={conversationId} question={question!} />
+          )}
+          {approval && conversationId && (
+            <AnswerCard conversationId={conversationId} question={question!} variant='strip' />
           )}
           {quote && (
             <div data-testid='composer-quote' className='flex items-start gap-2.5 border-b border-border px-4 pt-3 pb-2.5'>
@@ -513,7 +520,7 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
                 <button
                   onClick={handleSend}
                   className={`p-2 rounded-xl text-white disabled:opacity-30 transition-colors ${question ? 'bg-warning hover:opacity-90' : 'bg-accent hover:bg-accent-hover'}`}
-                  title={!lastStep ? 'Next' : asksQuestion ? 'Answer' : approval ? 'Reply instead' : 'Send'}
+                  title={!lastStep ? 'Next' : asksQuestion ? 'Answer' : reviewing ? 'Ask for changes' : approval ? 'Reply instead' : 'Send'}
                 >
                   {lastStep ? <Send size={16} /> : <ArrowRight size={16} />}
                 </button>

@@ -55,6 +55,7 @@ agent/rules/*
 !agent/rules/safety.md
 !agent/rules/formatting.md
 !agent/rules/emails.md
+!agent/rules/sending.md
 
 # e2e artefacts (screenshots, traces) from a failed run
 e2e/results/

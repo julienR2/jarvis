@@ -73,6 +73,23 @@ interface AskQuestion {
   multiSelect?: boolean
 }
 
+/**
+ * Jarvis's review tool (engine/src/sessions.ts, jarvisServer): a text about to
+ * be sent or published, shown editable for the person to approve. Answered
+ * with their version (`text`), or a reply, or a discard.
+ */
+export const REVIEW_TOOL = 'mcp__jarvis__review_text'
+
+/** The draft of a review_text prompt, or null for anything else. */
+export function reviewOf(q: Pick<PendingQuestion, 'tool_name' | 'input'>): { text: string; note: string } | null {
+  if (q.tool_name !== REVIEW_TOOL) return null
+  const input = q.input as { text?: unknown; note?: unknown }
+  return {
+    text: typeof input.text === 'string' ? input.text : '',
+    note: typeof input.note === 'string' ? input.note.trim() : '',
+  }
+}
+
 /** The questions of an AskUserQuestion input, or an empty list for any other tool. */
 export function questionsOf(q: Pick<PendingQuestion, 'tool_name' | 'input'>): AskQuestion[] {
   if (q.tool_name !== 'AskUserQuestion') return []
@@ -90,6 +107,8 @@ export function describePending(q: Pick<PendingQuestion, 'tool_name' | 'input'>)
   if (questions.length) {
     return questions.map((x) => x.question?.trim() || 'a question').join(' · ')
   }
+  const review = reviewOf(q)
+  if (review) return `Review before sending: ${review.note || firstLine(review.text)}`
   const input = q.input as Record<string, unknown>
   const detail =
     typeof input.description === 'string' ? input.description
@@ -99,4 +118,10 @@ export function describePending(q: Pick<PendingQuestion, 'tool_name' | 'input'>)
     : ''
   const name = q.tool_name.replace(/^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/, '$1: $2').replace(/_/g, ' ')
   return detail ? `Approve ${name}: ${detail.slice(0, 160)}` : `Approve ${name}`
+}
+
+/** The opening of a text, on one line, for a summary. */
+function firstLine(text: string): string {
+  const line = text.trim().split('\n')[0] ?? ''
+  return line.length > 80 ? `${line.slice(0, 79)}…` : line
 }

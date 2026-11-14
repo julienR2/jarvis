@@ -17,13 +17,16 @@ import { chmodSync, existsSync, readFileSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
+  createSdkMcpServer,
   query,
+  tool,
   type EffortLevel,
   type PermissionResult,
   type Query,
   type SDKMessage,
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
+import { z } from 'zod'
 import {
   type ClaudeEvent,
   WORKSPACE_DIR,
@@ -430,7 +433,9 @@ function mcpConfigArg(path: string): string | null {
 
 function startQuery(sess: Session, resumeSessionId: string | null): void {
   const BASE_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill']
-  const MCP_TOOLS = ['mcp__playwright', 'mcp__one']
+  // mcp__jarvis is in-process (jarvisServer): its review tool asks the person
+  // itself, so it is pre-approved — see the note there.
+  const MCP_TOOLS = ['mcp__playwright', 'mcp__one', 'mcp__jarvis']
 
   // Drop a resume the current provider would reject (see resumableUnder). The
   // reassignment matters: the retry in onExit closes over this parameter, and
@@ -483,6 +488,9 @@ function startQuery(sess: Session, resumeSessionId: string | null): void {
       ...(sess.model ? { model: sess.model } : {}),
       ...(effortFor(sess.model, sess.effort) ? { effort: effortFor(sess.model, sess.effort) } : {}),
       ...(resumeSessionId ? { resume: resumeSessionId } : {}),
+      // Inlined by the SDK as a second --mcp-config next to the file below;
+      // the CLI merges every one it is given.
+      mcpServers: { jarvis: jarvisServer(sess) },
       ...(mcpConfig ? { extraArgs: { 'mcp-config': mcpConfig } } : {}),
       env: {
         ...inheritedEnv,
@@ -627,6 +635,8 @@ function toolLabel(name: string, input: any): string {
     case 'TodoWrite':
       return 'Updating the todo list'
   }
+
+  if (name === REVIEW_TOOL) return input?.note ? `Text for you to review: ${input.note}` : 'Text for you to review'
 
   // MCP tools arrive as mcp__<server>__<action> — the raw id is noise, the
   // server and action are not.
@@ -929,6 +939,69 @@ function parkAsk(
       input: ask.input,
     })
   })
+}
+
+// ── Review before sending ────────────────────────────────────────────────────
+
+/** The tool's full name as the CLI reports it — the backend and UI key on it. */
+export const REVIEW_TOOL = 'mcp__jarvis__review_text'
+
+/**
+ * Jarvis's own tools, served in-process. One for now: review_text, a text the
+ * person is about to send or publish, shown in the composer to edit and approve.
+ *
+ * It parks itself rather than going through canUseTool: in `auto` permission
+ * mode the classifier may wave an MCP call through without asking, and this
+ * call is worthless unanswered. So it is pre-approved, and the handler raises
+ * the same `ask` a question does and waits on its answer — the person's
+ * version arrives as `updatedInput.text`, a reply or a discard as a deny.
+ */
+function jarvisServer(sess: Session) {
+  return createSdkMcpServer({
+    name: 'jarvis',
+    alwaysLoad: true,
+    tools: [
+      tool(
+        'review_text',
+        'Show the user a text they are about to send or publish on their behalf — an email, a WhatsApp or ' +
+          'other message, a social post, a blog post, a comment — so they can edit it and approve it. Use it ' +
+          'every time instead of pasting the draft in the chat and asking "shall I send?". The text is shown ' +
+          'editable above their input; they either approve it (possibly after editing it), reply with what to ' +
+          'change, or discard it. Pass exactly the text that would go out, nothing around it. Recipients, ' +
+          'subject and attachments are not fields: say them in the chat before calling, or in `note`.',
+        {
+          text: z.string().min(1).describe('The exact text that would be sent or published.'),
+          note: z
+            .string()
+            .optional()
+            .describe('One short line saying what it is and where it goes, e.g. "WhatsApp to Sam" or "Reply to the accountant, Q3 invoices".'),
+        },
+        async (args, extra) => {
+          const signal = (extra as { signal?: AbortSignal } | undefined)?.signal ?? new AbortController().signal
+          const answer = await parkAsk(sess, REVIEW_TOOL, args, null, signal)
+          return { content: [{ type: 'text' as const, text: reviewOutcome(args.text, answer) }] }
+        },
+      ),
+    ],
+  })
+}
+
+/** What the model reads back from review_text. */
+function reviewOutcome(shown: string, answer: PermissionResult): string {
+  if (answer.behavior !== 'allow') {
+    return answer.message || 'The user did not approve this text. Do not send it.'
+  }
+  const final = typeof answer.updatedInput?.text === 'string' ? answer.updatedInput.text : shown
+  if (final.trim() === shown.trim()) {
+    return 'The user approved the text exactly as shown. Send or publish it now, unchanged.'
+  }
+  return (
+    'The user edited the text. Their version:\n\n' +
+    final +
+    '\n\nThis is not yet approval to send. Keep their wording and intent; fix only typos, grammar, ' +
+    'punctuation and formatting for where it goes, and mention briefly anything worth adjusting. Then call ' +
+    'review_text again with the resulting text (unchanged if nothing needed fixing) for their final approval.'
+  )
 }
 
 /** Forget a pending prompt and tell subscribers how it ended. */

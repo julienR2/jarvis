@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, ChevronRight, MessageSquare, Repeat } from 'lucide-react'
-import { api, describePending, pendingQuestionOf, questionsOf, type Conversation, type Message, type RunListItem } from '../api'
+import { api, describePending, pendingQuestionOf, questionsOf, reviewOf, type Conversation, type Message, type RunListItem } from '../api'
 import AnswerCard, { answerFromComposer } from './AnswerCard'
 import ChatInput, { type VoiceExtras } from './ChatInput'
 import { settleUploads, spoken } from '../lib/drafts'
@@ -30,7 +30,7 @@ export default function NeedsYouCard({
   const [messages, setMessages] = useState<Message[] | null>(null)
   const [showTrail, setShowTrail] = useState(false)
   const pending = pendingQuestionOf(conversation)
-  const isQuestion = !!pending && questionsOf(pending).length > 0
+  const isQuestion = !!pending && (questionsOf(pending).length > 0 || !!reviewOf(pending))
 
   // Only fetch the lead-up once the card is opened — a collapsed day costs
   // nothing.

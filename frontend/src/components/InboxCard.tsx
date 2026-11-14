@@ -4,6 +4,7 @@ import {
   api,
   pendingQuestionOf,
   questionsOf,
+  reviewOf,
   type Conversation,
   type Message,
   type RunListItem,
@@ -61,7 +62,7 @@ export default function InboxCard({
   const [busy, setBusy] = useState(false)
 
   const pending = pendingQuestionOf(conversation)
-  const isQuestion = !!pending && questionsOf(pending).length > 0
+  const isQuestion = !!pending && (questionsOf(pending).length > 0 || !!reviewOf(pending))
   const waitingRun = runs.find((r) => r.status === 'needs_you')
   const runningRun = runs.find((r) => r.status === 'running')
   const readAt = conversation.last_read_at ?? 0

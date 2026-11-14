@@ -74,6 +74,8 @@ export function seedFixtures(): void {
     listerOld: '00000000-0000-4000-8000-00000000001b',
     // A thread of "App with docs", so its pane shows every kind of tab.
     appDocsThread: '00000000-0000-4000-8000-00000000001c',
+    // A draft waiting for the person's review (review_text), in a plain chat.
+    review: '00000000-0000-4000-8000-00000000001d',
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -528,6 +530,27 @@ export function seedFixtures(): void {
       },
     }), chatConv)
 
+    // 9b. A text Jarvis wants approved before it goes out (review_text): the
+    // chat's composer shows it editable. No engine behind it either.
+    insConv.run(ID.review, '💬 Running late', t(5), t(3), projects.id, null, null)
+    insMsg.run(uuid(), ID.review, 'user', "Tell Sam on WhatsApp I'll be 15 minutes late for lunch.", null, null, null, t(5))
+    insMsg.run(uuid(), ID.review, 'assistant', [
+      "[chunk:1] Here's a message for Sam — change anything, then send.",
+      '[note:2] Waiting for you: Review before sending: WhatsApp to Sam',
+    ].join('\n\n'), null, null, null, t(4))
+    db.prepare('UPDATE conversations SET pending_question = ? WHERE id = ?').run(JSON.stringify({
+      request_id: 'req_fixture_review',
+      tool_name: 'mcp__jarvis__review_text',
+      tool_use_id: null,
+      session_key: ID.review,
+      run_id: null,
+      asked_at: t(4),
+      input: {
+        text: "Hey Sam! Running about 15 minutes late, sorry — go ahead and order without me if you're hungry.",
+        note: 'WhatsApp to Sam',
+      },
+    }), ID.review)
+
     // 10. Threads. surf-watch runs in its own thread and reports into the Surf
     // chat: three runs with nothing to say (one silent stacked line there), then
     // one with news (a report card). price-watch stands alone and had news, so
@@ -600,7 +623,7 @@ export function seedFixtures(): void {
   db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = ? WHERE id = ?').run(t(600), t(35), ID.inboxNotified)
   db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = NULL WHERE id = ?').run(t(300), ID.inboxUnread)
   db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = NULL WHERE id = ?').run(t(800), ID.inboxToRead)
-  db.prepare('UPDATE conversations SET last_read_at = created_at - 1, notified_at = NULL WHERE id IN (?, ?, ?)').run(ID.question, ID.approval, ID.chatAsk)
+  db.prepare('UPDATE conversations SET last_read_at = created_at - 1, notified_at = NULL WHERE id IN (?, ?, ?, ?)').run(ID.question, ID.approval, ID.chatAsk, ID.review)
   // The surf chat has the one report since it was read; the threads' own runs
   // were read where they matter (the chat, or not at all).
   db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = ? WHERE id = ?').run(t(30), t(25), ID.surf)

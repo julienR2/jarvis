@@ -810,10 +810,35 @@ export function questionsOf(q: PendingQuestion): AskQuestion[] {
     .map((x) => ({ ...x, options: (x.options ?? []).filter((o) => !CATCH_ALL.test(String(o?.label ?? '').trim())) }))
 }
 
+/**
+ * Jarvis's review tool: a text about to be sent or published, shown editable in
+ * the composer. Approving sends back the person's version; typing in the input
+ * instead is a reply ("make it shorter"), like an approval's.
+ */
+export const REVIEW_TOOL = 'mcp__jarvis__review_text'
+
+export interface ReviewDraft {
+  text: string
+  /** One line on what it is and where it goes, when Jarvis gave one. */
+  note: string
+}
+
+/** The draft of a review_text prompt, or null for anything else. */
+export function reviewOf(q: PendingQuestion): ReviewDraft | null {
+  if (q.tool_name !== REVIEW_TOOL) return null
+  const input = q.input as { text?: unknown; note?: unknown }
+  return {
+    text: typeof input.text === 'string' ? input.text : '',
+    note: typeof input.note === 'string' ? input.note.trim() : '',
+  }
+}
+
 /** One line saying what is being waited on — the row summary outside the chat. */
 export function describePending(q: PendingQuestion): string {
   const questions = questionsOf(q)
   if (questions.length) return questions.map((x) => x.question).join(' · ')
+  const review = reviewOf(q)
+  if (review) return `Review before sending: ${review.note || review.text.trim().split('\n')[0]}`
   const input = q.input as Record<string, unknown>
   const detail =
     typeof input.description === 'string' ? input.description
@@ -832,6 +857,8 @@ export interface AnswerBody {
   message?: string
   /** Files sent with a typed answer, already uploaded. */
   attachments?: Attachment[]
+  /** review_text approved: the text as the person left it, edited or not. */
+  text?: string
 }
 
 export interface Message {

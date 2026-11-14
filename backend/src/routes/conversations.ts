@@ -22,6 +22,7 @@ import {
   setPendingQuestion,
   dropPendingQuestion,
   describePending,
+  reviewOf,
   questionsOf,
 } from '../questions.js'
 import { generateTitle, mediaTitle, UNTITLED } from '../titles.js'
@@ -1244,6 +1245,8 @@ export interface AnswerBody {
   behavior?: 'allow' | 'deny'
   /** Free text — a reason for a denial, or an answer typed instead of picked. */
   message?: string
+  /** review_text approved: the text as the person left it, edited or not. */
+  text?: string
   /** Files sent with a typed answer, already uploaded — referenced for Claude like a message's. */
   attachments?: Attachment[]
 }
@@ -1257,6 +1260,11 @@ export interface AnswerBody {
  * more (its session died, or the prompt was withdrawn); the pending state is
  * dropped and the run closed as lost, since nobody will consume the answer.
  */
+/** A text as a markdown blockquote, every line of it. */
+function quoted(text: string): string {
+  return text.trim().split('\n').map((l) => (l ? `> ${l}` : '>')).join('\n')
+}
+
 export async function answerQuestion(
   conversationId: string,
   body: AnswerBody,
@@ -1268,6 +1276,7 @@ export async function answerQuestion(
   }
 
   const questions = questionsOf(q)
+  const review = reviewOf(q)
   let answer: Parameters<typeof answerPrompt>[2]
   let said: string
   if (questions.length) {
@@ -1288,6 +1297,17 @@ export async function answerQuestion(
       answers[last] = `${answers[last] ?? ''}${refs}`
     }
     answer = { behavior: 'allow', updatedInput: { ...q.input, answers } }
+  } else if (review && body.behavior === 'allow') {
+    // Their version goes back as the tool's input; the engine's handler tells
+    // the model whether it was approved as is or edited (and re-asked).
+    const text = typeof body.text === 'string' && body.text.trim() ? body.text : review.text
+    const edited = text.trim() !== review.text.trim()
+    answer = { behavior: 'allow', updatedInput: { ...q.input, text } }
+    // The draft stays in the record as approved, the card above it gone.
+    said = `${edited ? 'Edited and approved:' : 'Approved:'}\n\n${quoted(text)}`
+  } else if (review && body.behavior === 'deny' && !body.message?.trim() && !body.attachments?.length) {
+    answer = { behavior: 'deny', message: 'The user discarded this draft. Do not send it.' }
+    said = 'Discarded.'
   } else if (body.behavior === 'allow') {
     answer = { behavior: 'allow' }
     said = 'Approved.'
@@ -1300,7 +1320,9 @@ export async function answerQuestion(
     const refs = attachmentRefs(body.attachments ?? [])
     answer = {
       behavior: 'deny',
-      message: reply || refs ? `The user declined this and replied:\n${reply}${refs}` : undefined,
+      message: reply || refs
+        ? `${review ? 'The user did not approve this text yet. They replied' : 'The user declined this and replied'}:\n${reply}${refs}`
+        : undefined,
     }
     said = reply || (refs ? '' : 'Denied.')
   } else {
