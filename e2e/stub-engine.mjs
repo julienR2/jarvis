@@ -48,6 +48,52 @@ const dictations = new Map()
 const ASK_ANSWER = 'Answer from the stub engine'
 const prompts = new Map()
 
+// A local model server too (Settings → Connection → Local points here): the
+// OpenAI-compatible endpoints llama-server answers. It streams a fixed answer
+// that says how much it was sent, and keeps every request for the specs to
+// read back (`/__local/requests`) — what a private chat sent, and that it was
+// sent here and not to the engine. The window is small, so "too long" is
+// reachable with a few kilobytes; /tokenize counts words, so it is exact.
+const LOCAL_MODEL = 'stub-gemma'
+const LOCAL_CTX = 4096
+const LOCAL_TITLE = 'Stub private title'
+const localRequests = []
+
+function localServer(req, res, path) {
+  const json = (status, body) => {
+    res.writeHead(status, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(body))
+  }
+  if (path === '/v1/models') return json(200, { data: [{ id: LOCAL_MODEL, object: 'model', meta: { n_ctx: LOCAL_CTX } }] })
+  let raw = ''
+  req.on('data', (c) => { raw += c })
+  req.on('end', () => {
+    let body = {}
+    try { body = JSON.parse(raw || '{}') } catch { /* empty */ }
+    if (path === '/tokenize') return json(200, { tokens: String(body.content ?? '').split(/\s+/).filter(Boolean).map(() => 1) })
+    localRequests.push(body)
+    const msgs = body.messages ?? []
+    // Titles ask for one without streaming.
+    if (!body.stream) return json(200, { choices: [{ message: { role: 'assistant', content: body.max_tokens === 1 ? 'ok' : LOCAL_TITLE } }] })
+    const last = msgs[msgs.length - 1]?.content ?? ''
+    const answer = `Local answer: I was sent ${msgs.length} messages, the last one ${last.length} characters long.`
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    const words = answer.split(' ')
+    let i = 0
+    const tick = setInterval(() => {
+      if (i < words.length) {
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: (i ? ' ' : '') + words[i] } }] })}\n\n`)
+        i++
+        return
+      }
+      clearInterval(tick)
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\n`)
+      res.write(`data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 100, completion_tokens: words.length } })}\n\n`)
+      res.end('data: [DONE]\n\n')
+    }, 30)
+  })
+}
+
 createServer((req, res) => {
   const path = new URL(req.url, 'http://localhost').pathname
   const dictation = path.match(/^\/dictation\/([^/]+)(\/finish)?$/)
@@ -78,6 +124,12 @@ createServer((req, res) => {
       if (offset <= received && offset + size > received) dictations.set(id, offset + size)
       json(200, { received: dictations.get(id) ?? 0 })
     })
+    return
+  }
+  if (path === '/v1/models' || path === '/v1/chat/completions' || path === '/tokenize') return localServer(req, res, path)
+  if (path === '/__local/requests') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ requests: localRequests }))
     return
   }
   if (path === '/asr') {
