@@ -838,7 +838,10 @@ async function runLocalTurn(conversationId: string, conv: ConvRow, turn: LocalTu
         id,
         conversationId,
         'assistant',
-        notes.map((n) => `[note] ${n}`).join('\n\n'),
+        // The prose as a `[chunk]` line, as an agent turn writes it: the chat
+        // draws an assistant row from its content's lines (the last chunk
+        // standing for `result`), and a row without any shows its raw content.
+        [...notes.map((n) => `[note] ${n}`), `[chunk] ${result}`].join('\n\n'),
         result,
         turn.runId ? JSON.stringify({ run_id: turn.runId, isolated: false }) : null,
         turn.model,
