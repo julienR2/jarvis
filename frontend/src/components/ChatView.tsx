@@ -1169,6 +1169,7 @@ export default function ChatView({
             effort={effort}
             onModelChange={handleModelChange}
             onEffortChange={handleEffortChange}
+            localOnly={!!conv?.is_private}
           />
           )}
         </div>

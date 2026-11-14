@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Check, Search } from 'lucide-react'
-import { modalityLabel } from './ModelSelector'
+import { isGatewayModel, modalityLabel } from './ModelSelector'
 import type { ModelOption } from './ModelSelector'
 
 /**
@@ -33,7 +33,7 @@ export default function GatewayModelPicker({
   // Claude subscription and `anthropic/claude-opus-5` through a gateway are
   // different routes, billed to different accounts, so showing one as the
   // other's selection would be quietly wrong.
-  const activeId = selected && selected.includes('/') ? selected : undefined
+  const activeId = isGatewayModel(selected) ? selected : undefined
 
   // What a model makes is the distinction that matters: an image model turns
   // the conversation into an image generator. Derived from the catalogue, so a

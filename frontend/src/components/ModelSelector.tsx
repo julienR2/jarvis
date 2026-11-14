@@ -1,5 +1,5 @@
 import { useState, useRef, useSyncExternalStore } from 'react'
-import { ChevronDown, Check, Brain } from 'lucide-react'
+import { ChevronDown, Check, Brain, Lock } from 'lucide-react'
 import GatewayModelPicker from './GatewayModelPicker'
 import Popover from './Popover'
 import type { Effort } from '../api'
@@ -16,6 +16,10 @@ export interface ModelOption {
   inputs?: string[]
   /** What it produces: 'text' runs the agent, otherwise it generates media. */
   kind?: 'text' | 'image' | 'video' | 'audio'
+  /** The Local provider's: no agent, no tools, nothing leaves the machine. */
+  local?: boolean
+  /** Tokens it holds at once, when known (local models). */
+  contextWindow?: number
 }
 
 /**
@@ -45,12 +49,14 @@ let liveModels: ModelOption[] = MODELS
 let liveAllowCustom = false
 let liveAnthropic: ModelOption[] = MODELS
 let liveGateway: ModelOption[] = []
+let liveLocal: ModelOption[] = []
 let liveDefault: string = DEFAULT_MODEL
 let snapshot: Catalogue = {
   models: MODELS,
   default: DEFAULT_MODEL,
   anthropic: MODELS,
   gateway: [],
+  local: [],
   allowCustom: false,
 }
 const listeners = new Set<() => void>()
@@ -70,6 +76,8 @@ export interface Catalogue {
   anthropic: ModelOption[]
   /** The gateway's catalogue — empty when no gateway is configured. */
   gateway: ModelOption[]
+  /** The Local provider's models — empty when none is configured (or it is down). */
+  local: ModelOption[]
   allowCustom: boolean
 }
 
@@ -94,9 +102,15 @@ export function allowsCustomModel(): boolean { return liveAllowCustom }
 /**
  * Whether a model id belongs to a gateway rather than Anthropic directly.
  * Mirrors the engine's rule: gateways namespace by vendor, Anthropic doesn't.
+ * A local id is neither, even with a slash in it (`local:hf.co/org/model`).
  */
 export function isGatewayModel(id?: string | null): boolean {
-  return !!id && id.includes('/')
+  return !!id && !isLocalModel(id) && id.includes('/')
+}
+
+/** A model of the Local provider: answered on this machine, never by the agent. */
+export function isLocalModel(id?: string | null): boolean {
+  return !!id && id.startsWith('local:')
 }
 
 /** Reactive read for components — re-renders when the catalogue changes. */
@@ -116,6 +130,7 @@ export async function loadModelCatalogue(
     default?: string
     anthropic?: ModelOption[]
     gateway?: ModelOption[]
+    local?: ModelOption[]
     allowCustom?: boolean
   }>,
 ): Promise<void> {
@@ -124,6 +139,7 @@ export async function loadModelCatalogue(
     if (cat.models?.length) liveModels = cat.models
     liveAnthropic = cat.anthropic ?? cat.models ?? MODELS
     liveGateway = cat.gateway ?? []
+    liveLocal = cat.local ?? []
     liveAllowCustom = !!cat.allowCustom
     liveDefault = cat.default || DEFAULT_MODEL
     snapshot = {
@@ -131,6 +147,7 @@ export async function loadModelCatalogue(
       default: liveDefault,
       anthropic: liveAnthropic,
       gateway: liveGateway,
+      local: liveLocal,
       allowCustom: liveAllowCustom,
     }
     listeners.forEach((fn) => fn())
@@ -210,6 +227,8 @@ export function modelSupportsEffort(id: string): boolean {
 export function modelName(id: string): string {
   const known = getModels().find(m => m.id === id)
   if (known) return known.name
+  // A local model the server no longer lists: its own id, without the prefix.
+  if (isLocalModel(id)) return id.slice('local:'.length)
   const raw = id.replace(/^claude-/, '').replace(/-\d{8}.*$/, '')
   const [family, ...vParts] = raw.split('-')
   return `${family.charAt(0).toUpperCase()}${family.slice(1)} ${vParts.join('.')}`
@@ -225,15 +244,27 @@ interface Props {
   direction?: 'up' | 'down'
   /** A quiet trigger for the chat input; forms keep the filled one. */
   subtle?: boolean
+  /**
+   * Offer the Local provider's models. Off where a message must reach the
+   * agent — a routine's prompt expects its tools.
+   */
+  includeLocal?: boolean
+  /** A private conversation: only local models may run it (backend/src/private.ts). */
+  localOnly?: boolean
 }
 
-export default function ModelSelector({ model, effort, onModelChange, onEffortChange, disabled, direction = 'up', subtle }: Props) {
+export default function ModelSelector({ model, effort, onModelChange, onEffortChange, disabled, direction = 'up', subtle, includeLocal = true, localOnly = false }: Props) {
   const [showMenu, setShowMenu] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
 
-  const { models: catalogue, anthropic, gateway } = useModelCatalogue()
+  const catalogueAll = useModelCatalogue()
+  const { models: catalogue, local } = catalogueAll
+  // A private conversation offers nothing that would send it off the machine.
+  const anthropic = localOnly ? [] : catalogueAll.anthropic
+  const gateway = localOnly ? [] : catalogueAll.gateway
   const [picking, setPicking] = useState(false)
   const selectedModel = catalogue.find(m => m.id === model) || { id: model, name: modelName(model), desc: '' }
+  const isLocal = isLocalModel(model)
   const supportsEffort = modelSupportsEffort(model)
 
   return (
@@ -247,6 +278,7 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
           ? `flex items-center gap-1 min-w-0 max-w-[220px] whitespace-nowrap px-2 py-1.5 rounded-xl text-xs text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors disabled:opacity-30 ${showMenu ? 'bg-surface2 text-text-primary' : ''}`
           : 'flex items-center gap-1.5 min-w-0 max-w-[260px] whitespace-nowrap px-2.5 py-1.5 rounded-xl text-xs font-medium text-text-secondary bg-bg hover:bg-border/60 transition-colors disabled:opacity-30'}
       >
+        {isLocal && <Lock size={11} className='shrink-0 text-green-600 dark:text-green-500' aria-label='Local model — stays on this machine' />}
         <span className={`truncate ${subtle ? '' : 'text-text-primary font-semibold'}`} title={selectedModel.name}>{selectedModel.name}</span>
         {supportsEffort && effort === 'high' && (
           <Brain size={11} className="shrink-0 text-accent" />
@@ -309,10 +341,43 @@ export default function ModelSelector({ model, effort, onModelChange, onEffortCh
             )}
           </div>
 
-          {/* Effort selector */}
-          <div className="border-t border-border p-1">
-            <EffortSwitch effort={effort} onChange={onEffortChange} disabled={!supportsEffort} />
-          </div>
+          {/* Local models: a few at most, listed like Anthropic's, under a
+              heading that says what choosing one means. */}
+          {includeLocal && local.length > 0 && (
+            <div className={`p-1 ${anthropic.length || gateway.length ? 'border-t border-border' : ''}`} data-testid='local-models'>
+              <div className='flex items-center gap-1.5 px-2 pt-1 pb-0.5 text-[11px] text-text-muted'>
+                <Lock size={11} className='text-green-600 dark:text-green-500' />
+                {localOnly ? 'Private chat — local models only' : 'Local — private, no tools'}
+              </div>
+              {local.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => { onModelChange(m.id); setShowMenu(false) }}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors text-left ${
+                    model === m.id ? 'bg-selected' : 'hover:bg-surface2'
+                  }`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className={`text-sm truncate ${model === m.id ? 'text-accent' : 'text-text-primary'}`}>{m.name}</div>
+                    <div className="text-[11px] text-text-muted truncate">{m.desc}</div>
+                  </div>
+                  {model === m.id && <Check size={13} className="text-accent shrink-0" />}
+                </button>
+              ))}
+            </div>
+          )}
+          {localOnly && local.length === 0 && (
+            <p className='px-3 py-2 text-[11px] text-text-muted'>
+              This chat is private and only runs on a local model, but the local server lists none right now.
+            </p>
+          )}
+
+          {/* Effort selector — local models have none, so it isn't offered */}
+          {!isLocal && (
+            <div className="border-t border-border p-1">
+              <EffortSwitch effort={effort} onChange={onEffortChange} disabled={!supportsEffort} />
+            </div>
+          )}
       </Popover>
 
       {picking && (

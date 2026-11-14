@@ -66,10 +66,12 @@ interface Props {
   model?: string
   effort?: Effort
   onModelChange?: (model: string) => void
+  /** A private conversation: the picker offers local models only. */
+  localOnly?: boolean
   onEffortChange?: (effort: Effort) => void
 }
 
-export default function ChatInput({ onSend, onSendNow, transcribing: transcribingElsewhere, onSendAudio, onCancel, isProcessing, conversationId, draftKey, autoFocus, focusKey, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange }: Props) {
+export default function ChatInput({ onSend, onSendNow, transcribing: transcribingElsewhere, onSendAudio, onCancel, isProcessing, conversationId, draftKey, autoFocus, focusKey, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange, localOnly }: Props) {
   const [ownKey] = useState(() => `tmp:${Math.random().toString(36).slice(2)}`)
   const key = draftKey ?? conversationId ?? ownKey
   const keyRef = useRef(key)
@@ -484,7 +486,7 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
               {/* Not while answering: an answer continues the turn that asked,
                   on whatever it runs on — it is not a new message. */}
               {model && !question && onModelChange && onEffortChange && (
-                <ModelSelector model={model} effort={effort} onModelChange={onModelChange} onEffortChange={onEffortChange} subtle />
+                <ModelSelector model={model} effort={effort} onModelChange={onModelChange} onEffortChange={onEffortChange} localOnly={localOnly} subtle />
               )}
             </div>
 

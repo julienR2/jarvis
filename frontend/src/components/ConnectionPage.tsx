@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import Select from './Select'
-import { Check, Loader2, ChevronDown, KeyRound, Trash2, ExternalLink, Eye, EyeOff } from 'lucide-react'
+import { Check, Loader2, ChevronDown, KeyRound, Trash2, ExternalLink, Eye, EyeOff, Lock } from 'lucide-react'
 import { api } from '../api'
-import type { ConnectionStatus, ProviderStatus } from '../api'
+import type { ConnectionStatus, LocalProviderStatus, ProviderStatus } from '../api'
 import { loadModelCatalogue, useModelCatalogue, modelName } from './ModelSelector'
 import GatewayModelPicker from './GatewayModelPicker'
 
@@ -69,6 +69,139 @@ export function ProviderConnections() {
         canChooseDefault={status!.anthropic.configured && status!.gateway.configured}
         onChanged={load}
       />
+      <LocalCard status={status!.local} onChanged={load} />
+    </div>
+  )
+}
+
+/**
+ * The Local provider: an OpenAI-compatible server on this machine (llama.cpp's
+ * llama-server, Ollama, LM Studio). Its models join the picker for private
+ * chats — no agent, no tools, nothing sent anywhere else. Never the default:
+ * it is chosen per conversation.
+ */
+function LocalCard({ status, onChanged }: { status: LocalProviderStatus; onChanged: () => Promise<void> }) {
+  const [open, setOpen] = useState(false)
+  const [baseUrl, setBaseUrl] = useState(status.baseUrl)
+  const [credential, setCredential] = useState('')
+  const [reveal, setReveal] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState('')
+
+  async function save() {
+    setSaving(true)
+    setError('')
+    setSaved('')
+    try {
+      const res = await api.setConnection({ mode: 'local', baseUrl, credential })
+      setCredential('')
+      setSaved(`Verified and saved${res.models?.length ? ` — ${res.models.join(', ')}` : ''}.`)
+      await onChanged()
+      await loadModelCatalogue(() => api.getModels())
+      setOpen(false)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function forget() {
+    if (!confirm('Remove the local model server? Private chats stay, but can’t continue until one is set up again.')) return
+    setSaving(true)
+    try {
+      await api.clearConnection('local')
+      await onChanged()
+      await loadModelCatalogue(() => api.getModels())
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className='rounded-2xl border border-border bg-surface overflow-hidden' data-testid='local-provider'>
+      <button
+        onClick={() => setOpen(!open)}
+        className='w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface2 transition-colors'
+      >
+        <span className={`shrink-0 ${status.configured ? 'text-green-600 dark:text-green-500' : 'text-text-muted'}`}>
+          {status.configured ? <Check size={16} /> : <Lock size={16} />}
+        </span>
+        <span className='flex-1 min-w-0'>
+          <span className='block text-sm font-medium text-text-primary'>Local</span>
+          <span className='block text-xs text-text-muted truncate font-mono'>
+            {status.configured
+              ? `${status.baseUrl}${status.credentialHint ? ` · ${status.credentialHint}` : ''}`
+              : 'A model on this machine, for private chats'}
+          </span>
+        </span>
+        <ChevronDown size={15} className={`shrink-0 text-text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className='px-4 pb-4 pt-1 flex flex-col gap-3 border-t border-border'>
+          {status.envManaged && (
+            <p className='text-amber-600 dark:text-amber-500 text-xs'>
+              Set in the environment (LOCAL_LLM_BASE_URL). Saving here overrides it.
+            </p>
+          )}
+          <p className='text-xs text-text-muted'>
+            Any OpenAI-compatible server — llama.cpp&apos;s <span className='font-mono'>llama-server</span>, Ollama,
+            LM Studio. Its models appear in the picker under “Local”: a chat on one never runs the agent, has no
+            tools, and nothing in it leaves this machine. The URL must be reachable from the backend
+            (on Docker, e.g. <span className='font-mono'>http://llm:8080</span> on a shared network).
+          </p>
+          <input
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder='http://llm:8080'
+            aria-label='Local server URL'
+            className='w-full bg-bg border border-border rounded-xl px-3 py-2 text-sm font-mono text-text-primary outline-none focus:border-accent'
+          />
+          <div className='relative'>
+            <input
+              type={reveal ? 'text' : 'password'}
+              value={credential}
+              onChange={(e) => setCredential(e.target.value)}
+              placeholder='API key (optional)'
+              aria-label='Local server API key'
+              className='w-full bg-bg border border-border rounded-xl px-3 py-2 pr-10 text-sm font-mono text-text-primary outline-none focus:border-accent'
+            />
+            <button
+              onClick={() => setReveal(!reveal)}
+              className='absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-1'
+              aria-label={reveal ? 'Hide' : 'Show'}
+            >
+              {reveal ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+          <button
+            onClick={save}
+            disabled={saving || !baseUrl.trim()}
+            className='bg-accent text-white rounded-xl py-2.5 text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors'
+          >
+            {saving ? 'Verifying…' : 'Verify and save'}
+          </button>
+          <p className='text-xs text-text-muted'>
+            Jarvis lists the server&apos;s models and runs a one-token request before saving. A server that runs one
+            request at a time may take a moment if it is busy.
+          </p>
+          {error && <p className='text-danger text-sm'>{error}</p>}
+          {status.configured && (
+            <button
+              onClick={forget}
+              disabled={saving}
+              className='self-start text-xs text-danger hover:underline inline-flex items-center gap-1'
+            >
+              <Trash2 size={12} /> Remove the local server
+            </button>
+          )}
+        </div>
+      )}
+      {saved && !open && <p className='px-4 pb-3 text-green-600 dark:text-green-500 text-sm'>{saved}</p>}
     </div>
   )
 }

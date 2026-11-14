@@ -276,7 +276,7 @@ export function RoutineCard({
             />
           </div>
           <div className='mt-1.5 flex justify-end'>
-            <ModelSelector model={draft.model} effort={draft.effort} onModelChange={(m) => set({ model: m })} onEffortChange={(e) => set({ effort: e })} direction='down' />
+            <ModelSelector model={draft.model} effort={draft.effort} onModelChange={(m) => set({ model: m })} onEffortChange={(e) => set({ effort: e })} direction='down' includeLocal={false} />
           </div>
         </div>
 

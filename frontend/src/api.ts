@@ -161,8 +161,8 @@ export const api = {
   /** What the composer's `/` menu offers — one list whatever the model. */
   getCommands: () => request<{ commands: SlashCommand[] }>('GET', '/commands'),
   getConnection: () => request<ConnectionStatus>('GET', '/auth/connection'),
-  setConnection: (body: { mode: 'anthropic' | 'gateway'; baseUrl: string; credential: string }) =>
-    request<{ ok: boolean; busy: string[] }>('POST', '/auth/connection', body),
+  setConnection: (body: { mode: 'anthropic' | 'gateway' | 'local'; baseUrl: string; credential: string }) =>
+    request<{ ok: boolean; busy: string[]; models?: string[] }>('POST', '/auth/connection', body),
   setConnectionDefaults: (body: {
     provider?: 'anthropic' | 'gateway'
     anthropicModel?: string
@@ -174,7 +174,7 @@ export const api = {
       anthropicModel: string
       gatewayModel: string
     }>('PUT', '/auth/connection/defaults', body),
-  clearConnection: (provider: 'anthropic' | 'gateway') =>
+  clearConnection: (provider: 'anthropic' | 'gateway' | 'local') =>
     request<{ ok: boolean }>('DELETE', `/auth/connection/${provider}`),
   // Mirrors the session into an httpOnly cookie so <img>/<a> inside chat and
   // apps can load uploads and proxied connector content, which can't send an
@@ -665,6 +665,10 @@ export type Effort = 'default' | 'high'
 export interface ModelCatalogue {
   provider: 'anthropic' | 'gateway'
   models: { id: string; name: string; desc: string; effort?: boolean }[]
+  /** The Local provider's models (`local:` ids) — empty when none is configured. */
+  local?: { id: string; name: string; desc: string; effort?: boolean; local?: boolean; contextWindow?: number }[]
+  /** Why the local server's models couldn't be listed, when it is configured but down. */
+  localError?: string
   default: string
   /** Gateways serve more than they list; let the user type an id. */
   allowCustom?: boolean
@@ -680,10 +684,20 @@ export interface ProviderStatus {
   defaultModel: string
 }
 
-/** Both providers, independently configurable. */
+/** The Local provider: an OpenAI-compatible server on this machine. */
+export interface LocalProviderStatus {
+  configured: boolean
+  baseUrl: string
+  /** The optional API key, redacted; empty when there is none. */
+  credentialHint: string
+  envManaged: boolean
+}
+
+/** The providers, independently configurable. */
 export interface ConnectionStatus {
   anthropic: ProviderStatus
   gateway: ProviderStatus
+  local: LocalProviderStatus
   /** Which provider new conversations belong to. Forced when only one is set up. */
   defaultProvider: 'anthropic' | 'gateway'
 }
@@ -715,6 +729,11 @@ export interface Conversation {
   /** Legacy column, unused since reasoning summaries were removed. */
   thinking: number
   section_id: string | null
+  /**
+   * A local model has spoken here (backend/src/private.ts): it only runs on
+   * local models from now on, and the agent can't see it.
+   */
+  is_private?: number
   /** Context fill as of the last assistant message — null until the first turn. */
   context_tokens: number | null
   context_window: number | null
