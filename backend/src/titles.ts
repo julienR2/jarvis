@@ -1,5 +1,7 @@
 import { invokeAndWait } from './engine.js'
 import { getDb } from './db.js'
+import { completeOnce, isLocalModel, localConfig } from './local-llm.js'
+import { isPrivateConversation, localModelOf } from './private.js'
 
 // Ask Claude for a short title for the conversation: a one-shot call with a
 // fresh session, given the last exchanges from the database in its prompt.
@@ -72,6 +74,11 @@ export async function generateTitle(
   conversationId: string,
   model?: string | null,
 ): Promise<string | null> {
+  // A private conversation is titled by its own local model, or not by a model
+  // at all: the engine would send the transcript to Anthropic or the gateway.
+  if (isLocalModel(model) || isPrivateConversation(conversationId)) {
+    return localTitle(conversationId, isLocalModel(model) ? (model as string) : localModelOf(conversationId))
+  }
   try {
     const lines = transcript(conversationId)
     if (!lines) return null
@@ -83,20 +90,57 @@ export async function generateTitle(
       // gateway, so no provider is needed beyond the one the chat already uses.
       model: model ?? undefined,
     })
-    const cleaned = raw.trim().replace(/^["'«]|["'».,]$/g, '').trim()
-    if (NO_SUBJECT.test(cleaned)) {
-      console.log(`[title] ${conversationId.slice(0, 8)}: no subject yet (${JSON.stringify(raw.trim())}), asking again next turn`)
-      return null
-    }
-    if (!looksLikeTitle(cleaned)) {
-      console.log(`[title] ${conversationId.slice(0, 8)}: refused ${JSON.stringify(raw.slice(0, 120))}`)
-      return null
-    }
-    return cleaned
+    return acceptTitle(conversationId, raw)
   } catch (err) {
     console.error(`[title] ${conversationId.slice(0, 8)}: failed`, err)
     return null
   }
+}
+
+/** The model's answer as a title, or null to leave the placeholder and ask again. */
+function acceptTitle(conversationId: string, raw: string): string | null {
+  const cleaned = raw.trim().replace(/^["'«]|["'».,]$/g, '').trim()
+  if (NO_SUBJECT.test(cleaned)) {
+    console.log(`[title] ${conversationId.slice(0, 8)}: no subject yet (${JSON.stringify(raw.trim())}), asking again next turn`)
+    return null
+  }
+  if (!looksLikeTitle(cleaned)) {
+    console.log(`[title] ${conversationId.slice(0, 8)}: refused ${JSON.stringify(raw.slice(0, 120))}`)
+    return null
+  }
+  return cleaned
+}
+
+/**
+ * Title a private conversation on the local model. Its whole first message can
+ * be a chat export, so the transcript is the same trimmed one the engine gets
+ * (eight rows, 400 characters each): a title needs the subject, and a small
+ * model on a home server reads it in a couple of seconds. When the server
+ * can't be asked, the first words of the conversation stand in — never another
+ * provider.
+ */
+async function localTitle(conversationId: string, model: string | null): Promise<string | null> {
+  const lines = transcript(conversationId)
+  if (!lines) return null
+  const cfg = localConfig()
+  if (cfg && model) {
+    try {
+      const raw = await completeOnce(cfg, model, [
+        { role: 'user', content: `<transcript>\n${lines}\n</transcript>\n\n${INSTRUCTIONS}` },
+      ], 24)
+      return acceptTitle(conversationId, raw)
+    } catch (err) {
+      console.error(`[title] ${conversationId.slice(0, 8)}: local model failed, using the first words`, err)
+    }
+  }
+  return firstWordsTitle(lines.replace(/^User: /, ''))
+}
+
+/** The first few words of a text, behind a lock: what a private chat is about, without a model. */
+export function firstWordsTitle(text: string): string | null {
+  const words = text.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean).slice(0, 4)
+  if (words.length === 0) return null
+  return `🔒 ${words.join(' ')}`.slice(0, 60)
 }
 
 /**

@@ -4,6 +4,7 @@ import { invokeAndWait } from '../engine.js'
 import { config } from '../config.js'
 import type { ConvRow, WebhookRow } from '../types.js'
 import { fireWebhook, fireWebhookSync } from '../webhooks.js'
+import { isPrivateConversation } from '../private.js'
 
 /** Past this an app is sending a document, not asking a question. */
 const MAX_PROMPT = 20_000
@@ -24,6 +25,11 @@ export async function appBridgeRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const conv = getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(req.params.id) as ConvRow | undefined
     if (!conv) return reply.code(404).send({ error: 'Not found' })
+    // The answer comes from the agent, on Claude or the gateway — and an app
+    // beside a private chat (private.ts) asks about what was said in it.
+    if (isPrivateConversation(conv.id)) {
+      return reply.code(403).send({ error: 'jarvis.ask is not available beside a private (local-model) conversation' })
+    }
     const { prompt } = (req.body ?? {}) as { prompt?: unknown }
     if (typeof prompt !== 'string' || !prompt.trim()) return reply.code(400).send({ error: 'prompt is required' })
     if (prompt.length > MAX_PROMPT) return reply.code(400).send({ error: `prompt is too long (max ${MAX_PROMPT} characters)` })

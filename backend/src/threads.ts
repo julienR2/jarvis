@@ -22,6 +22,7 @@
 import { getDb, uuid } from './db.js'
 import { emitConversationEvent, emitGlobalEvent } from './sse.js'
 import { pushForConversation } from './push.js'
+import { isPrivateConversation } from './private.js'
 import type { ConvRow, MessageRow, RunRow, RunStatus } from './types.js'
 
 export type RoutineTable = 'crons' | 'webhooks'
@@ -168,9 +169,13 @@ export function reportRun(run: RunRow, quiet: boolean, push: { summary: string |
   const failed = run.status === 'error' || run.status === 'interrupted'
   if (run.status === 'stopped') return
   const worthy = failed || (run.status === 'done' && !quiet)
-  const text = failed
-    ? run.error || 'The run failed.'
-    : (run.result ?? '').trim() || 'Done.'
+  // A private thread's result stays in the thread (private.ts): its parent
+  // chat may run on Claude, and a report there is part of that chat's record.
+  const text = isPrivateConversation(thread.id) && !failed
+    ? '🔒 Finished in its private thread — open the thread to read it.'
+    : failed
+      ? run.error || 'The run failed.'
+      : (run.result ?? '').trim() || 'Done.'
   // A [push] rings even on a quiet run: the run asked, and only No push
   // overrules it. Always adds whatever was worth a badge.
   const asked = failed || !!push
@@ -323,6 +328,8 @@ export function threadActivityPrompt(conversationId: string): string | null {
   ).all(conversationId) as { id: string; title: string }[]
   const blocks: string[] = []
   for (const t of threads) {
+    // A private thread's work never reaches another chat's prompt (private.ts).
+    if (isPrivateConversation(t.id)) continue
     const answers = db.prepare(
       `SELECT result, created_at FROM messages
         WHERE conversation_id = ? AND role = 'assistant' AND type IS NULL AND result IS NOT NULL AND created_at > ?
@@ -356,7 +363,9 @@ export function parentActivityPrompt(conv: ConvRow): string | null {
   if (conv.kind !== 'thread' || !conv.parent_message_id || !conv.parent_id) return null
   const db = getDb()
   const parent = getConv(conv.parent_id)
-  if (!parent) return null
+  // Nor does a private chat's reach its threads' (they are made private with
+  // it, but one opened before the chat went private is not).
+  if (!parent || isPrivateConversation(parent.id)) return null
   // The fork carried the chat up to the thread's opening; after that, the
   // thread knows the chat as of its own last turn.
   const since = Math.max(

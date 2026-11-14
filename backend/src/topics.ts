@@ -19,6 +19,7 @@ import { listTopicDocs } from './tabs.js'
 import { config } from './config.js'
 import { emitGlobalEvent } from './sse.js'
 import type { ConvRow, SectionRow } from './types.js'
+import { isPrivateConversation } from './private.js'
 
 /** Longer than this and the brief is a document, not a brief. */
 export const MAX_CONTEXT_CHARS = 8000
@@ -122,7 +123,9 @@ export function ensureDossierConversation(section: SectionRow): ConvRow {
  */
 export function consolidationPrompt(section: SectionRow, exclude?: string): string {
   const chats = topicConversations(section.id)
-    .filter((c) => c.id !== exclude)
+    // Private chats (private.ts) are left out: the consolidating agent reads
+    // what it lists, and runs on Claude.
+    .filter((c) => c.id !== exclude && !isPrivateConversation(c.id))
     .slice(0, 12)
     .map((c) => `- ${c.title} — id ${c.id} — last active ${new Date(c.updated_at * 1000).toISOString().slice(0, 10)}`)
   return [

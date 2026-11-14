@@ -5,7 +5,8 @@ import { getDb } from '../db.js'
 import { config } from '../config.js'
 import { verifyConnection, recycleSessions } from '../engine.js'
 import { secureEquals } from '../security.js'
-import { defaultProvider, defaultModelFor, type Provider } from '../models.js'
+import { defaultProvider, defaultModelFor, isGatewayModel, type Provider } from '../models.js'
+import { isLocalModel, localConfig, normalizeBaseUrl, verifyLocal } from '../local-llm.js'
 import { extractRequestToken, SESSION_COOKIE } from '../request-auth.js'
 import type { UserRow } from '../types.js'
 import { readSecrets, writeSecrets } from '../secrets.js'
@@ -227,6 +228,18 @@ export async function authRoutes(app: FastifyInstance) {
         envManaged: !secrets.providerBaseUrl && !!process.env.ANTHROPIC_BASE_URL,
         defaultModel: defaultModelFor('gateway'),
       },
+      // The Local provider: an OpenAI-compatible server on this machine. Not a
+      // candidate for the default — see PUT /connection/defaults.
+      local: (() => {
+        const cfg = localConfig()
+        const key = cfg?.apiKey ?? ''
+        return {
+          configured: !!cfg,
+          baseUrl: cfg?.baseUrl ?? '',
+          credentialHint: hint(key),
+          envManaged: !secrets.localBaseUrl && !!process.env.LOCAL_LLM_BASE_URL,
+        }
+      })(),
       // Which provider new conversations start on. Reported even with one
       // provider configured — it is then forced, and the UI says so rather
       // than offering a choice that isn't one.
@@ -260,7 +273,12 @@ export async function authRoutes(app: FastifyInstance) {
     // somewhere it cannot be served. Reject rather than silently re-route: the
     // picker should never offer such a pairing, and if it does we want to know.
     const check = (model: string, provider: Provider): string | null => {
-      const namespaced = model.includes('/')
+      // A local model is chosen per conversation, never as the default: new
+      // conversations include the ones routines, webhooks and the agent open,
+      // which need the agent and its tools — and a private chat should be one
+      // you started on purpose, not every chat by accident.
+      if (isLocalModel(model)) return 'A local model can be picked per conversation, not as the default'
+      const namespaced = isGatewayModel(model)
       if (provider === 'gateway' && !namespaced) {
         return 'A gateway default must be a namespaced model id (e.g. "google/gemini-3.8-flash")'
       }
@@ -312,6 +330,12 @@ export async function authRoutes(app: FastifyInstance) {
       } else if (req.params.provider === 'gateway') {
         delete secrets.providerBaseUrl
         delete secrets.providerAuthToken
+      } else if (req.params.provider === 'local') {
+        // Nothing to recycle: local turns never spawn an engine session.
+        delete secrets.localBaseUrl
+        delete secrets.localApiKey
+        writeSecrets(secrets)
+        return { ok: true }
       } else {
         return reply.code(400).send({ error: 'Unknown provider' })
       }
@@ -326,9 +350,29 @@ export async function authRoutes(app: FastifyInstance) {
   // whole bug this endpoint exists to fix.
   app.post('/connection', { onRequest: [app.authenticate] }, async (req, reply) => {
     const { mode, baseUrl, credential } = req.body as {
-      mode?: 'anthropic' | 'gateway'
+      mode?: 'anthropic' | 'gateway' | 'local'
       baseUrl?: string
       credential?: string
+    }
+
+    // The Local provider: a URL, the key optional (llama-server has none by
+    // default). Verified by listing its models and running a one-token request.
+    if (mode === 'local') {
+      const url = normalizeBaseUrl(baseUrl || '')
+      if (!/^https?:\/\/[^/]/.test(url)) {
+        return reply.code(400).send({ error: 'Base URL must start with http:// or https://' })
+      }
+      const key = (credential || '').trim()
+      const check = await verifyLocal({ baseUrl: url, ...(key ? { apiKey: key } : {}) })
+      if (!check.ok) {
+        return reply.code(400).send({ error: check.error, verificationFailed: true })
+      }
+      const secrets = readSecrets()
+      secrets.localBaseUrl = url
+      if (key) secrets.localApiKey = key
+      else delete secrets.localApiKey
+      writeSecrets(secrets)
+      return { ok: true, busy: [], models: check.models.map((m) => m.id) }
     }
 
     if (mode !== 'anthropic' && mode !== 'gateway') {

@@ -29,7 +29,7 @@ import { appBridgeRoutes } from './routes/app-bridge.js'
 import { watchOpenDocs } from './tabs.js'
 import { webhookRoutes, webhookTriggerRoute } from './routes/webhooks.js'
 import { shareTargetRoutes } from './routes/share-targets.js'
-import { uploadRoutes, UPLOADS_DIR, MAX_FILE_SIZE } from './routes/uploads.js'
+import { uploadRoutes, UPLOADS_DIR, PRIVATE_UPLOADS_DIR, PRIVATE_URL_PREFIX, MAX_FILE_SIZE } from './routes/uploads.js'
 import { dictationRoutes } from './routes/dictation.js'
 import { pushRoutes } from './routes/push.js'
 import { appRoutes } from './routes/apps.js'
@@ -101,13 +101,24 @@ await app.register(fastifyStatic, {
   // link into the backend's data is a 404, not a download (see safe-path.ts).
   allowedPath: (pathname) => !!resolveInside(UPLOADS_DIR, join(UPLOADS_DIR, pathname)),
 })
+// A private conversation's files (see private.ts), outside the agent's reach.
+// Same access rules as the files above — the hook below covers both prefixes.
+await app.register(fastifyStatic, {
+  root: PRIVATE_UPLOADS_DIR,
+  prefix: PRIVATE_URL_PREFIX,
+  decorateReply: false,
+  allowedPath: (pathname) => !!resolveInside(PRIVATE_UPLOADS_DIR, join(PRIVATE_UPLOADS_DIR, pathname)),
+})
 
 // Uploaded and agent-generated files were served to anyone who knew the path.
 // UUID filenames are obscurity, not access control, and the paths leak through
 // app frames, Referer headers and logs. Gate them like everything else — via
 // the session cookie or ?token=, since <img>/<a> can't set a header.
 app.addHook('onRequest', async (req, reply) => {
-  if (!req.url.startsWith('/api/uploads/files/')) return
+  const prefix = req.url.startsWith('/api/uploads/files/')
+    ? '/api/uploads/files/'
+    : req.url.startsWith(PRIVATE_URL_PREFIX) ? PRIVATE_URL_PREFIX : null
+  if (!prefix) return
   const token = extractRequestToken(req)
   if (!token) return reply.code(404).send({ error: 'Not found' })
 
@@ -126,7 +137,7 @@ app.addHook('onRequest', async (req, reply) => {
   const share = resolveShareToken(token)
   if (!share) return reply.code(404).send({ error: 'Not found' })
 
-  const rest = req.url.slice('/api/uploads/files/'.length).split('?')[0]
+  const rest = req.url.slice(prefix.length).split('?')[0]
   const segments = rest.split('/').filter(Boolean).map((x) => {
     try { return decodeURIComponent(x) } catch { return x }
   })

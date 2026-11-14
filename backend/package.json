@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit",
+    "test": "SECRETS_PATH=${TMPDIR:-/tmp}/jarvis-unit-secrets.json DB_PATH=${TMPDIR:-/tmp}/jarvis-unit.db tsx --test src/*.test.ts",
     "start": "tsx src/index.ts"
   },
   "dependencies": {

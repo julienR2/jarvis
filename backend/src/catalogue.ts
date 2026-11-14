@@ -10,6 +10,7 @@
  * restart and no rebuild.
  */
 import { readFileSync } from 'fs'
+import { isLocalModel, LOCAL_PREFIX, listLocalModels, localConfig } from './local-llm.js'
 
 /**
  * What a model produces, which decides how a message to it is handled.
@@ -40,6 +41,13 @@ export interface ModelOption {
   inputs?: string[]
   /** What it produces, which decides how a message to it is handled. */
   kind?: ModelKind
+  /**
+   * Served by the Local provider: called directly with the transcript, no
+   * agent, no tools, and nothing leaves the machine (local-llm.ts).
+   */
+  local?: boolean
+  /** Tokens the model holds at once, when known. */
+  contextWindow?: number
 }
 
 const ANTHROPIC_MODELS: ModelOption[] = [
@@ -166,9 +174,31 @@ async function gatewayModels(
 }
 
 
+/**
+ * The Local provider's models, as picker entries. `local:`-prefixed, which is
+ * what routes a message to them (see isGatewayModel in models.ts).
+ */
+async function localModels(): Promise<ModelOption[]> {
+  const cfg = localConfig()
+  if (!cfg) return []
+  const models = await listLocalModels(cfg)
+  return models.map((m) => ({
+    id: LOCAL_PREFIX + m.id,
+    name: m.id,
+    desc: `On this machine · ${Math.round(m.contextWindow / 1024)}k context${m.contextKnown ? '' : ' (assumed)'}`,
+    effort: false,
+    outputs: ['text'],
+    inputs: ['text'],
+    kind: 'text' as const,
+    local: true,
+    contextWindow: m.contextWindow,
+  }))
+}
+
 /** The kind of a model id, resolved from the gateway catalogue. */
 export async function modelKind(id?: string | null): Promise<ModelKind> {
-  if (!id || !id.includes('/')) return 'text'
+  // Never looked up in the gateway's catalogue: a local id may contain a slash.
+  if (!id || isLocalModel(id) || !id.includes('/')) return 'text'
   const cfg = gatewayConfig()
   if (!cfg) return 'text'
   try {
@@ -179,4 +209,4 @@ export async function modelKind(id?: string | null): Promise<ModelKind> {
   }
 }
 
-export { gatewayConfig, gatewayModels, ANTHROPIC_MODELS, readSecretsSafe }
+export { gatewayConfig, gatewayModels, localModels, ANTHROPIC_MODELS, readSecretsSafe }

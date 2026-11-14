@@ -22,6 +22,7 @@ import { hasInternalSecret } from '../security.js'
 import type { CronRow, WebhookRow, ConvRow } from '../types.js'
 import { afterRoutineWrite, checkRoutineRefs, routineOfThread } from '../threads.js'
 import { addTopicDoc, closeTab, emitTabs, getTab, listTabs, listTopicDocs, openTab, removeTopicDoc } from '../tabs.js'
+import { isPrivateConversation, privateSql } from '../private.js'
 
 export function checkSecret(req: any, reply: any): boolean {
   if (!hasInternalSecret(req)) {
@@ -215,7 +216,7 @@ export async function internalRoutes(app: FastifyInstance) {
       .prepare(
         `SELECT c.id, c.title, s.name AS topic, c.updated_at FROM conversations c
            LEFT JOIN sections s ON s.id = c.section_id
-          WHERE c.kind = 'chat' ORDER BY c.updated_at DESC LIMIT ?`,
+          WHERE c.kind = 'chat' AND NOT ${privateSql('c')} ORDER BY c.updated_at DESC LIMIT ?`,
       )
       .all(limit)
   })
@@ -225,7 +226,9 @@ export async function internalRoutes(app: FastifyInstance) {
     const conv = getDb()
       .prepare('SELECT id, title, section_id, app_path, kind, parent_id, created_at, updated_at FROM conversations WHERE id = ?')
       .get(req.params.id) as Pick<ConvRow, 'id' | 'title' | 'section_id' | 'app_path' | 'kind' | 'parent_id' | 'created_at' | 'updated_at'> | undefined
-    if (!conv) return reply.code(404).send({ error: 'Conversation not found' })
+    // Private conversations (a local model's, see private.ts) don't exist for
+    // the agent: anything it reads goes to Anthropic or the gateway next turn.
+    if (!conv || isPrivateConversation(conv.id)) return reply.code(404).send({ error: 'Conversation not found' })
     const section = conv.section_id ? getSection(conv.section_id) : undefined
     // A thread: the routine it belongs to, if one was set up in it yet.
     const routine = conv.kind === 'thread' ? routineOfThread(conv.id) : null
@@ -277,7 +280,7 @@ export async function internalRoutes(app: FastifyInstance) {
           .prepare(
             `SELECT c.id, c.title, c.kind, s.name AS topic, c.updated_at FROM conversations c
                LEFT JOIN sections s ON s.id = c.section_id
-              WHERE c.title LIKE ? ESCAPE '\\' ORDER BY c.updated_at DESC LIMIT ?`,
+              WHERE c.title LIKE ? ESCAPE '\\' AND NOT ${privateSql('c')} ORDER BY c.updated_at DESC LIMIT ?`,
           )
           .all(like, limit)
 
@@ -289,6 +292,7 @@ export async function internalRoutes(app: FastifyInstance) {
            JOIN conversations c ON c.id = m.conversation_id
            LEFT JOIN sections s ON s.id = c.section_id
           WHERE m.type IS NULL
+            AND NOT ${privateSql('c')}
             AND (@scope IS NULL OR m.conversation_id = @scope)
             AND CASE WHEN m.role = 'assistant' AND m.result IS NOT NULL THEN m.result ELSE m.content END LIKE @like ESCAPE '\\'
           ORDER BY m.created_at DESC LIMIT @limit`,
@@ -376,7 +380,7 @@ export async function internalRoutes(app: FastifyInstance) {
       const conv = getDb()
         .prepare('SELECT id, title FROM conversations WHERE id = ?')
         .get(req.params.id) as { id: string; title: string } | undefined
-      if (!conv) return reply.code(404).send({ error: 'Conversation not found' })
+      if (!conv || isPrivateConversation(conv.id)) return reply.code(404).send({ error: 'Conversation not found' })
 
       const asked = Number(req.query.limit)
       const limit = Math.min(Math.max(Number.isFinite(asked) ? asked : 20, 1), 100)
@@ -453,7 +457,7 @@ export async function internalRoutes(app: FastifyInstance) {
       const conv = getDb()
         .prepare('SELECT * FROM conversations WHERE id = ?')
         .get(req.params.id) as ConvRow | undefined
-      if (!conv) return reply.code(404).send({ error: 'Conversation not found' })
+      if (!conv || isPrivateConversation(conv.id)) return reply.code(404).send({ error: 'Conversation not found' })
 
       if (!content?.trim() && !attachments?.length) {
         return reply.code(400).send({ error: 'Empty message' })

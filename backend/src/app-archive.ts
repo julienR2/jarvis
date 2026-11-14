@@ -1,6 +1,10 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, cpSync, statSync } from 'fs'
-import { extname, join } from 'path'
+import { dirname, extname, join } from 'path'
 import { config } from './config.js'
+
+// A private conversation's uploads (routes/uploads.ts), and where they are
+// archived: beside the database, never in the agent's workspace.
+const DATA_DIR = dirname(config.dbPath)
 
 /**
  * Move an app's files out of the live `apps/` directory into `apps-archive/`
@@ -23,12 +27,14 @@ export function archiveAppDir(
 /** The conversation's own upload folder (`uploads/<id>`) → `uploads-archive/`. */
 export function archiveUploadsDir(conversationId: string): void {
   archiveDir('uploads', conversationId)
+  archiveDir('private-uploads', conversationId, DATA_DIR)
 }
 
 /** The other choice on delete: the files go for good. */
 export function purgeConversationFiles(conversationId: string, appPath?: string | null): void {
   rmSync(join(config.workspaceDir, 'apps', appDirName(conversationId, appPath)), { recursive: true, force: true })
   rmSync(join(config.workspaceDir, 'uploads', conversationId), { recursive: true, force: true })
+  rmSync(join(DATA_DIR, 'private-uploads', conversationId), { recursive: true, force: true })
 }
 
 /**
@@ -44,7 +50,7 @@ export function conversationFiles(conversationId: string, appPath?: string | nul
     )
   }
   return {
-    uploads: count(join(config.workspaceDir, 'uploads', conversationId)),
+    uploads: count(join(config.workspaceDir, 'uploads', conversationId)) + count(join(DATA_DIR, 'private-uploads', conversationId)),
     app: existsSync(join(config.workspaceDir, 'apps', appDirName(conversationId, appPath))),
   }
 }
@@ -80,11 +86,11 @@ function appDirName(conversationId: string, appPath?: string | null): string {
 }
 
 /** `<kind>/<dirName>` → `<kind>-archive/<dirName>`; no-op when there is nothing there. */
-function archiveDir(kind: 'apps' | 'uploads', dirName: string): void {
-  const dir = join(config.workspaceDir, kind, dirName)
+function archiveDir(kind: 'apps' | 'uploads' | 'private-uploads', dirName: string, base = config.workspaceDir): void {
+  const dir = join(base, kind, dirName)
   if (!existsSync(dir)) return
 
-  const archiveRoot = join(config.workspaceDir, `${kind}-archive`)
+  const archiveRoot = join(base, `${kind}-archive`)
   mkdirSync(archiveRoot, { recursive: true })
 
   // Normally `<id>`; on the rare re-archive collision (same conversation

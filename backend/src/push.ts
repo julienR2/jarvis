@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { dirname, join } from 'path'
 import { getDb } from './db.js'
 import { config } from './config.js'
+import { isPrivateConversation } from './private.js'
 
 const VAPID_PATH = join(dirname(config.dbPath), 'vapid.json')
 
@@ -70,6 +71,14 @@ export function sendPushToAll(title: string, body: string, url?: string): Promis
  */
 export function pushForConversation(conversationId: string, title: string, body: string, url = `/c/${conversationId}`): Promise<number> {
   getDb().prepare('UPDATE conversations SET notified_at = unixepoch() WHERE id = ?').run(conversationId)
+  // A push travels through the browser vendor's push service. The payload is
+  // encrypted to the device, but a private conversation (one a local model has
+  // spoken in, see private.ts) promises its content never leaves this machine
+  // at all — so its pushes say only that there is something to read, not what.
+  // Here rather than at the call sites, so none of them can forget.
+  if (isPrivateConversation(conversationId)) {
+    return sendPushToAll('Jarvis', '🔒 New reply in a private conversation', url)
+  }
   return sendPushToAll(title, body, url)
 }
 

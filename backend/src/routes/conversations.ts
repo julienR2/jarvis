@@ -9,7 +9,7 @@ import { ownerOrShare, resolveShareToken } from '../share-access.js'
 import { appAcceptsShares, archiveAppDir, archiveUploadsDir, conversationFiles, purgeConversationFiles } from '../app-archive.js'
 import { rescheduleAll } from '../crons.js'
 import { ensureAppToken, rotateAppToken, generateShareToken } from '../app-tokens.js'
-import { UPLOADS_DIR } from './uploads.js'
+import { UPLOADS_DIR, privatizeAttachments } from './uploads.js'
 import {
   sendMessage,
   streamConversation,
@@ -45,6 +45,18 @@ import { detachThreadsOf, notifyTarget, parentActivityPrompt, reportQuestion, ro
 import { SILENT_MARK, splitNotify } from '../runs.js'
 import type { ConvRow, MessageRow, EffortLevel, PendingQuestion } from '../types.js'
 import { userForApiKey } from '../api-keys.js'
+import {
+  ContextOverflowError,
+  fitToContext,
+  inlineAttachment,
+  isLocalModel,
+  localConfig,
+  localModelInfo,
+  runTurn,
+  tokenCounter,
+  type ChatMessage,
+} from '../local-llm.js'
+import { isPrivateConversation, localModelOf, privateSql } from '../private.js'
 
 export interface Attachment {
   id: string
@@ -232,6 +244,9 @@ const cancelledConversations = new Set<string>()
 
 export async function cancelConversation(conversationId: string): Promise<void> {
   cancelledConversations.add(conversationId)
+  // A local turn is an HTTP stream from this process, not an engine session:
+  // abort it, and anything queued behind it.
+  cancelLocalTurns(conversationId)
   // Soft interrupt: the engine stops the in-flight turn via the CLI control
   // protocol but keeps the session (and its warm context) alive.
   await interruptConversation(conversationId)
@@ -306,7 +321,7 @@ export function processMessage(
   conversationId: string,
   conv: ConvRow,
   userContent: string,
-  attachments: Attachment[],
+  attachmentsIn: Attachment[],
   options?: {
     skipUserMessage?: boolean
     userMessageOverride?: string
@@ -337,6 +352,7 @@ export function processMessage(
     routine?: { name: string; kind: 'cron' | 'webhook' }
   },
 ): string | null {
+  let attachments = attachmentsIn
   // Anything new in a thread put away brings it back to its chat's list.
   if (conv.kind === 'thread' && conv.archived_at) {
     getDb().prepare('UPDATE conversations SET archived_at = NULL WHERE id = ?').run(conversationId)
@@ -429,8 +445,21 @@ export function processMessage(
 
   // Resolved once: the same id is recorded on the messages and sent to the
   // engine, so what a bubble says ran is what did.
-  const model = resolveModel(options?.model)
-  const effort = options?.effort ?? null
+  //
+  // A private conversation (one a local model has spoken in, see private.ts)
+  // that is sent a message naming no model — a routine, a share, the agent's
+  // relay — stays on its local model rather than taking the instance default.
+  const privateConv = isPrivateConversation(conversationId)
+  const model = resolveModel(options?.model ?? (privateConv ? localModelOf(conversationId) ?? undefined : undefined))
+  const local = isLocalModel(model)
+  // …and one that is explicitly sent to Claude or the gateway is refused: the
+  // CLI would be one Read away from everything said here, and the person chose
+  // this conversation because nothing in it leaves the machine.
+  const refused = privateConv && !local
+  const effort = local ? null : options?.effort ?? null
+  // The local model reads files inline, and they must not wait in the agent's
+  // workspace meanwhile: moved before the message records where they are.
+  if (local && attachments.length) attachments = privatizeAttachments(conversationId, attachments)
 
   // Save user message (unless skipped, e.g. for crons)
   let userMsgId: string | null = null
@@ -461,7 +490,7 @@ export function processMessage(
   // input starts next time — nothing more: every message carries its own. A
   // routine's run never moves it, so a cron pinned to a cheap model doesn't
   // change what your next message runs on.
-  if (options?.model !== undefined && !options?.runId) {
+  if (options?.model !== undefined && !options?.runId && !refused) {
     getDb()
       .prepare('UPDATE conversations SET model = ?, effort = ?, updated_at = unixepoch() WHERE id = ?')
       .run(options.model, options.effort ?? 'default', conversationId)
@@ -474,6 +503,33 @@ export function processMessage(
   // Emit thinking status
   console.log(`[msg] emit thinking: true`)
   emitConversationEvent(conversationId, { type: 'thinking', thinking: true })
+
+  if (refused) {
+    emitConversationError(
+      conversationId,
+      `This conversation is private: a local model has answered in it, so it can only continue on a local model — ${model} would send it off this machine. Pick a local model, or start a new chat.`,
+    )
+    emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
+    if (options?.runId) finishRun(options.runId, 'error', { error: 'Private conversation: not run on a non-local model' })
+    return userMsgId
+  }
+
+  // A local model isn't an agent either: the backend sends it the transcript
+  // directly and streams the answer back (see runLocalTurn). Nothing of the
+  // conversation reaches the engine.
+  if (local) {
+    queueLocalTurn(conversationId, conv, {
+      model,
+      userMsgId,
+      content: userContent,
+      attachments,
+      replyTo,
+      transcribed: !!options?.transcribed,
+      onDone: options?.onDone,
+      runId: options?.runId,
+    })
+    return userMsgId
+  }
 
   // A media model isn't an agent: the message is a prompt for a picture or a
   // clip, so it goes straight to the gateway's media endpoint instead of the
@@ -636,6 +692,270 @@ async function runMediaGeneration(
         .run(conversationId)
     } catch {
       /* conversation is gone; nothing left to update */
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Local turns — a conversation on the Local provider (local-llm.ts).
+//
+// No engine, no CLI, no agent: Jarvis's own transcript of the conversation goes
+// to the local server as OpenAI `messages`, and the answer streams back into the
+// same events and rows an agent turn produces — `delta` while it writes, one
+// assistant message with its `result` when done — so the chat, titles, unread
+// badges, pushes and share links treat it like any other.
+//
+// One turn at a time per conversation, queued: the server itself usually runs
+// one request at a time, and a second message mid-answer has nothing to steer.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface LocalTurn {
+  model: string
+  /** The person's row for this turn; null when it wasn't saved (a routine's prompt). */
+  userMsgId: string | null
+  content: string
+  attachments: Attachment[]
+  replyTo?: ReplyTo
+  transcribed: boolean
+  onDone?: (text: string) => void
+  runId?: string
+}
+
+const localTurns = new Map<string, AbortController>()
+const localQueues = new Map<string, Promise<void>>()
+// Bumped by Stop: queued turns that were waiting when it was pressed don't run.
+const localStopGen = new Map<string, number>()
+
+function queueLocalTurn(conversationId: string, conv: ConvRow, turn: LocalTurn): void {
+  const gen = localStopGen.get(conversationId) ?? 0
+  const prev = localQueues.get(conversationId) ?? Promise.resolve()
+  const next = prev
+    .then(() => {
+      if ((localStopGen.get(conversationId) ?? 0) !== gen) {
+        if (turn.runId) finishRun(turn.runId, 'interrupted', { error: 'Cancelled' })
+        return
+      }
+      return runLocalTurn(conversationId, conv, turn)
+    })
+    .catch((err) => console.error('[local] turn failed outside its handler:', err))
+  localQueues.set(conversationId, next)
+  void next.finally(() => {
+    if (localQueues.get(conversationId) === next) localQueues.delete(conversationId)
+  })
+}
+
+function cancelLocalTurns(conversationId: string): void {
+  if (!localQueues.has(conversationId) && !localTurns.has(conversationId)) return
+  localStopGen.set(conversationId, (localStopGen.get(conversationId) ?? 0) + 1)
+  localTurns.get(conversationId)?.abort()
+}
+
+/** Whether a turn is in flight here: the engine's, or a local one. */
+async function turnRunning(conversationId: string): Promise<boolean> {
+  return localTurns.has(conversationId) || localQueues.has(conversationId) || (await isRunning(conversationId))
+}
+
+function localSystemPrompt(): string {
+  const today = new Date().toLocaleDateString('en-GB', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: config.tz,
+  })
+  return [
+    "You are Jarvis, the user's personal assistant, running entirely on their own machine: nothing in this conversation leaves it.",
+    'You have no tools. You cannot browse, run code, send messages or open files — only read what is in this conversation, including files pasted in it between <file> tags.',
+    'Answer in the language the user writes in. Be direct and accurate; when the text you were given does not say, say so rather than guess.',
+    `Today is ${today}.`,
+  ].join('\n')
+}
+
+/** A person's turn as the local model reads it: the files, the passage replied to, then what they said. */
+function localUserText(content: string, attachments: Attachment[], replyTo?: ReplyTo, transcribed = false): string {
+  const parts: string[] = []
+  for (const a of attachments) parts.push(inlineAttachment(a))
+  if (replyTo?.text) {
+    parts.push(`Replying to this passage:\n${replyTo.text.split('\n').map((l) => `> ${l}`).join('\n')}`)
+  }
+  if (transcribed) parts.push('(Dictated with speech-to-text: expect misheard words.)')
+  if (content.trim()) parts.push(content)
+  return parts.join('\n\n')
+}
+
+/**
+ * The conversation so far, as chat messages. Finished answers only — their
+ * `result`, not the step log — and the person's messages with their files
+ * inlined again: a chat export shared in the first message is what every later
+ * question is about. Same-role neighbours are merged, since several chat
+ * templates (Gemma's among them) refuse a conversation whose roles don't
+ * alternate — and an errored turn leaves two user messages in a row.
+ */
+function localHistory(conversationId: string, current: string | null): ChatMessage[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT m.id, m.rowid AS seq, m.role, m.content, m.result, m.metadata FROM messages m
+        WHERE m.conversation_id = ? AND m.type IS NULL
+        ORDER BY m.created_at ASC, m.rowid ASC`,
+    )
+    .all(conversationId) as { id: string; seq: number; role: string; content: string; result: string | null; metadata: string | null }[]
+  const currentSeq = current ? rows.find((r) => r.id === current)?.seq ?? Infinity : Infinity
+  const out: ChatMessage[] = []
+  for (const r of rows) {
+    if (r.id === current) continue
+    let text = ''
+    if (r.role === 'user') {
+      // Sent after this turn's message (queued behind it): not history yet.
+      if (r.seq > currentSeq) continue
+      let meta: { attachments?: Attachment[]; reply_to?: ReplyTo } = {}
+      try {
+        meta = r.metadata ? JSON.parse(r.metadata) : {}
+      } catch { /* no metadata worth reading */ }
+      text = localUserText(r.content ?? '', meta.attachments ?? [], meta.reply_to)
+    } else if (r.role === 'assistant') {
+      text = (r.result ?? '').trim()
+    }
+    if (!text) continue
+    const role = r.role === 'user' ? 'user' : 'assistant'
+    const last = out[out.length - 1]
+    if (last?.role === role) last.content += `\n\n${text}`
+    else out.push({ role, content: text })
+  }
+  return out
+}
+
+async function runLocalTurn(conversationId: string, conv: ConvRow, turn: LocalTurn): Promise<void> {
+  const ctl = new AbortController()
+  localTurns.set(conversationId, ctl)
+  emitConversationEvent(conversationId, { type: 'thinking', thinking: true })
+  let text = ''
+  const notes: string[] = []
+  // Written once, at the end: an agent turn grows its row line by line, but a
+  // local answer is one block of text, live in `delta` events meanwhile.
+  const writeAnswer = (result: string) => {
+    const id = uuid()
+    getDb()
+      .prepare(
+        'INSERT INTO messages (id, conversation_id, role, content, result, metadata, model) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        id,
+        conversationId,
+        'assistant',
+        notes.map((n) => `[note] ${n}`).join('\n\n'),
+        result,
+        turn.runId ? JSON.stringify({ run_id: turn.runId, isolated: false }) : null,
+        turn.model,
+      )
+    liveTurnText.delete(conversationId)
+    emitConversationEvent(conversationId, { type: 'message', message: getMessageRow(id) })
+  }
+
+  try {
+    if (!getDb().prepare('SELECT 1 FROM conversations WHERE id = ?').get(conversationId)) return
+    const cfg = localConfig()
+    if (!cfg) {
+      throw new Error('No local model server is configured any more (Settings → Connection → Local), and this conversation only runs on one.')
+    }
+    const info = await localModelInfo(cfg, turn.model)
+
+    let history = localHistory(conversationId, turn.userMsgId)
+    let current = localUserText(turn.content, turn.attachments, turn.replyTo, turn.transcribed)
+    // A question that never got an answer (its turn failed) is part of this one.
+    if (history[history.length - 1]?.role === 'user') {
+      current = `${history[history.length - 1].content}\n\n${current}`
+      history = history.slice(0, -1)
+    }
+
+    const budget = await fitToContext({
+      system: localSystemPrompt(),
+      history,
+      current,
+      contextWindow: info.contextWindow,
+      count: tokenCounter(cfg),
+    })
+    if (budget.dropped > 0) {
+      notes.push(
+        `Left out the ${budget.dropped} oldest message${budget.dropped > 1 ? 's' : ''}: the local model's ${Math.round(info.contextWindow / 1024)}k-token context can't hold the whole conversation.`,
+      )
+    }
+    console.log(
+      `[local] ${conversationId.slice(0, 8)}: ${turn.model}, ~${budget.promptTokens} prompt tokens of ${info.contextWindow}, ${budget.messages.length} messages${budget.dropped ? `, ${budget.dropped} dropped` : ''}`,
+    )
+
+    const result = await runTurn(cfg, {
+      model: turn.model,
+      messages: budget.messages,
+      maxTokens: budget.maxTokens,
+      signal: ctl.signal,
+      onDelta: (t) => {
+        text += t
+        emitConversationEvent(conversationId, { type: 'delta', text: t })
+        liveTurnText.set(conversationId, (liveTurnText.get(conversationId) ?? '') + t)
+      },
+    })
+
+    // The context gauge, as for an agent turn: what the model just held.
+    const contextTokens = result.usage ? result.usage.prompt + result.usage.completion : budget.promptTokens
+    getDb()
+      .prepare('UPDATE conversations SET context_tokens = ?, context_window = ? WHERE id = ?')
+      .run(contextTokens, info.contextWindow, conversationId)
+    emitConversationEvent(conversationId, { type: 'usage', contextTokens, contextWindow: info.contextWindow })
+
+    let answer = result.text.trim()
+    if (result.finishReason === 'length') {
+      answer += '\n\n*(Cut off: the answer reached the length the local model is given.)*'
+    }
+    answer = answer.trim() || '(no response)'
+    writeAnswer(answer)
+    if (turn.runId) finishRun(turn.runId, 'done', { result: answer })
+    turn.onDone?.(answer)
+
+    // Pushed unless the chat is muted: a local answer takes minutes on a home
+    // server, which is exactly when you have put the phone down — and there is
+    // no notify marker to ask the model for. The push itself says nothing of
+    // what was written (push.ts).
+    if (conv.notify !== 'unsubscribe' && !turn.runId) {
+      pushForConversation(conversationId, conv.title, '').catch((err) => console.error('[push] local turn:', err))
+    }
+    emitGlobalEvent({ type: 'new_message', conversation_id: conversationId })
+
+    const title = getDb().prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined
+    if (title?.title === UNTITLED) {
+      // Awaited: on a one-request-at-a-time server, the next turn should not
+      // queue behind a title it didn't ask for.
+      const t = await generateTitle(conversationId, turn.model)
+      if (t) applyTitle(conversationId, t)
+    }
+  } catch (err: any) {
+    const aborted = ctl.signal.aborted
+    try {
+      if (aborted) {
+        // Stopped: keep what was written, marked as such.
+        cancelledConversations.delete(conversationId)
+        if (text.trim()) {
+          notes.push('Stopped.')
+          writeAnswer(text.trim())
+        }
+        if (turn.runId) finishRun(turn.runId, 'interrupted', { error: 'Cancelled' })
+      } else {
+        const message = err instanceof ContextOverflowError ? err.message : `The local model failed: ${err?.message ?? err}`
+        if (text.trim()) {
+          notes.push('The answer was cut off by an error.')
+          writeAnswer(text.trim())
+        }
+        emitConversationError(conversationId, message)
+        if (turn.runId) finishRun(turn.runId, 'error', { error: message })
+        emitGlobalEvent({ type: 'new_message', conversation_id: conversationId })
+      }
+    } catch (reportErr) {
+      // The conversation was deleted mid-turn: nothing left to write into.
+      console.error('[local] could not report the turn:', reportErr)
+    }
+  } finally {
+    if (localTurns.get(conversationId) === ctl) localTurns.delete(conversationId)
+    liveTurnText.delete(conversationId)
+    try {
+      emitConversationEvent(conversationId, { type: 'thinking', thinking: false })
+      getDb().prepare('UPDATE conversations SET updated_at = unixepoch() WHERE id = ?').run(conversationId)
+    } catch {
+      /* conversation is gone */
     }
   }
 }
@@ -1470,6 +1790,7 @@ export async function conversationRoutes(app: FastifyInstance) {
         (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
         (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook,
         ${THREAD_OF_SQL},
+        ${privateSql('c')} AS is_private,
         (SELECT COUNT(*) > 0 FROM runs WHERE conversation_id = c.id) AS has_runs
        FROM conversations c
        ORDER BY c.updated_at DESC`,
@@ -1541,8 +1862,13 @@ export async function conversationRoutes(app: FastifyInstance) {
       // Titled from its first exchange, like a new chat.
       title = UNTITLED
     }
-    const { model, effort } = messageModel(req, parent, body.model, body.effort)
-    const forked = parent.claude_session_id ? await forkEngineSession(parent.claude_session_id) : null
+    let { model, effort } = messageModel(req, parent, body.model, body.effort)
+    // A thread of a private chat is private too: it runs on the chat's local
+    // model whatever the composer had selected, and forks no engine session —
+    // the chat's old Claude one, if it had any, predates what made it private.
+    const privateParent = isPrivateConversation(parent.id)
+    if (privateParent && !isLocalModel(model)) model = localModelOf(parent.id) ?? undefined
+    const forked = !privateParent && parent.claude_session_id ? await forkEngineSession(parent.claude_session_id) : null
     const id = uuid()
     getDb()
       .prepare(
@@ -1596,6 +1922,7 @@ export async function conversationRoutes(app: FastifyInstance) {
           (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
           (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook,
           ${THREAD_OF_SQL},
+        ${privateSql('c')} AS is_private,
           (SELECT COUNT(*) > 0 FROM runs WHERE conversation_id = c.id) AS has_runs
          FROM conversations c WHERE c.id = ?`,
         )
@@ -1972,7 +2299,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       // own engine session knows nothing about, so isRunning() answers `false`
       // for it. Without the second clause a refresh mid-cron dropped the
       // spinner and the Stop button while the run carried on invisibly.
-      const running = (await isRunning(id)) || activeRuns(id).length > 0
+      const running = (await turnRunning(id)) || activeRuns(id).length > 0
       if (!sawThinking) {
         reply.raw.write(
           `data: ${JSON.stringify({ type: 'thinking', thinking: running })}\n\n`,
@@ -2004,7 +2331,7 @@ export async function conversationRoutes(app: FastifyInstance) {
         // So when a turn is running, park the mark just below the row being
         // written: earlier turns the user did watch stay read, and the in-flight
         // one surfaces as unread once it lands.
-        isRunning(id).then((running) => {
+        turnRunning(id).then((running) => {
           // Marked unread and not read since: leaving is not reading. Checked
           // once isRunning answers, so a mark landing meanwhile counts.
           if (heldUnread.has(id)) return

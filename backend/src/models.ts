@@ -7,6 +7,7 @@
 // The `update-claude-cli` skill edits these constants automatically when a new
 // model generation ships. Nothing else in the backend should hardcode a model id.
 import { readFileSync } from 'fs'
+import { isLocalModel } from './local-llm.js'
 
 export const DEFAULT_MODEL = 'claude-opus-5-5'
 
@@ -98,6 +99,21 @@ export function defaultModelFor(provider: Provider): string {
   return BUILTIN_DEFAULT[provider]
 }
 
+/**
+ * Where a model id is served, by its shape — the one rule every router shares
+ * (the engine's providerEnv, the picker, the defaults check):
+ *
+ *   local:<id>     the Local provider, called directly (local-llm.ts)
+ *   vendor/model   the gateway
+ *   anything else  Anthropic
+ *
+ * `local:` is tested first: a local server may name a model with a slash in it
+ * (`hf.co/org/model`), and that must never read as a gateway id.
+ */
+export function isGatewayModel(id?: string | null): boolean {
+  return !!id && !isLocalModel(id) && id.includes('/')
+}
+
 /** The default for this instance, given its providers and the owner's choice. */
 export function defaultModel(): string {
   return defaultModelFor(defaultProvider())
@@ -112,7 +128,7 @@ export function defaultModel(): string {
  * recognise — the fan-out fails while the main loop looks fine.
  */
 export function defaultSubagentModel(model?: string | null): string {
-  if (model) return model.includes('/') ? GATEWAY_PREFIX + SUBAGENT_MODEL : SUBAGENT_MODEL
+  if (model) return isGatewayModel(model) ? GATEWAY_PREFIX + SUBAGENT_MODEL : SUBAGENT_MODEL
   // No model on the row means the instance default, so follow the same choice
   // it would make — otherwise a gateway-by-default instance fans out onto bare
   // Anthropic ids the gateway has no reason to recognise.

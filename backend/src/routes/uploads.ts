@@ -1,12 +1,22 @@
 import type { FastifyInstance } from 'fastify'
 import type { MultipartFile } from '@fastify/multipart'
 import { randomUUID } from 'crypto'
-import { mkdirSync, createWriteStream } from 'fs'
-import { join, extname } from 'path'
+import { mkdirSync, createWriteStream, renameSync, cpSync, rmSync, existsSync } from 'fs'
+import { join, extname, dirname, basename, resolve, sep } from 'path'
 import { pipeline } from 'stream/promises'
 import { config } from '../config.js'
+import { isPrivateConversation } from '../private.js'
 
 const UPLOADS_DIR = join(config.workspaceDir, 'uploads')
+
+/**
+ * Where a private conversation's files live (see private.ts): beside the
+ * database in `agent/data/`, which the engine container sees as an empty tmpfs.
+ * In `uploads/` the agent could read them from any other chat with a shell
+ * command, and the content would go to Anthropic with the next turn.
+ */
+const PRIVATE_UPLOADS_DIR = join(dirname(config.dbPath), 'private-uploads')
+const PRIVATE_URL_PREFIX = '/api/uploads/private/'
 const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100 MB
 
 // Conversation ids are uuids. Validated before being used as a directory name so
@@ -16,6 +26,41 @@ const CONV_ID_RE =
 
 // Ensure uploads directory exists (needed before @fastify/static registers)
 try { mkdirSync(UPLOADS_DIR, { recursive: true }) } catch { /* may fail outside Docker */ }
+try { mkdirSync(PRIVATE_UPLOADS_DIR, { recursive: true, mode: 0o700 }) } catch { /* as above */ }
+
+interface StoredFile {
+  filename: string
+  url: string
+  path: string
+}
+
+/**
+ * Move a private conversation's attachments out of the agent's workspace.
+ *
+ * Files are uploaded before the message that carries them is sent, and a new
+ * chat only becomes private with its first local message — so the upload may
+ * have landed in `uploads/`. The local turn calls this before it writes the
+ * message, and the metadata stores the new place. Anything not under
+ * `uploads/` (already private, or not ours) is left as it is.
+ */
+export function privatizeAttachments<T extends StoredFile>(conversationId: string, attachments: T[]): T[] {
+  return attachments.map((a) => {
+    const from = resolve(a.path)
+    if (!from.startsWith(UPLOADS_DIR + sep) || !existsSync(from)) return a
+    const dir = join(PRIVATE_UPLOADS_DIR, conversationId)
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    const name = basename(from)
+    const to = join(dir, name)
+    try {
+      renameSync(from, to)
+    } catch {
+      cpSync(from, to)
+      rmSync(from, { force: true })
+    }
+    const rel = `${conversationId}/${name}`
+    return { ...a, filename: rel, url: `${PRIVATE_URL_PREFIX}${rel}`, path: to }
+  })
+}
 
 export function uploadRoutes(app: FastifyInstance, _opts: unknown, done: () => void): void {
 
@@ -36,12 +81,15 @@ export function uploadRoutes(app: FastifyInstance, _opts: unknown, done: () => v
 
     const ext = extname(file.filename) || ''
     const id = randomUUID()
-    // Relative to UPLOADS_DIR — this is the identity used in the url and stored
+    // Relative to the root — this is the identity used in the url and stored
     // on the message, so it must carry the subdirectory when there is one.
     const relName = subdir ? `${subdir}/${id}${ext}` : `${id}${ext}`
-    const filePath = join(UPLOADS_DIR, relName)
+    // Straight to private storage when the conversation already is private.
+    const priv = !!subdir && isPrivateConversation(subdir)
+    const root = priv ? PRIVATE_UPLOADS_DIR : UPLOADS_DIR
+    const filePath = join(root, relName)
 
-    if (subdir) mkdirSync(join(UPLOADS_DIR, subdir), { recursive: true })
+    if (subdir) mkdirSync(join(root, subdir), { recursive: true })
 
     await pipeline(file.file, createWriteStream(filePath))
 
@@ -59,7 +107,7 @@ export function uploadRoutes(app: FastifyInstance, _opts: unknown, done: () => v
       originalName: file.filename,
       mimetype: file.mimetype,
       size: file.file.bytesRead,
-      url: `/api/uploads/files/${relName}`,
+      url: priv ? `${PRIVATE_URL_PREFIX}${relName}` : `/api/uploads/files/${relName}`,
       // Path accessible by Claude inside the container
       path: filePath,
     }
@@ -68,4 +116,4 @@ export function uploadRoutes(app: FastifyInstance, _opts: unknown, done: () => v
   done()
 }
 
-export { UPLOADS_DIR, MAX_FILE_SIZE }
+export { UPLOADS_DIR, PRIVATE_UPLOADS_DIR, PRIVATE_URL_PREFIX, MAX_FILE_SIZE }

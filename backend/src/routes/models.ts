@@ -4,6 +4,7 @@ import {
   ANTHROPIC_MODELS,
   gatewayConfig,
   gatewayModels,
+  localModels,
   readSecretsSafe,
 } from '../catalogue.js'
 import type { ModelOption } from '../catalogue.js'
@@ -30,6 +31,16 @@ export async function modelRoutes(app: FastifyInstance) {
       }
     }
 
+    // The Local provider's, when one is configured. Its failure is reported
+    // on its own: a local server being down must not hide the other two.
+    let local: ModelOption[] = []
+    let localError: string | undefined
+    try {
+      local = await localModels()
+    } catch (err: any) {
+      localError = err?.message ?? String(err)
+    }
+
     return {
       // Kept for callers that just want to know what is available at all.
       provider: gateway.length && anthropic.length
@@ -39,9 +50,11 @@ export async function modelRoutes(app: FastifyInstance) {
           : 'anthropic',
       anthropic,
       gateway,
+      local,
+      localError,
       gatewayBaseUrl: cfg?.baseUrl ?? '',
       // Flat list of everything selectable, for lookups by id.
-      models: [...anthropic, ...gateway],
+      models: [...anthropic, ...gateway, ...local],
       // Follows the configured providers, so a gateway-only instance
       // defaults to the gateway's route rather than a bare id it can't reach.
       default: defaultModel(),
