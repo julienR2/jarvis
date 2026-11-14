@@ -193,9 +193,11 @@ Found a vulnerability? See [SECURITY.md](SECURITY.md).
 
 ## Models and providers
 
-Settings → Connection holds both providers. Either can be the default for new
-chats, each carries its own starting model, and a key is verified with a real
-test message before it is saved.
+Settings → Connection holds the agent's two providers, Anthropic and an
+OpenAI-compatible gateway. Either can be the default for new chats, each carries
+its own starting model, and a key is verified with a real test message before it
+is saved. A third, **Local**, serves private chats from a model on your own
+machine and works differently (see [below](#local-models-private-chats-that-never-leave-the-machine)).
 
 <p align="center">
   <picture>
@@ -220,6 +222,27 @@ Two further caveats worth setting expectations on:
 
 - OpenRouter's own Claude Code guide warns that it "may not work correctly with other providers". Jarvis does not change that. Non-Anthropic models work, but treat tool-heavy and subagent-heavy work as the part to check first on a model you have not tried.
 - **Switching provider mid-conversation loses the CLI's context carry-over.** Jarvis keeps its own transcript, so nothing disappears from the screen, but the underlying CLI starts fresh — a transcript belongs to the provider that produced it.
+
+### Local models: private chats that never leave the machine
+
+A third provider, **Local**, points at any OpenAI-compatible server you run yourself: llama.cpp's `llama-server`, Ollama, LM Studio. Set it in Settings → Connection with a base URL (`http://llm:8080`, with or without `/v1`) and, if the server wants one, an API key. Like the others, it is verified before it's saved: Jarvis lists the server's models and runs a one-token request. Its models appear in the picker under **Local**, with a lock, as `local:<id>`. That prefix routes the turn, and it is checked before the gateway's `/` rule, because a local model's own name may contain a slash.
+
+A local chat is **not an agent**. The Claude Code CLI carries about 30k tokens of system prompt, tools and skills before your first word ([docs/token-overhead.md](docs/token-overhead.md)), which a home server's GPU reads in minutes, and a small model can't drive thirty tools anyway. So the backend calls the server directly. It sends Jarvis's own transcript of the conversation as an OpenAI `messages` array and streams the answer into the chat like any other turn. Titles, unread badges, push notifications, share links and share-sheet targets all work the same way. What it is for is reading something private and answering questions about it. Pin a local chat as a share target, and a WhatsApp export shared from your phone lands straight in it.
+
+- **Files go inline.** Text files are pasted into the message, and so are the text files inside a zip (an exported chat arrives as `_chat.txt` in one). Images and other binary files are named, not read. They stay in the history, so follow-up questions still see the document.
+- **The context window is respected.** It is read from the server (`n_ctx` from llama-server, or the context length other servers report) and counted with the server's own `/tokenize` when it has one. A quarter of the window, at most 4k tokens, is kept for the answer. The oldest messages are dropped first, with a note saying so. A single message too large to fit is refused with the numbers, not sent off to fail or be silently truncated.
+- **No tools, and no effort or thinking switch.** The request code is built for a small curated tool loop later (read an upload, query a database, fetch a URL). `runTurn` in `backend/src/local-llm.ts` is where it goes, and the stream already assembles tool calls.
+- **Never the instance default.** New conversations include the ones routines, webhooks and the agent open, and those need the agent. A private chat should be one you started on purpose. Routines don't offer local models for the same reason.
+
+**What "private" guarantees.** Once a local model has answered in a conversation, that conversation is private for good (`backend/src/private.ts`):
+
+- It only runs on local models, titles included. Sending it to Claude or the gateway is refused with an explanation, and if the local server is unreachable it falls back to no model at all, never another provider.
+- The agent can't see it: it is missing from the agent's conversation list, search and read-back API, from topic consolidation, and from the thread and chat digests other conversations' prompts carry. A routine's result posted from a private thread says only where to read it.
+- Its uploads move out of the agent's workspace into `agent/data/private-uploads/`, which the engine container can't see.
+- A thread opened from it runs on its local model. An app beside it can't call `jarvis.ask`. The engine itself refuses any `local:` id.
+- Its push notifications say only that there is a reply, never what it says.
+
+The backend has to reach the server. On Docker, put the backend on the server's network, or use the host's address. The server needs no internet access and gets none from Jarvis.
 
 ## Deploying it somewhere
 
