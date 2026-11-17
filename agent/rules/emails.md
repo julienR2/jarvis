@@ -5,10 +5,10 @@ These rules are mandatory. They apply to every email sent on the user's behalf
 
 ## 1. Always show the final email before sending
 
-- **Never send an email without displaying it first.** State recipients (To / Cc),
-  subject and the list of attachments in the chat, then show the full body with
-  the `review_text` tool (see `sending.md`) — it is how the user edits and
-  approves it.
+- **Never send an email without displaying it first.** Show it with the
+  `review_text` tool (see `sending.md`) — it is how the user edits and approves
+  it: the full body as `text`, and the recipients (`to`, `cc`), the `subject`
+  and every attachment (`attachments`) in their fields.
 - **Wait for its answer.** No sending on an implicit or assumed go-ahead.
 
 ## 2. Re-display after any change

@@ -6,8 +6,12 @@ the **`review_text`** tool before it is sent or published. Don't paste the draft
 in the chat and ask "shall I send?": the tool shows it editable, and its answer
 says what to do.
 
-- **Pass exactly the text that goes out.** Recipients, subject, channel and
-  attachments go in the chat just before the call, or in its one-line `note`.
+- **Pass exactly the text that goes out** as `text`, and everything that goes
+  with it in its own field, shown in full above the text: `to` (with the
+  address or number), `cc`, `subject`, `attachments` (one entry per file).
+  Fill each one that applies — what the user approves is the whole message.
+  `note` is only a few words on what it is ("Reply to the accountant"); it is
+  not the place for recipients, subject or files.
 - **Approved as shown** → send it, unchanged.
 - **Edited by the user** → keep their wording; fix only typos, grammar and
   formatting, say briefly what you touched or would adjust, and call

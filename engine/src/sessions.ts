@@ -967,14 +967,25 @@ function jarvisServer(sess: Session) {
           'other message, a social post, a blog post, a comment — so they can edit it and approve it. Use it ' +
           'every time instead of pasting the draft in the chat and asking "shall I send?". The text is shown ' +
           'editable above their input; they either approve it (possibly after editing it), reply with what to ' +
-          'change, or discard it. Pass exactly the text that would go out, nothing around it. Recipients, ' +
-          'subject and attachments are not fields: say them in the chat before calling, or in `note`.',
+          'change, or discard it. Pass exactly the text that would go out in `text`, nothing around it. Who it ' +
+          'goes to, the subject and the attached files go in their own fields, shown above the text in full: ' +
+          'fill every one that applies, so what they approve is the whole message, not just its body.',
         {
           text: z.string().min(1).describe('The exact text that would be sent or published.'),
           note: z
             .string()
             .optional()
-            .describe('One short line saying what it is and where it goes, e.g. "WhatsApp to Sam" or "Reply to the accountant, Q3 invoices".'),
+            .describe('A few words on what it is and where it goes, e.g. "WhatsApp to Sam" or "Reply to the accountant". Not a place for recipients, subject or attachments — they have their fields.'),
+          to: z
+            .string()
+            .optional()
+            .describe('Who receives it, with the address or number when there is one, e.g. "Billing team <billing@example.com>" or "Sam (WhatsApp)". Several: comma-separated.'),
+          cc: z.string().optional().describe('Copied recipients, for an email.'),
+          subject: z.string().optional().describe('The subject line, for an email; the title, for a post.'),
+          attachments: z
+            .array(z.string())
+            .optional()
+            .describe('The files that go with it, one entry each, by the name they will carry.'),
         },
         async (args, extra) => {
           const signal = (extra as { signal?: AbortSignal } | undefined)?.signal ?? new AbortController().signal

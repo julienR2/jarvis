@@ -1602,6 +1602,9 @@ export async function answerQuestion(
   const review = reviewOf(q)
   let answer: Parameters<typeof answerPrompt>[2]
   let said: string
+  // An approved draft's envelope, kept with the message so its bubble can say
+  // where the text went, not just what it said.
+  let approved: { edited: boolean; note?: string; to?: string; cc?: string; subject?: string; attachments?: string[] } | null = null
   if (questions.length) {
     const answers: Record<string, string> = { ...(body.answers ?? {}) }
     // A typed answer to a single question needs no key from the client.
@@ -1628,6 +1631,14 @@ export async function answerQuestion(
     answer = { behavior: 'allow', updatedInput: { ...q.input, text } }
     // The draft stays in the record as approved, the card above it gone.
     said = `${edited ? 'Edited and approved:' : 'Approved:'}\n\n${quoted(text)}`
+    approved = {
+      edited,
+      ...(review.note ? { note: review.note } : {}),
+      ...(review.to ? { to: review.to } : {}),
+      ...(review.cc ? { cc: review.cc } : {}),
+      ...(review.subject ? { subject: review.subject } : {}),
+      ...(review.attachments.length ? { attachments: review.attachments } : {}),
+    }
   } else if (review && body.behavior === 'deny' && !body.message?.trim() && !body.attachments?.length) {
     answer = { behavior: 'deny', message: 'The user discarded this draft. Do not send it.' }
     said = 'Discarded.'
@@ -1670,6 +1681,7 @@ export async function answerQuestion(
   const stamp = JSON.stringify({
     ...(q.run_id ? { run_id: q.run_id, isolated: q.session_key !== conversationId } : {}),
     answer_to: q.request_id,
+    ...(approved ? { approved } : {}),
     ...(body.attachments?.length ? { attachments: body.attachments } : {}),
   })
   getDb()

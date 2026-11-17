@@ -80,13 +80,29 @@ interface AskQuestion {
  */
 export const REVIEW_TOOL = 'mcp__jarvis__review_text'
 
+/** A review_text draft: the text, and what goes out with it. */
+export interface ReviewDraft {
+  text: string
+  /** A few words on what it is, when Jarvis gave them. */
+  note: string
+  to: string
+  cc: string
+  subject: string
+  attachments: string[]
+}
+
 /** The draft of a review_text prompt, or null for anything else. */
-export function reviewOf(q: Pick<PendingQuestion, 'tool_name' | 'input'>): { text: string; note: string } | null {
+export function reviewOf(q: Pick<PendingQuestion, 'tool_name' | 'input'>): ReviewDraft | null {
   if (q.tool_name !== REVIEW_TOOL) return null
-  const input = q.input as { text?: unknown; note?: unknown }
+  const input = q.input as Record<string, unknown>
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
   return {
     text: typeof input.text === 'string' ? input.text : '',
-    note: typeof input.note === 'string' ? input.note.trim() : '',
+    note: str(input.note),
+    to: str(input.to),
+    cc: str(input.cc),
+    subject: str(input.subject),
+    attachments: Array.isArray(input.attachments) ? input.attachments.map(str).filter(Boolean) : [],
   }
 }
 
@@ -108,7 +124,7 @@ export function describePending(q: Pick<PendingQuestion, 'tool_name' | 'input'>)
     return questions.map((x) => x.question?.trim() || 'a question').join(' · ')
   }
   const review = reviewOf(q)
-  if (review) return `Review before sending: ${review.note || firstLine(review.text)}`
+  if (review) return `Review before sending: ${review.note || (review.to && `to ${review.to}`) || firstLine(review.text)}`
   const input = q.input as Record<string, unknown>
   const detail =
     typeof input.description === 'string' ? input.description
