@@ -4,7 +4,8 @@ import ReactMarkdown from 'react-markdown'
 import { openablePath, usePanelOpener } from '../lib/panelOpener'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { FileText, ChevronRight, Copy, Check, Mail, Hash } from 'lucide-react'
+import { FileText, ChevronRight, Copy, Check, CheckCheck, Mail, Hash } from 'lucide-react'
+import DraftEnvelope, { type Envelope } from './DraftEnvelope'
 import { withMediaToken } from '../api'
 import type { Message, Attachment, ReplyTo } from '../api'
 import type { Components, ExtraProps } from 'react-markdown'
@@ -395,7 +396,7 @@ function MessageBubble({ msg, live, modelLabel, onMarkUnread, onThread }: Props)
 
         {isUser ? (
           msg.content ? (
-            <UserMessageContent text={msg.content} />
+            <UserMessageContent text={msg.content} metadata={msg.metadata} />
           ) : null
         ) : (
           <div className='markdown'>
@@ -427,7 +428,9 @@ const URL_REGEX = /(https?:\/\/[^\s<>)"']+)/g
 const NOTIFY_ARTICLE_REGEX =
   /<article data-jarvis="notify-prompt">([\s\S]*?)<\/article>\n?/
 
-function UserMessageContent({ text }: { text: string }) {
+function UserMessageContent({ text, metadata }: { text: string; metadata?: string | null }) {
+  const approval = useMemo(() => parseApproval(text, metadata), [text, metadata])
+  if (approval) return <ApprovedDraft approval={approval} />
   const match = text.match(NOTIFY_ARTICLE_REGEX)
   if (!match) return <Linkify text={text} />
 
@@ -440,6 +443,78 @@ function UserMessageContent({ text }: { text: string }) {
       </CollapsibleArticle>
       {rest && <Linkify text={rest} />}
     </>
+  )
+}
+
+// How the backend records a review_text approval (answerQuestion): a heading,
+// then the text as a blockquote.
+const APPROVAL_REGEX = /^(Approved|Edited and approved):\n\n((?:>.*(?:\n|$))+)$/
+
+interface Approval extends Envelope {
+  edited: boolean
+  note?: string
+  text: string
+}
+
+/**
+ * A review_text approval, read back out of the record: the text the person let
+ * go, and — for those approved since it was recorded — where it went.
+ */
+function parseApproval(content: string, metadata?: string | null): Approval | null {
+  const m = content.trim().match(APPROVAL_REGEX)
+  if (!m) return null
+  const text = m[2].trimEnd().split('\n').map((l) => l.replace(/^> ?/, '')).join('\n')
+  let envelope: Partial<Approval> = {}
+  try {
+    const a = metadata ? JSON.parse(metadata).approved : null
+    if (a && typeof a === 'object') {
+      const str = (v: unknown) => (typeof v === 'string' ? v : undefined)
+      envelope = {
+        note: str(a.note),
+        to: str(a.to),
+        cc: str(a.cc),
+        subject: str(a.subject),
+        attachments: Array.isArray(a.attachments) ? a.attachments.filter((x: unknown) => typeof x === 'string') : undefined,
+      }
+    }
+  } catch {
+    // An unreadable stamp only loses the envelope.
+  }
+  return { ...envelope, edited: m[1] !== 'Approved', text }
+}
+
+/**
+ * An approved draft in the person's bubble: what was approved and where it
+ * went, the text folded to its first lines — it is in full above, in the
+ * review that asked for it, and an email would otherwise take the whole screen.
+ */
+function ApprovedDraft({ approval }: { approval: Approval }) {
+  const [open, setOpen] = useState(false)
+  const long = approval.text.split('\n').length > 6 || approval.text.length > 400
+  return (
+    <div data-testid='approved-draft'>
+      <div className='mb-1.5 flex flex-wrap items-center gap-x-1.5 text-[13px] font-medium text-text-primary'>
+        <CheckCheck size={14} className='text-success' />
+        {approval.edited ? 'Edited and approved' : 'Approved'}
+        {approval.note && <span className='font-normal text-text-secondary break-words'>· {approval.note}</span>}
+      </div>
+      <DraftEnvelope envelope={approval} className='mb-2' />
+      <div
+        className={`border-l-2 border-text-muted/30 pl-3 text-[14px] leading-relaxed text-text-secondary ${long && !open ? 'line-clamp-6' : ''}`}
+      >
+        <Linkify text={approval.text} />
+      </div>
+      {long && (
+        <button
+          type='button'
+          onClick={() => setOpen(!open)}
+          className='mt-1 flex items-center gap-1 text-[12px] text-text-muted hover:text-text-primary transition-colors'
+        >
+          <ChevronRight size={11} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
+          {open ? 'Show less' : 'Show all'}
+        </button>
+      )}
+    </div>
   )
 }
 

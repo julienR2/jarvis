@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { Copy, PenLine, Send, Undo2, X } from 'lucide-react'
 import { reviewOf, type PendingQuestion } from '../api'
 import { submitAnswer } from './AnswerCard'
+import DraftEnvelope from './DraftEnvelope'
 
 // What was typed into a draft, by prompt: survives the card unmounting (another
 // chat opened, the Today card collapsed) for as long as the page lives.
@@ -18,7 +19,7 @@ const edits = new Map<string, string>()
  * prompt over SSE once the engine has it.
  */
 export default function ReviewCard({ conversationId, question }: { conversationId: string; question: PendingQuestion }) {
-  const draft = reviewOf(question) ?? { text: '', note: '' }
+  const draft = reviewOf(question) ?? { text: '', note: '', to: '', cc: '', subject: '', attachments: [] }
   const id = question.request_id
   const [text, setTextState] = useState(() => edits.get(id) ?? draft.text)
   const [busy, setBusy] = useState(false)
@@ -80,10 +81,12 @@ export default function ReviewCard({ conversationId, question }: { conversationI
       data-testid='review-card'
       data-request-id={id}
     >
-      <div className='mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-warning/80'>
-        <PenLine size={11} /> Ready to send
-        {draft.note && <span className='ml-1 min-w-0 truncate font-medium normal-case tracking-normal text-text-secondary'>· {draft.note}</span>}
+      <div className='mb-1.5 flex flex-wrap items-baseline gap-x-1 text-[10px] font-semibold uppercase tracking-wide text-warning/80'>
+        <span className='inline-flex items-center gap-1 self-center'><PenLine size={11} /> Ready to send</span>
+        {/* Wraps rather than truncating: whatever Jarvis says here is part of what is approved. */}
+        {draft.note && <span className='min-w-0 break-words text-[11px] font-medium normal-case tracking-normal text-text-secondary'>· {draft.note}</span>}
       </div>
+      <DraftEnvelope envelope={draft} className='mb-2' />
       <textarea
         ref={ref}
         value={text}
