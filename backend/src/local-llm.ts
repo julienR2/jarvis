@@ -20,6 +20,8 @@
  */
 import { existsSync, readFileSync, statSync } from 'fs'
 import { extname } from 'path'
+import { request as httpRequest, type IncomingMessage } from 'http'
+import { request as httpsRequest } from 'https'
 import { readSecrets } from './secrets.js'
 import { textEntriesOfZip } from './zip.js'
 
@@ -39,6 +41,13 @@ export interface LocalConfig {
   /** Server root, without a trailing slash or `/v1`. */
   baseUrl: string
   apiKey?: string
+  /**
+   * The window to assume when the server doesn't report one (Settings →
+   * Connection → Local). Never overrides a window the server does report:
+   * that is the one its requests are actually held to, and it changes when
+   * the server is restarted with another `--ctx-size`.
+   */
+  contextWindow?: number
 }
 
 /**
@@ -60,7 +69,12 @@ export function localConfig(): LocalConfig | null {
   const baseUrl = (typeof s.localBaseUrl === 'string' && s.localBaseUrl) || process.env.LOCAL_LLM_BASE_URL || ''
   if (!baseUrl) return null
   const apiKey = (typeof s.localApiKey === 'string' && s.localApiKey) || process.env.LOCAL_LLM_API_KEY || ''
-  return { baseUrl: normalizeBaseUrl(baseUrl), ...(apiKey ? { apiKey } : {}) }
+  const ctx = Number(s.localContextWindow ?? process.env.LOCAL_LLM_CONTEXT_WINDOW)
+  return {
+    baseUrl: normalizeBaseUrl(baseUrl),
+    ...(apiKey ? { apiKey } : {}),
+    ...(Number.isFinite(ctx) && ctx > 0 ? { contextWindow: Math.floor(ctx) } : {}),
+  }
 }
 
 function headers(cfg: LocalConfig, json = false): Record<string, string> {
@@ -82,11 +96,15 @@ export interface LocalModel {
 }
 
 /**
- * When the server says nothing about its window. Small on purpose: assuming
- * too much means a request the server rejects after reading the whole prompt;
- * assuming too little only trims history that would have fit.
+ * When the server says nothing about its window and none is configured. Small
+ * on purpose: assuming too much means a request the server rejects after
+ * reading the whole prompt; assuming too little only trims history that would
+ * have fit.
  */
 export const FALLBACK_CONTEXT = 8192
+
+/** The window to assume for a server that reports none. */
+const assumedContext = (cfg: LocalConfig) => cfg.contextWindow ?? FALLBACK_CONTEXT
 
 /**
  * Read the server's window from the shapes the common servers use:
@@ -125,17 +143,17 @@ export async function listLocalModels(cfg: LocalConfig, opts: { fresh?: boolean 
   const body = (await res.json()) as { data?: Array<Record<string, unknown>> }
   const entries = (body.data ?? []).filter((m) => typeof m.id === 'string' && m.id)
 
-  // llama-server also answers /props with the window it allocated; asked only
-  // when /v1/models didn't say, and only once for all of them.
-  let propsCtx: number | null | undefined
+  // Never a constant: the window is whatever the server was started with
+  // (`--ctx-size`), and that changes. llama-server's /props is asked first —
+  // `default_generation_settings.n_ctx` is the window one request gets, which
+  // with several slots is a share of the `meta.n_ctx` /v1/models reports. It
+  // describes the one model the server runs, so it is only trusted when one is
+  // listed. Then what /v1/models says, then the configured fallback.
+  const propsCtx = entries.length === 1 ? await propsContext(cfg) : null
   const models: LocalModel[] = []
   for (const m of entries) {
-    let ctx = contextOf(m)
-    if (ctx === null) {
-      if (propsCtx === undefined) propsCtx = await propsContext(cfg)
-      ctx = propsCtx
-    }
-    models.push({ id: String(m.id), contextWindow: ctx ?? FALLBACK_CONTEXT, contextKnown: ctx !== null })
+    const ctx = propsCtx ?? contextOf(m)
+    models.push({ id: String(m.id), contextWindow: ctx ?? assumedContext(cfg), contextKnown: ctx !== null })
   }
   modelCache = { key, at: Date.now(), models }
   return models
@@ -157,7 +175,12 @@ async function propsContext(cfg: LocalConfig): Promise<number | null> {
 export async function localModelInfo(cfg: LocalConfig, id: string): Promise<LocalModel> {
   const name = serverModelId(id)
   const models = await listLocalModels(cfg).catch(() => [] as LocalModel[])
-  return models.find((m) => m.id === name) ?? { id: name, contextWindow: FALLBACK_CONTEXT, contextKnown: false }
+  return models.find((m) => m.id === name) ?? { id: name, contextWindow: assumedContext(cfg), contextKnown: false }
+}
+
+/** Forget the listing, so the next turn reads the window again (after the server refused one as too long). */
+export function forgetLocalModels(): void {
+  modelCache = null
 }
 
 /**
@@ -368,6 +391,63 @@ const fmt = (n: number) => n.toLocaleString('en-US')
 
 // ── Streaming ───────────────────────────────────────────────────────────────
 
+/**
+ * How far the server is through reading the prompt, from llama-server's
+ * `prompt_progress` (asked for with `return_progress`). `cached` tokens were
+ * reused from the previous request and cost nothing; `processed` counts them.
+ */
+export interface PromptProgress {
+  total: number
+  cached: number
+  processed: number
+  ms: number
+}
+
+/**
+ * POST and stream the response, over node:http rather than fetch.
+ *
+ * fetch (undici) gives up on a response that sends nothing for five minutes,
+ * and a home server reading a 100k-token chat export can stay silent longer
+ * than that when it doesn't report progress. Here there is no idle timeout:
+ * the turn ends when the server answers, errors, or the person presses Stop.
+ */
+function postStream(
+  cfg: LocalConfig,
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<IncomingMessage> {
+  const url = new URL(`${cfg.baseUrl}${path}`)
+  const payload = Buffer.from(JSON.stringify(body))
+  return new Promise((resolve, reject) => {
+    const req = (url.protocol === 'https:' ? httpsRequest : httpRequest)(
+      url,
+      {
+        method: 'POST',
+        headers: { ...headers(cfg, true), 'Content-Length': payload.length, Accept: 'text/event-stream' },
+        signal,
+      },
+      resolve,
+    )
+    req.on('error', (err: any) => {
+      if (err?.name === 'AbortError') return reject(err)
+      const code = err?.code
+      reject(new Error(
+        code === 'ECONNREFUSED' || code === 'ENOTFOUND' || code === 'EAI_AGAIN' || code === 'EHOSTUNREACH'
+          ? `The local model server at ${cfg.baseUrl} isn't reachable (${code}).`
+          : `Couldn't reach the local model server at ${cfg.baseUrl}: ${err?.message ?? err}`,
+      ))
+    })
+    req.end(payload)
+  })
+}
+
+async function readAll(res: IncomingMessage): Promise<string> {
+  const parts: Buffer[] = []
+  for await (const p of res) parts.push(p as Buffer)
+  return Buffer.concat(parts).toString('utf8')
+}
+
 export interface StreamResult {
   text: string
   finishReason: string | null
@@ -390,24 +470,25 @@ export async function streamChat(
     maxTokens: number
     signal?: AbortSignal
     onDelta?: (text: string) => void
+    /** Prompt reading, as the server reports it (llama-server only). */
+    onProgress?: (p: PromptProgress) => void
     tools?: unknown[]
   },
 ): Promise<StreamResult> {
-  const res = await localFetch(cfg, '/v1/chat/completions', {
-    method: 'POST',
-    headers: headers(cfg, true),
-    body: JSON.stringify({
-      model: serverModelId(req.model),
-      messages: req.messages,
-      max_tokens: req.maxTokens,
-      stream: true,
-      stream_options: { include_usage: true },
-      ...(req.tools?.length ? { tools: req.tools } : {}),
-    }),
-    signal: req.signal,
-  })
-  if (!res.ok || !res.body) {
-    const message = await describeFailure(cfg, res)
+  const res = await postStream(cfg, '/v1/chat/completions', {
+    model: serverModelId(req.model),
+    messages: req.messages,
+    max_tokens: req.maxTokens,
+    stream: true,
+    stream_options: { include_usage: true },
+    // llama-server streams `prompt_progress` while it reads the prompt — the
+    // part that takes minutes on a long input. Other servers ignore it.
+    return_progress: true,
+    ...(req.tools?.length ? { tools: req.tools } : {}),
+  }, req.signal)
+  const status = res.statusCode ?? 0
+  if (status < 200 || status >= 300) {
+    const message = await describeFailure(cfg, new Response(await readAll(res), { status }))
     if (/context|too long|exceed/i.test(message)) {
       throw new ContextOverflowError(`The local model couldn't fit this conversation in its context window: ${message}`)
     }
@@ -431,6 +512,15 @@ export async function streamChat(
     if (chunk.usage) {
       usage = { prompt: Number(chunk.usage.prompt_tokens) || 0, completion: Number(chunk.usage.completion_tokens) || 0 }
     }
+    const pp = chunk.prompt_progress
+    if (pp && Number(pp.total) > 0) {
+      req.onProgress?.({
+        total: Number(pp.total),
+        cached: Number(pp.cache) || 0,
+        processed: Number(pp.processed) || 0,
+        ms: Number(pp.time_ms) || 0,
+      })
+    }
     const choice = chunk.choices?.[0]
     if (!choice) return
     const delta = choice.delta ?? {}
@@ -450,8 +540,8 @@ export async function streamChat(
 
   const decoder = new TextDecoder()
   let buf = ''
-  for await (const part of res.body as unknown as AsyncIterable<Uint8Array>) {
-    buf += decoder.decode(part, { stream: true })
+  for await (const part of res) {
+    buf += decoder.decode(part as Buffer, { stream: true })
     // Server-sent events: blank-line separated, `data:` lines carry the JSON.
     let cut: number
     while ((cut = buf.search(/\r?\n\r?\n/)) !== -1) {

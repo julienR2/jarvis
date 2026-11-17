@@ -112,28 +112,47 @@ function acceptTitle(conversationId: string, raw: string): string | null {
 }
 
 /**
- * Title a private conversation on the local model. Its whole first message can
- * be a chat export, so the transcript is the same trimmed one the engine gets
- * (eight rows, 400 characters each): a title needs the subject, and a small
- * model on a home server reads it in a couple of seconds. When the server
- * can't be asked, the first words of the conversation stand in — never another
- * provider.
+ * Title a private conversation on the local model — once, from its first
+ * message, before that message is answered.
+ *
+ * Before, because a home server usually runs one request at a time and keeps
+ * one prompt in its cache: a title asked for after the answer would evict that
+ * prompt, and the next question would re-read the whole conversation — minutes,
+ * for a long chat export. Once, for the same reason: a local chat is never
+ * re-asked for a title. And short: the first message's opening lines and the
+ * names of its files, a hundred-odd tokens the server reads in a second or two.
+ *
+ * When the model has nothing usable (a bare greeting, an error, no server),
+ * the first words stand in — never another provider.
  */
 async function localTitle(conversationId: string, model: string | null): Promise<string | null> {
-  const lines = transcript(conversationId)
-  if (!lines) return null
+  const first = getDb()
+    .prepare(
+      `SELECT content, metadata FROM messages WHERE conversation_id = ? AND role = 'user' AND type IS NULL
+        ORDER BY created_at ASC, rowid ASC LIMIT 1`,
+    )
+    .get(conversationId) as { content: string; metadata: string | null } | undefined
+  if (!first) return null
+  let files: string[] = []
+  try {
+    files = (JSON.parse(first.metadata ?? '{}').attachments ?? []).map((a: { originalName?: string }) => a.originalName).filter(Boolean)
+  } catch { /* no attachments */ }
+  const text = first.content.replace(/\s+/g, ' ').trim().slice(0, 300)
+  const subject = [text, files.length ? `(files: ${files.join(', ')})` : ''].filter(Boolean).join(' ')
+  if (!subject) return null
   const cfg = localConfig()
   if (cfg && model) {
     try {
       const raw = await completeOnce(cfg, model, [
-        { role: 'user', content: `<transcript>\n${lines}\n</transcript>\n\n${INSTRUCTIONS}` },
+        { role: 'user', content: `<transcript>\nUser: ${subject}\n</transcript>\n\n${INSTRUCTIONS}` },
       ], 24)
-      return acceptTitle(conversationId, raw)
+      const title = acceptTitle(conversationId, raw)
+      if (title) return title
     } catch (err) {
       console.error(`[title] ${conversationId.slice(0, 8)}: local model failed, using the first words`, err)
     }
   }
-  return firstWordsTitle(lines.replace(/^User: /, ''))
+  return firstWordsTitle(text || files.join(' '))
 }
 
 /** The first few words of a text, behind a lock: what a private chat is about, without a model. */

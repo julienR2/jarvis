@@ -84,6 +84,7 @@ function LocalCard({ status, onChanged }: { status: LocalProviderStatus; onChang
   const [open, setOpen] = useState(false)
   const [baseUrl, setBaseUrl] = useState(status.baseUrl)
   const [credential, setCredential] = useState('')
+  const [contextWindow, setContextWindow] = useState(status.contextWindow ? String(status.contextWindow) : '')
   const [reveal, setReveal] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -94,9 +95,17 @@ function LocalCard({ status, onChanged }: { status: LocalProviderStatus; onChang
     setError('')
     setSaved('')
     try {
-      const res = await api.setConnection({ mode: 'local', baseUrl, credential })
+      const res = await api.setConnection({
+        mode: 'local',
+        baseUrl,
+        credential,
+        contextWindow: contextWindow.trim() ? Number(contextWindow) : null,
+      })
       setCredential('')
-      setSaved(`Verified and saved${res.models?.length ? ` — ${res.models.join(', ')}` : ''}.`)
+      const windowNote = res.contextWindow
+        ? ` · the server reports a ${res.contextWindow.toLocaleString('en-US')}-token window`
+        : ` · the server reports no window, so ${contextWindow.trim() ? Number(contextWindow).toLocaleString('en-US') : '8,192'} is assumed`
+      setSaved(`Verified and saved${res.models?.length ? ` — ${res.models.join(', ')}` : ''}${windowNote}.`)
       await onChanged()
       await loadModelCatalogue(() => api.getModels())
       setOpen(false)
@@ -178,6 +187,20 @@ function LocalCard({ status, onChanged }: { status: LocalProviderStatus; onChang
               {reveal ? <EyeOff size={14} /> : <Eye size={14} />}
             </button>
           </div>
+          <label className='flex flex-col gap-1'>
+            <input
+              value={contextWindow}
+              onChange={(e) => setContextWindow(e.target.value.replace(/[^0-9]/g, ''))}
+              inputMode='numeric'
+              placeholder='Context window if the server doesn’t report one (default 8192)'
+              aria-label='Fallback context window'
+              className='w-full bg-bg border border-border rounded-xl px-3 py-2 text-sm font-mono text-text-primary outline-none focus:border-accent'
+            />
+            <span className='text-[11px] text-text-muted'>
+              Tokens. Only used when the server doesn&apos;t say: llama-server reports its own (<span className='font-mono'>/props</span>),
+              and that always wins, so restarting it with another <span className='font-mono'>--ctx-size</span> needs no change here.
+            </span>
+          </label>
           <button
             onClick={save}
             disabled={saving || !baseUrl.trim()}

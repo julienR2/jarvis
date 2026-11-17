@@ -48,6 +48,7 @@ import { userForApiKey } from '../api-keys.js'
 import {
   ContextOverflowError,
   fitToContext,
+  forgetLocalModels,
   inlineAttachment,
   isLocalModel,
   localConfig,
@@ -820,35 +821,65 @@ function localHistory(conversationId: string, current: string | null): ChatMessa
   return out
 }
 
+/** "about 4 min" / "about 40 s" — a remaining-time estimate, deliberately rough. */
+function roughDuration(ms: number): string {
+  const s = Math.max(1, Math.round(ms / 1000))
+  if (s < 60) return `${Math.max(5, Math.round(s / 5) * 5)} s`
+  return `${Math.round(s / 60)} min`
+}
+
+const fmtTokens = (n: number) => n.toLocaleString('en-US')
+
+/** Below this a prompt is read in a few seconds and needs no status line. */
+const READING_STATUS_MIN_TOKENS = 1500
+
 async function runLocalTurn(conversationId: string, conv: ConvRow, turn: LocalTurn): Promise<void> {
   const ctl = new AbortController()
   localTurns.set(conversationId, ctl)
   emitConversationEvent(conversationId, { type: 'thinking', thinking: true })
   let text = ''
   const notes: string[] = []
-  // Written once, at the end: an agent turn grows its row line by line, but a
-  // local answer is one block of text, live in `delta` events meanwhile.
-  const writeAnswer = (result: string) => {
-    const id = uuid()
-    getDb()
-      .prepare(
-        'INSERT INTO messages (id, conversation_id, role, content, result, metadata, model) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      )
-      .run(
-        id,
-        conversationId,
-        'assistant',
-        // The prose as a `[chunk]` line, as an agent turn writes it: the chat
-        // draws an assistant row from its content's lines (the last chunk
-        // standing for `result`), and a row without any shows its raw content.
-        [...notes.map((n) => `[note] ${n}`), `[chunk] ${result}`].join('\n\n'),
-        result,
-        turn.runId ? JSON.stringify({ run_id: turn.runId, isolated: false }) : null,
-        turn.model,
-      )
-    liveTurnText.delete(conversationId)
-    emitConversationEvent(conversationId, { type: 'message', message: getMessageRow(id) })
+  // The turn's assistant row. Created early only when the prompt is long
+  // enough for reading it to take a while: it carries the "Reading…" status,
+  // which the chat shows next to the loader (liveStatus), so minutes of prompt
+  // reading on a home server don't look like a hang. Its status line is
+  // replaced by the answer when it lands; the record keeps only real notes.
+  let rowId: string | null = null
+  const content = (lines: string[]) => lines.map((n) => `[note] ${n}`)
+  const emitRow = () => emitConversationEvent(conversationId, { type: 'message', message: getMessageRow(rowId!) })
+  const showStatus = (status: string) => {
+    // Once answer text streams, the status is over — and any row update now
+    // would make the client drop the live text it is typing out.
+    if (text || ctl.signal.aborted) return
+    const body = content([...notes, status]).join('\n\n')
+    if (!rowId) {
+      rowId = uuid()
+      getDb()
+        .prepare('INSERT INTO messages (id, conversation_id, role, content, metadata, model) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(rowId, conversationId, 'assistant', body, turn.runId ? JSON.stringify({ run_id: turn.runId, isolated: false }) : null, turn.model)
+    } else {
+      getDb().prepare('UPDATE messages SET content = ? WHERE id = ?').run(body, rowId)
+    }
+    emitRow()
   }
+  // The answer, written into the status row or as a new one. The prose is a
+  // `[chunk]` line, as an agent turn writes it: the chat draws an assistant row
+  // from its content's lines (the last chunk standing for `result`), and a row
+  // without any shows its raw content.
+  const writeAnswer = (result: string) => {
+    const body = [...content(notes), `[chunk] ${result}`].join('\n\n')
+    if (rowId) {
+      getDb().prepare('UPDATE messages SET content = ?, result = ? WHERE id = ?').run(body, result, rowId)
+    } else {
+      rowId = uuid()
+      getDb()
+        .prepare('INSERT INTO messages (id, conversation_id, role, content, result, metadata, model) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(rowId, conversationId, 'assistant', body, result, turn.runId ? JSON.stringify({ run_id: turn.runId, isolated: false }) : null, turn.model)
+    }
+    liveTurnText.delete(conversationId)
+    emitRow()
+  }
+  let ticker: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout> | null = null
 
   try {
     if (!getDb().prepare('SELECT 1 FROM conversations WHERE id = ?').get(conversationId)) return
@@ -856,6 +887,14 @@ async function runLocalTurn(conversationId: string, conv: ConvRow, turn: LocalTu
     if (!cfg) {
       throw new Error('No local model server is configured any more (Settings → Connection → Local), and this conversation only runs on one.')
     }
+
+    // Named before it is answered, and only then — see localTitle in titles.ts.
+    const titled = getDb().prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined
+    if (titled?.title === UNTITLED) {
+      const t = await generateTitle(conversationId, turn.model)
+      if (t) applyTitle(conversationId, t)
+    }
+
     const info = await localModelInfo(cfg, turn.model)
 
     let history = localHistory(conversationId, turn.userMsgId)
@@ -882,12 +921,62 @@ async function runLocalTurn(conversationId: string, conv: ConvRow, turn: LocalTu
       `[local] ${conversationId.slice(0, 8)}: ${turn.model}, ~${budget.promptTokens} prompt tokens of ${info.contextWindow}, ${budget.messages.length} messages${budget.dropped ? `, ${budget.dropped} dropped` : ''}`,
     )
 
+    // "Reading…" while the server reads the prompt. With llama-server's
+    // progress events it is a percentage and an estimate of what is left;
+    // without them, the time spent so far, so a long wait still visibly moves.
+    // The plain status waits a few seconds first: a follow-up whose prompt the
+    // server still has cached is answering by then, and a "Reading 23,000
+    // tokens…" flashing up for it would be untrue.
+    const started = Date.now()
+    let progressed = false
+    let lastShown = 0
+    let sample: { at: number; done: number } | null = null
+    if (budget.promptTokens >= READING_STATUS_MIN_TOKENS) {
+      const plain = () => {
+        if (progressed) return
+        const elapsed = Date.now() - started
+        showStatus(
+          `Reading about ${fmtTokens(budget.promptTokens)} tokens…${elapsed >= 10_000 ? ` (${roughDuration(elapsed)} so far)` : ''}`,
+        )
+      }
+      ticker = setTimeout(() => {
+        plain()
+        ticker = setInterval(plain, 15_000)
+      }, 4000)
+    }
+
     const result = await runTurn(cfg, {
       model: turn.model,
       messages: budget.messages,
       maxTokens: budget.maxTokens,
       signal: ctl.signal,
+      onProgress: (p) => {
+        const fresh = p.total - p.cached
+        const done = p.processed - p.cached
+        // Mostly cached (a follow-up question): nothing worth a status line.
+        if (fresh < READING_STATUS_MIN_TOKENS || done >= fresh) return
+        progressed = true
+        // From the recent rate, not the average: reading slows down as the
+        // context fills (measured: ~4 min left at 9%, seven in truth, with the
+        // average), so the latest stretch is the better guide to the rest.
+        const prev = sample
+        if (!prev || p.ms - prev.at >= 5000) sample = { at: p.ms, done }
+        if (Date.now() - lastShown < 3000) return
+        lastShown = Date.now()
+        const pct = Math.floor((done / fresh) * 100)
+        const rate = prev && done > prev.done && p.ms > prev.at ? (p.ms - prev.at) / (done - prev.done) : done > 0 && p.ms > 0 ? p.ms / done : null
+        const left = rate !== null ? (fresh - done) * rate : null
+        showStatus(
+          `Reading ${fmtTokens(fresh)} tokens — ${pct}%${left !== null ? `, about ${roughDuration(left)} left` : ''}` +
+            (p.cached > 50 ? ` (${fmtTokens(p.cached)} already read earlier)` : ''),
+        )
+      },
       onDelta: (t) => {
+        if (ticker) {
+          clearTimeout(ticker)
+          clearInterval(ticker)
+          ticker = null
+        }
         text += t
         emitConversationEvent(conversationId, { type: 'delta', text: t })
         liveTurnText.set(conversationId, (liveTurnText.get(conversationId) ?? '') + t)
@@ -918,16 +1007,11 @@ async function runLocalTurn(conversationId: string, conv: ConvRow, turn: LocalTu
       pushForConversation(conversationId, conv.title, '').catch((err) => console.error('[push] local turn:', err))
     }
     emitGlobalEvent({ type: 'new_message', conversation_id: conversationId })
-
-    const title = getDb().prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined
-    if (title?.title === UNTITLED) {
-      // Awaited: on a one-request-at-a-time server, the next turn should not
-      // queue behind a title it didn't ask for.
-      const t = await generateTitle(conversationId, turn.model)
-      if (t) applyTitle(conversationId, t)
-    }
   } catch (err: any) {
     const aborted = ctl.signal.aborted
+    // The server refused the window it was told about: it may have been
+    // restarted with another one. Ask it again next turn.
+    if (err instanceof ContextOverflowError) forgetLocalModels()
     try {
       if (aborted) {
         // Stopped: keep what was written, marked as such.
@@ -935,6 +1019,8 @@ async function runLocalTurn(conversationId: string, conv: ConvRow, turn: LocalTu
         if (text.trim()) {
           notes.push('Stopped.')
           writeAnswer(text.trim())
+        } else if (rowId) {
+          writeAnswer('*(Stopped before the answer started.)*')
         }
         if (turn.runId) finishRun(turn.runId, 'interrupted', { error: 'Cancelled' })
       } else {
@@ -942,8 +1028,14 @@ async function runLocalTurn(conversationId: string, conv: ConvRow, turn: LocalTu
         if (text.trim()) {
           notes.push('The answer was cut off by an error.')
           writeAnswer(text.trim())
+          emitConversationError(conversationId, message)
+        } else if (rowId) {
+          // The status row becomes the error: no empty "Reading…" left behind.
+          getDb().prepare(`UPDATE messages SET type = 'error', content = ?, result = NULL WHERE id = ?`).run(message, rowId)
+          emitRow()
+        } else {
+          emitConversationError(conversationId, message)
         }
-        emitConversationError(conversationId, message)
         if (turn.runId) finishRun(turn.runId, 'error', { error: message })
         emitGlobalEvent({ type: 'new_message', conversation_id: conversationId })
       }
@@ -952,6 +1044,10 @@ async function runLocalTurn(conversationId: string, conv: ConvRow, turn: LocalTu
       console.error('[local] could not report the turn:', reportErr)
     }
   } finally {
+    if (ticker) {
+      clearTimeout(ticker)
+      clearInterval(ticker)
+    }
     if (localTurns.get(conversationId) === ctl) localTurns.delete(conversationId)
     liveTurnText.delete(conversationId)
     try {

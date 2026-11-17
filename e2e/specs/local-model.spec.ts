@@ -159,6 +159,21 @@ test.describe('local models', () => {
     expect(titles.conversations).toEqual([])
   })
 
+  test('a long input shows what the server is reading, then gives way to the answer', async ({ page }) => {
+    await signIn(page)
+    await page.goto(`c/${chatId}`)
+    const long = Array.from({ length: 2000 }, (_, i) => `mot${i}`).join(' ')
+    const res = await api('POST', `/conversations/${chatId}/messages`, { content: long, model: MODEL })
+    expect(res.ok).toBe(true)
+    // The stub reports progress for ~4 s: the status is a percentage by then.
+    await expect(page.getByText(/^Reading [\d,]+ tokens — \d+%/)).toBeVisible()
+    await expect(page.getByText(/the last one 14\d{3} characters long/)).toBeVisible()
+    await expect(page.getByText(/^Reading /)).toHaveCount(0)
+    // The status was never part of the record.
+    const messages = await messagesWhen(chatId, (m) => m.filter((x) => x.role === 'assistant' && x.result).length >= 3)
+    expect(messages.filter((m) => m.role === 'assistant').every((m) => !m.content.includes('Reading'))).toBe(true)
+  })
+
   test('a message too long for the window is refused with numbers, not sent', async () => {
     const before = (await localRequests()).length
     const long = Array.from({ length: 5000 }, (_, i) => `mot${i}`).join(' ')

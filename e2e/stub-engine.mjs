@@ -64,7 +64,9 @@ function localServer(req, res, path) {
     res.writeHead(status, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(body))
   }
-  if (path === '/v1/models') return json(200, { data: [{ id: LOCAL_MODEL, object: 'model', meta: { n_ctx: LOCAL_CTX } }] })
+  if (path === '/v1/models') return json(200, { data: [{ id: LOCAL_MODEL, object: 'model', meta: { n_ctx: LOCAL_CTX * 4, n_ctx_train: 131072 } }] })
+  // The window one request gets — what Jarvis must use over meta.n_ctx above.
+  if (path === '/props') return json(200, { default_generation_settings: { n_ctx: LOCAL_CTX } })
   let raw = ''
   req.on('data', (c) => { raw += c })
   req.on('end', () => {
@@ -79,8 +81,22 @@ function localServer(req, res, path) {
     const answer = `Local answer: I was sent ${msgs.length} messages, the last one ${last.length} characters long.`
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
     const words = answer.split(' ')
+    // A long prompt is "read" slowly, with llama-server's progress events, so
+    // a spec can watch the Reading… status: ~4 s for anything past 1500 words.
+    const total = msgs.reduce((n, m) => n + String(m.content).split(/\s+/).filter(Boolean).length, 0)
+    const steps = body.return_progress && total > 1500 ? 8 : 0
+    // Progress first, one event every 16 ticks (~0.5 s), then the words.
+    let reading = steps * 16
     let i = 0
     const tick = setInterval(() => {
+      if (reading > 0) {
+        if (reading % 16 === 0) {
+          const step = steps - reading / 16
+          res.write(`data: ${JSON.stringify({ choices: [], prompt_progress: { total, cache: 0, processed: Math.round((total * step) / steps), time_ms: step * 500 } })}\n\n`)
+        }
+        reading--
+        return
+      }
       if (i < words.length) {
         res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: (i ? ' ' : '') + words[i] } }] })}\n\n`)
         i++
@@ -126,7 +142,7 @@ createServer((req, res) => {
     })
     return
   }
-  if (path === '/v1/models' || path === '/v1/chat/completions' || path === '/tokenize') return localServer(req, res, path)
+  if (['/v1/models', '/v1/chat/completions', '/tokenize', '/props'].includes(path)) return localServer(req, res, path)
   if (path === '/__local/requests') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ requests: localRequests }))

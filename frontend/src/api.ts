@@ -161,8 +161,8 @@ export const api = {
   /** What the composer's `/` menu offers — one list whatever the model. */
   getCommands: () => request<{ commands: SlashCommand[] }>('GET', '/commands'),
   getConnection: () => request<ConnectionStatus>('GET', '/auth/connection'),
-  setConnection: (body: { mode: 'anthropic' | 'gateway' | 'local'; baseUrl: string; credential: string }) =>
-    request<{ ok: boolean; busy: string[]; models?: string[] }>('POST', '/auth/connection', body),
+  setConnection: (body: { mode: 'anthropic' | 'gateway' | 'local'; baseUrl: string; credential: string; contextWindow?: number | null }) =>
+    request<{ ok: boolean; busy: string[]; models?: string[]; contextWindow?: number | null }>('POST', '/auth/connection', body),
   setConnectionDefaults: (body: {
     provider?: 'anthropic' | 'gateway'
     anthropicModel?: string
@@ -691,6 +691,8 @@ export interface LocalProviderStatus {
   /** The optional API key, redacted; empty when there is none. */
   credentialHint: string
   envManaged: boolean
+  /** The window assumed when the server reports none; null = the 8k default. */
+  contextWindow: number | null
 }
 
 /** The providers, independently configurable. */

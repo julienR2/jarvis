@@ -150,6 +150,32 @@ test('models are listed with their window, from /props when /v1/models is silent
   }
 })
 
+test("the window comes from /props first, then /v1/models, then the configured fallback — never a constant", async () => {
+  let props: unknown = { default_generation_settings: { n_ctx: 131072 } }
+  let meta: unknown = { n_ctx: 32768 }
+  const { url, server } = await serve((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    if (req.url === '/v1/models') res.end(JSON.stringify({ data: [{ id: 'g', meta }] }))
+    else if (req.url === '/props') res.end(JSON.stringify(props))
+    else res.end('{}')
+  })
+  try {
+    const list = (cfg: Parameters<typeof listLocalModels>[0]) => listLocalModels(cfg, { fresh: true })
+    // Restarted with a bigger --ctx-size: the server's word is taken as is.
+    assert.equal((await list({ baseUrl: url }))[0].contextWindow, 131072)
+    props = {}
+    assert.equal((await list({ baseUrl: url }))[0].contextWindow, 32768)
+    meta = {}
+    assert.deepEqual((await list({ baseUrl: url, contextWindow: 65536 }))[0], { id: 'g', contextWindow: 65536, contextKnown: false })
+    assert.equal((await list({ baseUrl: url }))[0].contextWindow, 8192)
+    // A configured fallback never overrides a window the server reports.
+    props = { default_generation_settings: { n_ctx: 16384 } }
+    assert.equal((await list({ baseUrl: url, contextWindow: 65536 }))[0].contextWindow, 16384)
+  } finally {
+    server.close()
+  }
+})
+
 test('verification needs a model list and a working completion, and sends the key', async () => {
   const seen: string[] = []
   const { url, server } = await serve((req, res) => {
@@ -183,6 +209,7 @@ test('verification needs a model list and a working completion, and sends the ke
 test('a streamed answer is reassembled across split SSE frames, with usage and tool calls', async () => {
   let request: any
   const frames = [
+    { choices: [], prompt_progress: { total: 5000, cache: 1000, processed: 3000, time_ms: 20000 } },
     { choices: [{ delta: { role: 'assistant', content: 'Bon' } }] },
     { choices: [{ delta: { content: 'jour' } }] },
     { choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'read_', arguments: '{"pa' } }] } }] },
@@ -207,12 +234,16 @@ test('a streamed answer is reassembled across split SSE frames, with usage and t
   })
   try {
     const deltas: string[] = []
+    const progress: unknown[] = []
     const r = await streamChat({ baseUrl: url }, {
       model: 'local:tiny',
       messages: [{ role: 'user', content: 'salut' }],
       maxTokens: 50,
       onDelta: (t) => deltas.push(t),
+      onProgress: (p) => progress.push(p),
     })
+    assert.equal(request.return_progress, true)
+    assert.deepEqual(progress, [{ total: 5000, cached: 1000, processed: 3000, ms: 20000 }])
     assert.equal(request.model, 'tiny')
     assert.equal(request.stream, true)
     assert.equal(request.max_tokens, 50)

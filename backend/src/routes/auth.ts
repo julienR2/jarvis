@@ -6,7 +6,7 @@ import { config } from '../config.js'
 import { verifyConnection, recycleSessions } from '../engine.js'
 import { secureEquals } from '../security.js'
 import { defaultProvider, defaultModelFor, isGatewayModel, type Provider } from '../models.js'
-import { isLocalModel, localConfig, normalizeBaseUrl, verifyLocal } from '../local-llm.js'
+import { forgetLocalModels, isLocalModel, localConfig, normalizeBaseUrl, verifyLocal } from '../local-llm.js'
 import { extractRequestToken, SESSION_COOKIE } from '../request-auth.js'
 import type { UserRow } from '../types.js'
 import { readSecrets, writeSecrets } from '../secrets.js'
@@ -238,6 +238,8 @@ export async function authRoutes(app: FastifyInstance) {
           baseUrl: cfg?.baseUrl ?? '',
           credentialHint: hint(key),
           envManaged: !secrets.localBaseUrl && !!process.env.LOCAL_LLM_BASE_URL,
+          // The window assumed when the server reports none; null = 8k.
+          contextWindow: cfg?.contextWindow ?? null,
         }
       })(),
       // Which provider new conversations start on. Reported even with one
@@ -349,10 +351,12 @@ export async function authRoutes(app: FastifyInstance) {
   // Verification is not optional: accepting an unusable key silently is the
   // whole bug this endpoint exists to fix.
   app.post('/connection', { onRequest: [app.authenticate] }, async (req, reply) => {
-    const { mode, baseUrl, credential } = req.body as {
+    const { mode, baseUrl, credential, contextWindow } = req.body as {
       mode?: 'anthropic' | 'gateway' | 'local'
       baseUrl?: string
       credential?: string
+      /** Local only: the window to assume when the server reports none. */
+      contextWindow?: number | string | null
     }
 
     // The Local provider: a URL, the key optional (llama-server has none by
@@ -363,7 +367,11 @@ export async function authRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'Base URL must start with http:// or https://' })
       }
       const key = (credential || '').trim()
-      const check = await verifyLocal({ baseUrl: url, ...(key ? { apiKey: key } : {}) })
+      const ctxRaw = contextWindow === null || contextWindow === undefined || contextWindow === '' ? null : Number(contextWindow)
+      if (ctxRaw !== null && (!Number.isInteger(ctxRaw) || ctxRaw < 1024 || ctxRaw > 10_000_000)) {
+        return reply.code(400).send({ error: 'The context window must be a whole number of tokens, at least 1024' })
+      }
+      const check = await verifyLocal({ baseUrl: url, ...(key ? { apiKey: key } : {}), ...(ctxRaw ? { contextWindow: ctxRaw } : {}) })
       if (!check.ok) {
         return reply.code(400).send({ error: check.error, verificationFailed: true })
       }
@@ -371,8 +379,17 @@ export async function authRoutes(app: FastifyInstance) {
       secrets.localBaseUrl = url
       if (key) secrets.localApiKey = key
       else delete secrets.localApiKey
+      if (ctxRaw) secrets.localContextWindow = ctxRaw
+      else delete secrets.localContextWindow
       writeSecrets(secrets)
-      return { ok: true, busy: [], models: check.models.map((m) => m.id) }
+      forgetLocalModels()
+      return {
+        ok: true,
+        busy: [],
+        models: check.models.map((m) => m.id),
+        // What the server reported, or that it reported nothing (null).
+        contextWindow: check.models[0].contextKnown ? check.models[0].contextWindow : null,
+      }
     }
 
     if (mode !== 'anthropic' && mode !== 'gateway') {
