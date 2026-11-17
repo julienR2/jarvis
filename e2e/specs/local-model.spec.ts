@@ -97,7 +97,10 @@ test.describe('local models', () => {
     await input.fill('À quelle heure le rendez-vous ?')
     await input.press('Enter')
 
-    await expect(page.getByText(/Local answer: I was sent 2 messages/)).toBeVisible()
+    // A first message is titled before it is answered (one request at a time
+    // on a home server), so its answer comes after two round-trips: slower
+    // than one assertion's default wait on a loaded machine.
+    await expect(page.getByText(/Local answer: I was sent 2 messages/)).toBeVisible({ timeout: 20_000 })
     await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/)
     chatId = page.url().split('/c/')[1]
 
