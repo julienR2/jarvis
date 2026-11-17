@@ -27,7 +27,9 @@ test.describe('review before sending', () => {
     await openConversation(page, 'Running late')
     const card = page.getByTestId('review-card')
     await expect(card).toBeVisible()
-    await expect(card.getByText('WhatsApp to Sam')).toBeVisible()
+    await expect(card.getByText('Running late for lunch')).toBeVisible()
+    // Where it goes is shown in full, apart from the text.
+    await expect(card.getByTestId('draft-envelope')).toContainText('Sam (WhatsApp)')
     const text = card.getByRole('textbox', { name: 'Text to send' })
     await expect(text).toHaveValue(DRAFT)
     // The composer's own input is the other answer: what to change.
@@ -70,6 +72,21 @@ test.describe('review before sending', () => {
     await page.getByTestId('review-card').getByRole('button', { name: 'Discard' }).click()
     await expect.poll(() => sent.body).toMatchObject({ behavior: 'deny' })
     expect(sent.body?.message ?? '').toBe('')
+  })
+
+  test('an approved draft reads as a card in the bubble, with where it went', async ({ page }) => {
+    await openConversation(page, 'Running late')
+    const approved = page.getByTestId('approved-draft')
+    await expect(approved).toBeVisible()
+    await expect(approved).toContainText('Approved')
+    const envelope = approved.getByTestId('draft-envelope')
+    await expect(envelope).toContainText('landlord@example.com')
+    await expect(envelope).toContainText('Signed lease and key pickup')
+    await expect(envelope).toContainText('lease-signed.pdf')
+    await expect(envelope).toContainText('inventory.pdf')
+    // The quote markers of the record are not drawn.
+    await expect(approved).toContainText('Please find the signed lease attached')
+    await expect(approved).not.toContainText('> Hello')
   })
 
   test('today shows the draft in its card, editable there too', async ({ page }) => {

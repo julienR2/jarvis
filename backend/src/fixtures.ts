@@ -532,11 +532,33 @@ export function seedFixtures(): void {
 
     // 9b. A text Jarvis wants approved before it goes out (review_text): the
     // chat's composer shows it editable. No engine behind it either.
-    insConv.run(ID.review, '💬 Running late', t(5), t(3), projects.id, null, null)
+    insConv.run(ID.review, '💬 Running late', t(9), t(3), projects.id, null, null)
+    // An email approved earlier in the same chat: the bubble shows where it went.
+    insMsg.run(uuid(), ID.review, 'user', 'Email the landlord the signed lease, and ask when the keys can be picked up.', null, null, null, t(9))
+    insMsg.run(uuid(), ID.review, 'assistant', "[chunk:1] Here's the email to the landlord.", null, null, null, t(8))
+    insMsg.run(uuid(), ID.review, 'user', [
+      'Approved:',
+      '',
+      '> Hello,',
+      '>',
+      '> Please find the signed lease attached, along with the inventory.',
+      '>',
+      '> When would suit you for picking up the keys? Any weekday after 5pm works for me.',
+      '>',
+      '> Thanks, and see you soon.',
+    ].join('\n'), JSON.stringify({
+      approved: {
+        edited: false,
+        to: 'Landlord <landlord@example.com>',
+        subject: 'Signed lease and key pickup',
+        attachments: ['lease-signed.pdf', 'inventory.pdf'],
+      },
+    }), null, null, t(7))
+    insMsg.run(uuid(), ID.review, 'assistant', '[chunk:1] Sent.', null, null, null, t(6))
     insMsg.run(uuid(), ID.review, 'user', "Tell Sam on WhatsApp I'll be 15 minutes late for lunch.", null, null, null, t(5))
     insMsg.run(uuid(), ID.review, 'assistant', [
       "[chunk:1] Here's a message for Sam — change anything, then send.",
-      '[note:2] Waiting for you: Review before sending: WhatsApp to Sam',
+      '[note:2] Waiting for you: Review before sending: Running late for lunch',
     ].join('\n\n'), null, null, null, t(4))
     db.prepare('UPDATE conversations SET pending_question = ? WHERE id = ?').run(JSON.stringify({
       request_id: 'req_fixture_review',
@@ -547,7 +569,8 @@ export function seedFixtures(): void {
       asked_at: t(4),
       input: {
         text: "Hey Sam! Running about 15 minutes late, sorry — go ahead and order without me if you're hungry.",
-        note: 'WhatsApp to Sam',
+        note: 'Running late for lunch',
+        to: 'Sam (WhatsApp)',
       },
     }), ID.review)
 
