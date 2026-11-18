@@ -55,7 +55,7 @@ export default function ThreadsPill({ threads, messages, activeId, onOpen, onNew
         muted={archivedRow}
         right={waiting
           ? <span className='rounded-full bg-warning px-1.5 font-medium text-white'>waiting for you</span>
-          : fresh ? <span className='rounded-full bg-accent px-1.5 font-medium text-white'>{t.unread_count} new</span> : relative(t.updated_at)}
+          : fresh ? <span className='inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1 text-[10.5px] font-medium tabular-nums text-white' title={`${t.unread_count} new`}>{t.unread_count}</span> : relative(t.updated_at)}
         sub={passageOf(t, messages)}
         italicSub
         onOpen={() => pick(t.id)}

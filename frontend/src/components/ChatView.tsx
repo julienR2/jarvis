@@ -1120,7 +1120,7 @@ export default function ChatView({
               >
                 {routineKindOf(threadNews[0]) === 'cron' ? <Clock size={12} className='shrink-0 text-text-muted' /> : routineKindOf(threadNews[0]) === 'webhook' ? <Link2 size={12} className='shrink-0 text-text-muted' /> : <Hash size={12} className='shrink-0 text-accent' />}
                 <span className='truncate'><span className='font-medium text-text-primary'>{threadNews[0].title}</span> replied</span>
-                <span className='shrink-0 rounded-full bg-accent px-1.5 text-[10.5px] font-medium text-white'>{threadNews[0].unread_count} new</span>
+                <span className='shrink-0 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1 text-[10.5px] font-medium tabular-nums text-white' title={`${threadNews[0].unread_count} new`}>{threadNews[0].unread_count}</span>
                 {threadNews.length > 1 && <span className='shrink-0 text-text-muted'>+{threadNews.length - 1} more</span>}
               </button>
             </div>

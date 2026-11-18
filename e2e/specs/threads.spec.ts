@@ -34,7 +34,7 @@ test.describe('threads', () => {
     await page.locator('[data-testid="threads-pill"]:visible').click()
     const popover = page.getByTestId('threads-popover')
     const row = popover.getByTestId('thread-row').filter({ hasText: 'surf-watch' })
-    await expect(row).toContainText('1 new')
+    await expect(row.getByText('1', { exact: true })).toBeVisible()
     await row.getByRole('button', { name: /^surf-watch/ }).click()
     await expect(page.getByText('Go now.')).toBeVisible()
   })

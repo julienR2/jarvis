@@ -27,7 +27,7 @@ test.describe('the threads of a chat', () => {
     await openConversation(page, 'Trip planning')
     const news = page.getByTestId('thread-news')
     await expect(news).toContainText('Wine cellars')
-    await expect(news).toContainText('1 new')
+    await expect(news.getByText('1', { exact: true })).toBeVisible()
 
     await page.locator('[data-testid="threads-pill"]:visible').click()
     const list = page.getByTestId('threads-popover')
