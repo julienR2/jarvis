@@ -30,17 +30,13 @@ export interface ConvRow {
   pending_question: string | null
   /** When the topic's context was last handed to this conversation's session. */
   topic_context_at: number | null
-  /** 'thread': a routine's own conversation, kept out of the chat groups. */
-  kind: 'chat' | 'thread'
-  /** The chat a thread reports into; null = it stands alone. */
+  /** The conversation this one hangs under (a thread of it); null = top level. */
   parent_id: string | null
-  /** In the sidebar's Threads group since then; null = not listed. */
-  surfaced_at: number | null
-  /** A thread forked from a chat: the message whose passage started it. */
+  /** A thread opened on a passage of its parent: the message it came from. */
   parent_message_id: string | null
   created_at: number
   updated_at: number
-  /** A thread put away with Done; cleared by its next message. */
+  /** Put away (Done); cleared by its next message. */
   archived_at: number | null
 }
 
@@ -97,7 +93,7 @@ export interface CronRow {
   name: string
   schedule: string
   prompt: string
-  /** The chat the runs report into; null = the thread stands alone. */
+  /** The chat the routine's conversation hangs under; null = top level. */
   conversation_id: string | null
   enabled: number
   once: number

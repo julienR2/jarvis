@@ -57,11 +57,6 @@ export function SubChatRow({ icon, title, right, sub, italicSub, fresh, selected
   )
 }
 
-/** A section's title in the # list. */
-export function ListHeading({ children }: { children: ReactNode }) {
-  return <div className='px-2.5 pb-0.5 pt-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted'>{children}</div>
-}
-
 /** "＋ New …" with the line that says what it is for. */
 export function CreateRow({ label, hint, onClick, busy }: { label: string; hint: string; onClick: () => void; busy?: boolean }) {
   return (

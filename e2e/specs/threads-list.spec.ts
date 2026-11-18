@@ -5,7 +5,7 @@ import { test, expect, signIn, openConversation } from '../helpers'
  * lists them (active first, the rest under Archived), a chip above the
  * composer says when one answered, and each opens as a tab of the side pane.
  * Fixture "🗂️ Trip planning": "Wine cellars" answered after it was last read;
- * "Coast road" has not moved for ten days.
+ * "Coast road" was put away (Done).
  */
 test.describe('the threads of a chat', () => {
   test.describe.configure({ mode: 'serial' })
@@ -23,7 +23,7 @@ test.describe('the threads of a chat', () => {
     // (Opening it is left to the tests below, which need its news unread.)
   })
 
-  test('the pill lists the active threads, the stale one under Archived; news shows above the composer', async ({ page }) => {
+  test('the pill lists the active threads, the one put away under Archived; news shows above the composer', async ({ page }) => {
     await openConversation(page, 'Trip planning')
     const news = page.getByTestId('thread-news')
     await expect(news).toContainText('Wine cellars')
@@ -34,7 +34,7 @@ test.describe('the threads of a chat', () => {
     await expect(list.getByTestId('thread-row')).toHaveCount(1)
     await expect(list.getByTestId('thread-row')).toContainText('Wine cellars')
     await expect(list.getByTestId('thread-row')).toContainText('Three days: Ribeira')
-    await list.getByRole('button', { name: /Archived side chats \(1\)/ }).click()
+    await list.getByRole('button', { name: /Archived \(1\)/ }).click()
     await expect(list.getByTestId('thread-row').filter({ has: page.getByText('Coast road', { exact: true }) })).toBeVisible()
   })
 
@@ -52,7 +52,7 @@ test.describe('the threads of a chat', () => {
     await page.locator('[data-testid="threads-pill"]:visible').click()
     const list = page.getByTestId('threads-popover')
     await expect(list.getByTestId('thread-row')).toHaveCount(0)
-    await list.getByRole('button', { name: /Archived side chats \(2\)/ }).click()
+    await list.getByRole('button', { name: /Archived \(2\)/ }).click()
     await list.getByRole('button', { name: 'Reopen Wine cellars' }).click()
     await expect(list.getByTestId('thread-row').filter({ has: page.getByText('Wine cellars', { exact: true }) })).toHaveCount(1)
   })
@@ -69,9 +69,9 @@ test.describe('the threads of a chat', () => {
     await expect(page.getByRole('tablist').getByRole('tab', { name: /Port cellars/ })).toBeVisible()
 
     await page.locator('[data-testid="threads-pill"]:visible').click()
-    await page.getByTestId('threads-popover').getByRole('button', { name: 'New side chat' }).click()
+    await page.getByTestId('threads-popover').getByRole('button', { name: 'New thread' }).click()
     const tabs = page.getByRole('tablist')
-    await expect(tabs.getByRole('tab', { name: 'New side chat' })).toHaveAttribute('aria-selected', 'true')
+    await expect(tabs.getByRole('tab', { name: 'New thread' })).toHaveAttribute('aria-selected', 'true')
     // The thread it replaced stays open as a tab.
     await expect(tabs.getByRole('tab', { name: /Port cellars/ })).toBeVisible()
     const box = page.getByTestId('thread-panel').getByPlaceholder('Write in the side chat…')

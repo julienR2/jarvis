@@ -11,29 +11,6 @@ export type MessageItem =
   | { type: 'separator'; key: string; label: string }
   | { type: 'unread'; key: string }
   | { type: 'runBlock'; key: string; runId: string; isolated: boolean; msgs: Message[] }
-  // A routine's run, reported into the chat its thread is attached to.
-  | { type: 'report'; key: string; msg: Message; report: RunReport }
-  // Consecutive runs that had nothing to say: one line for all of them.
-  | { type: 'reportStack'; key: string; entries: { msg: Message; report: RunReport }[] }
-
-/** What a report message says about the run behind it (see threads.ts). */
-export interface RunReport {
-  run_id: string
-  thread_id: string
-  source_name: string
-  kind: 'cron' | 'webhook'
-  status: Run['status']
-}
-
-export function messageReport(msg: Message): RunReport | null {
-  if (!msg.metadata || !msg.metadata.includes('"report"')) return null
-  try {
-    const report = JSON.parse(msg.metadata)?.report
-    return report && typeof report.run_id === 'string' ? report : null
-  } catch {
-    return null
-  }
-}
 
 /** A message stored as silent: shown, but neither unread nor news. */
 function markedSilent(msg: Message): boolean {
@@ -66,12 +43,14 @@ export function isFinishedReply(msg: Message, runsById?: Map<string, Run>): bool
  * nothing: a day with only silent fires loses its separator, and a divider
  * with nothing under it goes too.
  */
-export function dropQuietRuns(items: MessageItem[], runsById: Map<string, Run>): MessageItem[] {
-  // Silent reports too: a routine with nothing to say leaves no line in the
-  // chat — how its last run went is on its row in the chat's threads list, and
-  // every run is still in the routine's own thread.
+export function dropQuietRuns(
+  items: MessageItem[],
+  runsById: Map<string, Run>,
+  /** Runs kept even when quiet: a routine's own, in its conversation — its record. */
+  keep?: (runId: string) => boolean,
+): MessageItem[] {
   const kept = items.filter((item) =>
-    item.type !== 'reportStack' && !(item.type === 'runBlock' && item.msgs.every((m) => isQuietMessage(m, runsById))))
+    !(item.type === 'runBlock' && !keep?.(item.runId) && item.msgs.every((m) => isQuietMessage(m, runsById))))
   const isContent = (n: MessageItem) => n.type !== 'separator' && n.type !== 'unread'
   return kept.filter((item, i) => {
     const rest = kept.slice(i + 1)
@@ -111,22 +90,6 @@ export function groupMessagesByDay(messages: Message[], unreadAnchor: string | n
       // A day separator already breaks the block visually, so the next run
       // marker has to be re-drawn even if the run id happens to be unchanged.
       lastRunId = null
-    }
-
-    // A routine's report. The silent ones pile into the line before them, so a
-    // day of hourly "nothing new" reads as one row rather than twenty-four.
-    const report = messageReport(msg)
-    if (report) {
-      lastRunId = null
-      const last = result[result.length - 1]
-      if (markedSilent(msg)) {
-        if (last?.type === 'reportStack') last.entries.push({ msg, report })
-        else result.push({ type: 'reportStack', key: `stack-${msg.id}`, entries: [{ msg, report }] })
-        continue
-      }
-      if (msg.id === unreadAnchor) result.push({ type: 'unread', key: `unread-${msg.id}` })
-      result.push({ type: 'report', key: `report-${msg.id}`, msg, report })
-      continue
     }
 
     // A run's contiguous messages become one block, rendered as a card. A cron

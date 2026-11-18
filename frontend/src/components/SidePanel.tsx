@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Check, ExternalLink, FileText, FolderInput, FolderMinus, FolderOpen, Globe, Hash, LayoutGrid, Maximize2, Pin, RefreshCw, Repeat, X } from 'lucide-react'
+import { ArrowLeft, Check, ExternalLink, FileText, FolderInput, FolderMinus, FolderOpen, Globe, Hash, LayoutGrid, Maximize2, Pin, RefreshCw, X, Clock, Link2 } from 'lucide-react'
 import { api, tabContentUrl, type ChatTab } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { useTabsStore } from '../stores/tabsStore'
@@ -14,8 +14,8 @@ export interface ThreadTab {
   key: string
   title: string
   unread: number
-  /** A routine's thread rather than one opened from a passage. */
-  routine?: boolean
+  /** The routine that runs in it, if one does. */
+  routine?: 'cron' | 'webhook' | null
 }
 
 interface Props {
@@ -146,9 +146,9 @@ export default function SidePanel({ conversationId, tabs, active, onActivate, ap
               key={t.key}
               selected={active === t.key}
               onSelect={() => onActivate(t.key)}
-              icon={t.routine ? <Repeat size={13} /> : <Hash size={13} className='text-accent' />}
+              icon={t.routine === 'cron' ? <Clock size={13} /> : t.routine === 'webhook' ? <Link2 size={13} /> : <Hash size={13} className='text-accent' />}
               title={t.title}
-              hint={t.key === 'thread:new' ? 'New side chat' : `${t.routine ? 'Routine' : 'Side chat'} — ${t.title} (double-click to rename)`}
+              hint={t.key === 'thread:new' ? 'New thread' : `${t.routine ? 'Routine' : 'Thread'} — ${t.title} (double-click to rename)`}
               badge={active !== t.key && t.unread > 0 ? t.unread : undefined}
               onRename={t.key !== 'thread:new' ? (title) => renameThread(t.key, title) : undefined}
               onClose={onCloseThread ? () => onCloseThread(t.key) : undefined}

@@ -61,12 +61,17 @@ You are told which conversation you are in: `$JARVIS_CONVERSATION_ID`.
 Your own transcript is usually enough — but not always. Two things put messages
 on the user's screen that were never in your session:
 
-**Routines.** A cron or webhook runs in its own **thread** — a conversation of
-its own, each run in a fresh session — and only posts a report into the chat it
-is attached to. You will not remember a single one of those runs, however many
-reports sit above. In a thread, the `<article data-jarvis="routine-thread">` at
-the top of the prompt says which routine it is; setting one up or changing it is
-the `routine-setup` skill (from anywhere else, the `routines` skill).
+**Threads and routines.** A conversation can hang under another — a thread of
+it (`parent_id`) — and so on, any depth. A side chat is one; so is a routine's:
+a cron or webhook runs in a conversation of its own, each run in a fresh
+session, under the chat it is attached to, if any. Nothing a thread does is
+written into its parent: before your turn in a chat you are told what its
+threads did since the user last wrote (`<article data-jarvis="thread-activity">`),
+and in a thread what its chat said (`parent-chat-activity`). You remember none of
+it — read a thread in full when it matters. In a routine's conversation, the
+`<article data-jarvis="routine-thread">` at the top of the prompt says which
+routine it is; setting one up or changing it is the `routine-setup` skill (from
+anywhere else, the `routines` skill).
 
 **Side chats.** A thread opened on a passage (or blank, from the chat's #
 list) starts as a copy of the chat, then runs on its own session. Neither sees
@@ -100,10 +105,16 @@ curl -s -H "X-Internal-Secret: $INTERNAL_SECRET" \
 Oldest-first, `limit` 1–100 (default 20). Each message carries `role`, `at`,
 `content` (an answer's final text), a `truncated` flag (content is capped at 2000
 characters, so a long turn comes back clipped), `attachments` when it produced
-files, and `report` (the routine's name) when a routine's run posted it there.
+files.
 
-In a routine's run, `$JARVIS_CONVERSATION_ID` is the routine's own thread; the
-chat it reports into is named in the run's prompt, with its id.
+In a routine's run, `$JARVIS_CONVERSATION_ID` is the routine's own conversation;
+the chat it runs under is named in the run's prompt, with its id.
+
+To open a thread under a chat, `POST /internal/conversations` with `parent_id`
+(instead of `topic_id`) and a first message. To move a conversation under
+another, or back to the top level, `PATCH /internal/conversations/<id>` with
+`{"parent_id": "<id>"}` or `{"parent_id": null}` — a routine running in it
+follows. A conversation cannot go under itself or one of its own threads.
 
 **Say when you had to look.** If you have just read history you did not remember,
 answer from it normally — but never present a reconstruction as recollection. And

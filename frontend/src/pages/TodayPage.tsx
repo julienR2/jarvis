@@ -6,7 +6,6 @@ import { useModelCatalogue } from '../components/ModelSelector'
 import InboxCard, { type InboxReason } from '../components/InboxCard'
 import { SidebarToggle } from '../components/ContentLayout'
 import { api, pendingQuestionOf, type Conversation, type Effort, type RunListItem } from '../api'
-import { isListed } from '../lib/threads'
 import { useChatStore } from '../stores/chatStore'
 import { BASE_PATH } from '../base'
 import { reloadRecentRuns, useRecentRuns } from '../lib/runs'
@@ -234,9 +233,8 @@ const RANK: Record<InboxReason, number> = { action: 0, notified: 1, unread: 2 }
  * answers. No visible sections — the order carries the meaning.
  */
 function buildInbox(conversations: Conversation[], runs: RunListItem[]): InboxEntry[] {
-  // A run happens in its routine's thread; when that thread reports into a
-  // chat, the chat is where it is news.
-  const home = (r: RunListItem) => r.parent_id ?? r.conversation_id
+  // A run is news in the conversation its routine runs in, wherever that hangs.
+  const home = (r: RunListItem) => r.conversation_id
   const byConv = new Map<string, RunListItem[]>()
   for (const r of runs) {
     const list = byConv.get(home(r)) ?? []
@@ -268,9 +266,6 @@ function buildInbox(conversations: Conversation[], runs: RunListItem[]): InboxEn
     const reason: InboxReason | null =
       pending || failed || waiting ? 'action' : notified ? 'notified' : unread ? 'unread' : null
     if (!reason) continue
-    // A thread the sidebar does not list is not news here either — unless it
-    // is waiting on you.
-    if (!isListed(conv) && reason !== 'action') continue
     entries.push({
       conv,
       reason,

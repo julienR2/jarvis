@@ -231,7 +231,7 @@ export const api = {
     ),
   updateConversation: (
     id: string,
-    data: { title?: string; notify?: string; section_id?: string | null; surfaced?: boolean; archived?: boolean; shortcut?: boolean },
+    data: { title?: string; notify?: string; section_id?: string | null; parent_id?: string | null; archived?: boolean; shortcut?: boolean },
   ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
   // Files are archived and routines kept unless told otherwise — the delete
   // dialog's two checkboxes, both off by default.
@@ -318,7 +318,7 @@ export const api = {
   /** `window.jarvis.ask` from the chat's app: a one-off answer that stays out of the chat. */
   askFromApp: (conversationId: string, prompt: string) =>
     request<{ answer: string }>('POST', `/conversations/${conversationId}/ask`, { prompt }),
-  /** `window.jarvis.run`: fire a routine that reports into this chat. */
+  /** `window.jarvis.run`: fire a routine that runs under this chat. */
   runFromApp: (conversationId: string, name: string, payload: unknown, sync: boolean) =>
     request<{ ok: boolean; answer?: string }>('POST', `/conversations/${conversationId}/run`, { name, payload, sync }),
   /** A document tab's text, for the kinds the pane renders itself (markdown, plain text). */
@@ -742,27 +742,21 @@ export interface Conversation {
   unread_count: number
   /** Non-null while a share link is live — 'read' or 'write'. */
   share_mode: 'read' | 'write' | null
-  has_cron?: number
-  has_webhook?: number
   /** JSON of a PendingQuestion while Jarvis waits on you — see pendingQuestionOf. */
   pending_question?: string | null
   /** When you last read it (opening the chat, or "mark as read" on Today). */
   last_read_at?: number | null
   /** When a push last went out for it; Today ranks a notified chat above a merely unread one. */
   notified_at?: number | null
-  /** 'thread': a routine's own conversation, kept out of the chat groups. */
-  kind?: 'chat' | 'thread'
-  /** The chat a thread reports into; null = it stands alone. */
+  /** The conversation this one hangs under (a thread of it); null = top level. */
   parent_id?: string | null
-  /** Listed in the sidebar's Threads group since then; null = not listed. */
-  surfaced_at?: number | null
-  /** A thread's routine, as `cron:<id>` or `webhook:<id>`. */
+  /** The routine that runs here, as `cron:<id>` or `webhook:<id>`. */
   thread_of?: string | null
-  /** Any routine ever ran here. A thread with neither this nor a routine is a setup draft. */
+  /** Any routine ever ran here. With neither this nor a routine, a "New routine" is a setup draft. */
   has_runs?: number
-  /** A thread started from a passage of its parent chat: the message it was taken from. */
+  /** A thread opened on a passage of its parent: the message it was taken from. */
   parent_message_id?: string | null
-  /** A passage thread put away with Done (it leaves its chat's active list); cleared by its next message. */
+  /** Put away with Done (out of its parent's active list); cleared by its next message. */
   archived_at?: number | null
   /** Offered as a launcher shortcut of the installed app since then; null = not. */
   shortcut_at?: number | null
@@ -948,7 +942,7 @@ export interface RunListItem extends Run {
   seq: number
   conversation_title: string | null
   section_id: string | null
-  /** The chat the run's thread reports into, if any. */
+  /** The chat the run's conversation hangs under, if any. */
   parent_id: string | null
 }
 
@@ -971,7 +965,7 @@ export interface Cron {
   name: string
   schedule: string
   prompt: string
-  /** The chat the runs report into; null = the thread stands alone. */
+  /** The chat the routine's conversation hangs under; null = top level. */
   conversation_id: string | null
   /** Where the runs happen. */
   thread_id: string | null
@@ -1002,7 +996,7 @@ export interface CronInput {
   once?: boolean
   model?: string
   effort?: Effort
-  /** The chat the runs report into; null = the thread stands alone. */
+  /** The chat the routine's conversation hangs under; null = top level. */
   conversation_id?: string | null
   /** The draft thread it was set up in — it becomes the routine's home. */
   thread_id?: string
@@ -1013,7 +1007,7 @@ export interface Webhook {
   name: string
   token: string
   prompt: string
-  /** The chat the runs report into; null = the thread stands alone. */
+  /** The chat the routine's conversation hangs under; null = top level. */
   conversation_id: string | null
   /** Where the runs happen. */
   thread_id: string | null
@@ -1038,7 +1032,7 @@ export interface WebhookInput {
   enabled?: boolean
   model?: string
   effort?: Effort
-  /** The chat the runs report into; null = the thread stands alone. */
+  /** The chat the routine's conversation hangs under; null = top level. */
   conversation_id?: string | null
   /** The draft thread it was set up in — it becomes the routine's home. */
   thread_id?: string

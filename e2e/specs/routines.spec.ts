@@ -12,9 +12,10 @@ test.describe('routines', () => {
   })
 
   test('one list for crons and webhooks, each saying when it runs and where it posts', async ({ page }) => {
-    // Reached from the sidebar's Routines section, not from Settings.
+    // Reached from the Settings menu.
     await page.goto('')
-    await page.getByTestId('threads-group').getByTitle('All your routines: what Jarvis does on its own').click()
+    await page.locator('aside').getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('menuitem', { name: /Routines/ }).click()
     await expect(page).toHaveURL(/\/routines$/)
     // Laid out as a topic: what routines are, then those waiting for you, then the list.
     await expect(page.getByTestId('routines-intro')).toContainText('What Jarvis does on its own')
@@ -56,7 +57,7 @@ test.describe('routines', () => {
     await page.goto('routines')
     await page.getByRole('button', { name: 'New routine' }).click()
     await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
-    await expect(page.getByTestId('threads-group').getByText('New routine', { exact: true })).toBeVisible()
+    await expect(page.locator('aside').getByText('New routine', { exact: true })).toBeVisible()
     const card = page.getByTestId('routine-card')
     // Missing pieces are said, not guessed.
     await card.getByRole('button', { name: 'Create routine' }).click()
@@ -69,7 +70,7 @@ test.describe('routines', () => {
     await card.getByRole('button', { name: 'Create routine' }).click()
     // The thread is now the routine's: named after it; the card leaves the
     // transcript for the chip in the title bar.
-    await expect(page.getByRole('heading', { name: '# e2e-nightly' }).first()).toBeAttached()
+    await expect(page.getByRole('heading', { name: 'e2e-nightly' }).first()).toBeAttached()
     const chip = page.getByTestId('routine-chip').locator('visible=true')
     await expect(chip).toContainText('weekdays at 03:00')
     await expect(page.getByRole('main').getByTestId('routine-card')).toHaveCount(0)
@@ -78,7 +79,7 @@ test.describe('routines', () => {
     // opened inside it doesn't close it.
     await chip.click()
     const edit = page.getByTestId('routine-card')
-    await edit.getByRole('button', { name: 'Reports into' }).click()
+    await edit.getByRole('button', { name: 'Under' }).click()
     await page.getByRole('option', { name: /Surf/ }).click()
     await edit.getByLabel('Prompt').fill('Tidy up the downloads.')
     await edit.getByRole('button', { name: 'Save' }).click()
@@ -98,21 +99,10 @@ test.describe('routines', () => {
     const id = new URL(page.url()).pathname.split('/').pop()!
     await page.getByTestId('routine-card').getByRole('button', { name: 'Discard' }).click()
     await expect(page).toHaveURL(/\/routines$/)
-    await expect(page.getByTestId('threads-group').getByText('New routine', { exact: true })).toHaveCount(0)
+    await expect(page.locator('aside').getByText('New routine', { exact: true })).toHaveCount(0)
     // Gone, not merely hidden.
     const res = await page.request.get(`api/conversations/${id}`, { headers: { Authorization: `Bearer ${process.env.E2E_TOKEN}` } })
     expect(res.status()).toBe(404)
-  })
-
-  test('a draft put away from the sidebar is deleted too', async ({ page }) => {
-    await page.goto('routines/new')
-    await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
-    const id = new URL(page.url()).pathname.split('/').pop()!
-    const row = page.getByTestId('threads-group').getByText('New routine', { exact: true })
-    await row.hover()
-    await page.getByRole('button', { name: 'Put away New routine' }).click()
-    await expect(row).toHaveCount(0)
-    await expect.poll(async () => (await page.request.get(`api/conversations/${id}`, { headers: { Authorization: `Bearer ${process.env.E2E_TOKEN}` } })).status()).toBe(404)
   })
 
   test('a row opens the routine’s thread', async ({ page }) => {

@@ -6,6 +6,7 @@ import { api, type Conversation, type Effort } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { describeSchedule } from '../lib/runs'
 import { updateRoutine, webhookUrl, type Routine, type RoutineKind } from '../lib/routines'
+import { isUnder } from '../lib/threads'
 import { buildSchedule, DAY_NAMES, FREQ_LABELS, parseSchedule, type Freq, type Schedule } from '../lib/schedule'
 import ModelSelector, { DEFAULT_EFFORT, useModelCatalogue } from './ModelSelector'
 import Popover from './Popover'
@@ -93,7 +94,9 @@ export function RoutineCard({
   }
   const setSchedule = (patch: Partial<Schedule>) => set({ schedule: { ...draft.schedule, ...patch } })
 
-  const chats = useChatStore(useShallow((s) => s.order.map((id) => s.conversations[id]).filter((c) => c && c.kind !== 'thread')))
+  // What it can hang under: any conversation but its own and those under it.
+  const chats = useChatStore(useShallow((s) =>
+    s.order.map((id) => s.conversations[id]).filter((c) => c && !c.archived_at && !isUnder(c, thread.id, s.conversations))))
   const sorted = useMemo(() => [...chats].sort((a, b) => a.title.localeCompare(b.title)), [chats])
   const sections = useChatStore(useShallow((s) => s.sections))
   const topicOf = (id: string | null) => sections.find((x) => x.id === id)?.name
@@ -250,13 +253,13 @@ export function RoutineCard({
             )}
           </div>
 
-          <span className='text-text-muted'>Reports into</span>
+          <span className='text-text-muted'>Under</span>
           <div className='min-w-0'>
             <Select
-              aria-label='Reports into'
+              aria-label='Under'
               value={draft.conversation_id ?? ''}
               options={[
-                { value: '', label: 'Its own chat only', icon: <Hash size={13} />, hint: 'Shows under Routines in the sidebar when a run is worth seeing' },
+                { value: '', label: 'No chat', icon: <Hash size={13} />, hint: 'A chat of its own in the sidebar' },
                 ...sorted.map((c) => ({ value: c.id, label: c.title, icon: <MessageSquare size={13} />, hint: topicOf(c.section_id) })),
               ]}
               onChange={(id: string) => set({ conversation_id: id || null })}

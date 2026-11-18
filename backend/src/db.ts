@@ -455,18 +455,21 @@ export function initDb(): void {
     db.exec(`ALTER TABLE conversations ADD COLUMN notified_at INTEGER`)
   } catch { /* already exists */ }
 
-  // Migration: threads. A routine runs in a conversation of its own — a thread —
-  // that the sidebar does not list with the chats. `parent_id` is the chat it
-  // reports into, if any; `surfaced_at` puts it in the sidebar's Threads group
-  // (something worth seeing landed, or it was opened) until it is dismissed.
-  try {
-    db.exec(`ALTER TABLE conversations ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'`)
-  } catch { /* already exists */ }
+  // Migration: threads. A conversation may hang under another (`parent_id`).
+  // `kind` and `surfaced_at` were the first take on it — a routine's thread as
+  // a kind of its own, listed apart while surfaced — and are dropped again
+  // below (version 5); the migrations in between still read them.
+  const version = () => db.pragma('user_version', { simple: true }) as number
+  if (version() < 5) {
+    try {
+      db.exec(`ALTER TABLE conversations ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'`)
+    } catch { /* already exists */ }
+    try {
+      db.exec(`ALTER TABLE conversations ADD COLUMN surfaced_at INTEGER`)
+    } catch { /* already exists */ }
+  }
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN parent_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`)
-  } catch { /* already exists */ }
-  try {
-    db.exec(`ALTER TABLE conversations ADD COLUMN surfaced_at INTEGER`)
   } catch { /* already exists */ }
   // A thread started from a passage of a chat: the message it was taken from.
   // No foreign key — the message may go, the thread stays.
@@ -546,6 +549,33 @@ export function initDb(): void {
         WHERE kind = 'thread' AND parent_id IS NOT NULL AND parent_message_id IS NULL`,
     ).run()
     db.pragma('user_version = 4')
+  }
+
+  // Once: one kind of conversation. A thread no longer writes into its
+  // parent: the reports it left there become plain answers — except the
+  // silent "nothing new" ones, copies of runs still kept in the routine's own
+  // conversation, which only ever showed folded away. A routine's conversation
+  // under a chat was held on No push (the chat decided); it decides for
+  // itself now, starting on Auto. Then the columns that set threads apart go.
+  if (version() < 5) {
+    db.transaction(() => {
+      const dropped = db.prepare(
+        `DELETE FROM messages WHERE json_valid(metadata) AND json_type(metadata, '$.report') IS NOT NULL
+           AND json_extract(metadata, '$.quiet') = 1`,
+      ).run().changes
+      const kept = db.prepare(
+        `UPDATE messages SET metadata = json_remove(metadata, '$.report')
+          WHERE json_valid(metadata) AND json_type(metadata, '$.report') IS NOT NULL`,
+      ).run().changes
+      db.prepare(
+        `UPDATE conversations SET notify = 'auto'
+          WHERE kind = 'thread' AND parent_id IS NOT NULL AND parent_message_id IS NULL AND notify = 'unsubscribe'`,
+      ).run()
+      db.exec('ALTER TABLE conversations DROP COLUMN kind')
+      db.exec('ALTER TABLE conversations DROP COLUMN surfaced_at')
+      console.log(`[db] threads are conversations: ${kept} report(s) kept as answers, ${dropped} silent one(s) dropped`)
+    })()
+    db.pragma('user_version = 5')
   }
 
   // Tabs beside a chat, next to its app: a document (a file, rendered) or a

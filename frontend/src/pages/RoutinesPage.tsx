@@ -14,7 +14,7 @@ import { useChatStore } from '../stores/chatStore'
 /**
  * Every routine Jarvis runs without you, in one list — the crons and the
  * webhooks, because to the person reading they are the same thing: a saved
- * prompt, a trigger, a thread it runs in, maybe a chat it reports into.
+ * prompt, a trigger, a conversation it runs in, maybe under a chat.
  *
  * Each routine's runs open under it, each a way into its thread at that run:
  * the thread is the record, this page is the index. It is also where a
@@ -216,7 +216,7 @@ export default function RoutinesPage() {
                   </div>
                   <div className='mt-0.5 flex flex-wrap items-center gap-x-2 text-[11.5px] text-text-muted'>
                     {conv ? (
-                      <button onClick={(e) => { e.stopPropagation(); navigate(`/c/${conv.id}`) }} className='inline-flex items-center gap-1 hover:text-text-primary transition-colors' title='The chat it reports into'>
+                      <button onClick={(e) => { e.stopPropagation(); navigate(`/c/${conv.id}`) }} className='inline-flex items-center gap-1 hover:text-text-primary transition-colors' title='The chat it runs under'>
                         <MessageSquare size={10} /> {conv.title}{topic ? <span className='opacity-70'>· {topic}</span> : null}
                       </button>
                     ) : (

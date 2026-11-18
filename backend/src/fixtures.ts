@@ -50,7 +50,7 @@ export function seedFixtures(): void {
     inboxToRead: '00000000-0000-4000-8000-00000000000d',
     // Deleted by the delete-dialog spec: nothing else may rely on it.
     scratch: '00000000-0000-4000-8000-00000000000e',
-    // Threads: a chat a routine reports into, that routine's thread, a
+    // Threads: a chat a routine runs under, that routine's conversation, a
     // standalone thread with news, and one that only ever had nothing to say.
     surf: '00000000-0000-4000-8000-00000000000f',
     surfThread: '00000000-0000-4000-8000-000000000010',
@@ -323,7 +323,7 @@ export function seedFixtures(): void {
     insTab.run(uuid(), ID.appDocs, 'doc', join(specDir, 'report.md'), 'report.md', 0)
     const appDocsAnswer = uuid()
     insMsg.run(appDocsAnswer, ID.appDocs, 'assistant', 'The spec and the weekly report are beside the app.', null, null, 'The spec and the weekly report are beside the app.', t(76))
-    db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at, last_read_at, kind, parent_id, parent_message_id) VALUES (?, ?, ?, ?, ?, 'thread', ?, ?)`)
+    db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at, last_read_at, parent_id, parent_message_id) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(ID.appDocsThread, 'Open questions', t(74), t(72), t(72), ID.appDocs, appDocsAnswer)
     insMsg.run(uuid(), ID.appDocsThread, 'user', 'What is still open in the spec?', null, null, null, t(74))
     insMsg.run(uuid(), ID.appDocsThread, 'assistant', 'One thing: pinning documents to a topic.', null, null, 'One thing: pinning documents to a topic.', t(72))
@@ -346,7 +346,7 @@ export function seedFixtures(): void {
     insMsg.run(uuid(), ID.aware, 'user', 'What do we need for the insurer?', null, null, null, t(70))
     insMsg.run(awareAnswer, ID.aware, 'assistant', 'Six documents, starting with the death certificate.', null, null, 'Six documents, starting with the death certificate.', t(69))
     db.prepare(
-      `INSERT INTO conversations (id, title, created_at, updated_at, kind, parent_id, parent_message_id) VALUES (?, ?, ?, ?, 'thread', ?, ?)`,
+      `INSERT INTO conversations (id, title, created_at, updated_at, parent_id, parent_message_id) VALUES (?, ?, ?, ?, ?, ?)`,
     ).run(ID.awareThread, 'Call kit', t(60), t(56), ID.aware, awareAnswer)
     insMsg.run(uuid(), ID.awareThread, 'user', 'Turn this into a call kit.', null, null, null, t(60))
     insMsg.run(uuid(), ID.aware, 'user', 'The doctor is Dr Martin.', null, null, null, t(58))
@@ -354,7 +354,7 @@ export function seedFixtures(): void {
     insMsg.run(uuid(), ID.awareThread, 'assistant', 'The call kit is ready.', null, null,
       'The call kit is ready: [kit.md](/jarvis/agent/workspace/uploads/kit/kit.md).', t(56))
 
-    // 4d. A chat with a thread that has news and one put away by age.
+    // 4d. A chat with a thread that has news and one put away (Done).
     const listerAnswer = uuid()
     insConv.run(ID.lister, '🗂️ Trip planning', t(60 * 24 * 12), t(30), projects.id, null, null)
     insMsg.run(uuid(), ID.lister, 'user', 'Plan the trip to Porto.', null, null, null, t(60 * 24 * 12))
@@ -362,12 +362,12 @@ export function seedFixtures(): void {
     insMsg.run(uuid(), ID.lister, 'user', 'Book nothing yet.', null, null, null, t(31))
     insMsg.run(uuid(), ID.lister, 'assistant', 'Nothing booked.', null, null, 'Nothing booked.', t(30))
     const insSubChat = db.prepare(
-      `INSERT INTO conversations (id, title, created_at, updated_at, last_read_at, kind, parent_id, parent_message_id) VALUES (?, ?, ?, ?, ?, 'thread', ?, ?)`,
+      `INSERT INTO conversations (id, title, created_at, updated_at, last_read_at, parent_id, parent_message_id, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    insSubChat.run(ID.listerFresh, 'Wine cellars', t(40), t(20), t(39), ID.lister, listerAnswer)
+    insSubChat.run(ID.listerFresh, 'Wine cellars', t(40), t(20), t(39), ID.lister, listerAnswer, null)
     insMsg.run(uuid(), ID.listerFresh, 'user', 'Which cellars?', null, null, null, t(40))
     insMsg.run(uuid(), ID.listerFresh, 'assistant', 'Graham’s and Taylor’s.', null, null, 'Graham’s and Taylor’s, both in Gaia.', t(20))
-    insSubChat.run(ID.listerOld, 'Coast road', t(60 * 24 * 11), t(60 * 24 * 10), t(60 * 24 * 10), ID.lister, listerAnswer)
+    insSubChat.run(ID.listerOld, 'Coast road', t(60 * 24 * 11), t(60 * 24 * 10), t(60 * 24 * 10), ID.lister, listerAnswer, t(60 * 24 * 10))
     insMsg.run(uuid(), ID.listerOld, 'user', 'Which coast?', null, null, null, t(60 * 24 * 11))
     insMsg.run(uuid(), ID.listerOld, 'assistant', 'The Costa Verde.', null, null, 'The Costa Verde, north to Viana.', t(60 * 24 * 10))
 
@@ -574,14 +574,14 @@ export function seedFixtures(): void {
       },
     }), ID.review)
 
-    // 10. Threads. surf-watch runs in its own thread and reports into the Surf
-    // chat: three runs with nothing to say (one silent stacked line there), then
-    // one with news (a report card). price-watch stands alone and had news, so
-    // its thread is in the sidebar's Threads group; backup-check stands alone
-    // and never had anything to say, so its thread is nowhere to be seen.
+    // 10. Routines. surf-watch runs in its own conversation, a thread under
+    // the Surf chat: three runs with nothing to say, then one with news —
+    // unread there, so it shows under Surf in the sidebar, and nothing of it
+    // is written into Surf. price-watch hangs under nothing: a chat of its
+    // own, with news. backup-check too, and never had anything to say.
     const insThread = db.prepare(
-      `INSERT INTO conversations (id, title, created_at, updated_at, kind, parent_id, surfaced_at, notify)
-       VALUES (?, ?, ?, ?, 'thread', ?, ?, ?)`,
+      `INSERT INTO conversations (id, title, created_at, updated_at, parent_id, notify)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     )
     const runIn = (thread: string, cron: string, name: string, ago: number, result: string, quiet: boolean) => {
       const id = uuid()
@@ -590,31 +590,22 @@ export function seedFixtures(): void {
       insMsg.run(uuid(), thread, 'assistant', '[tool:1] curl surfline', stamp, null, result, t(ago) + 1)
       return id
     }
-    const report = (parent: string, thread: string, runId: string, name: string, ago: number, text: string, quiet: boolean) => {
-      const meta: Record<string, unknown> = { report: { run_id: runId, thread_id: thread, source_name: name, kind: 'cron', status: 'done' } }
-      if (quiet) meta.quiet = true
-      insMsg.run(uuid(), parent, 'assistant', '', JSON.stringify(meta), null, text, t(ago) + 2)
-    }
     insConv.run(ID.surf, '🏄 Surf', t(400), t(25), fixtures.id, null, null)
     insMsg.run(uuid(), ID.surf, 'user', 'Watch Guincho for me and tell me when it is worth going.', null, null, null, t(400))
     insMsg.run(uuid(), ID.surf, 'assistant', '[chunk:1] On it — surf-watch checks every hour.', null, null, 'On it — surf-watch checks every hour.', t(399))
-    insThread.run(ID.surfThread, 'surf-watch', t(399), t(25), ID.surf, null, 'unsubscribe')
+    insThread.run(ID.surfThread, 'surf-watch', t(399), t(25), ID.surf, 'auto')
     db.prepare('INSERT INTO crons (id, name, schedule, prompt, conversation_id, thread_id, enabled, last_run) VALUES (?, ?, ?, ?, ?, ?, 0, ?)')
       .run(surfCronId, 'surf-watch', '0 * * * *', 'Check the Guincho forecast.', ID.surf, ID.surfThread, t(25))
-    for (const ago of [205, 145, 85]) {
-      const text = 'Onshore and messy, 0.8 m — not worth it.'
-      report(ID.surf, ID.surfThread, runIn(ID.surfThread, surfCronId, 'surf-watch', ago, text, true), 'surf-watch', ago, text, true)
-    }
-    const goodText = '**Go now.** 1.6 m at 12 s, light offshore until 11h — the best window this week.'
-    report(ID.surf, ID.surfThread, runIn(ID.surfThread, surfCronId, 'surf-watch', 25, goodText, false), 'surf-watch', 25, goodText, false)
+    for (const ago of [205, 145, 85]) runIn(ID.surfThread, surfCronId, 'surf-watch', ago, 'Onshore and messy, 0.8 m — not worth it.', true)
+    runIn(ID.surfThread, surfCronId, 'surf-watch', 25, '**Go now.** 1.6 m at 12 s, light offshore until 11h — the best window this week.', false)
 
-    insThread.run(ID.priceThread, 'price-watch', t(600), t(40), null, t(40), 'auto')
+    insThread.run(ID.priceThread, 'price-watch', t(600), t(40), null, 'auto')
     db.prepare('INSERT INTO crons (id, name, schedule, prompt, thread_id, enabled, last_run) VALUES (?, ?, ?, ?, ?, 0, ?)')
       .run(priceCronId, 'price-watch', '0 9 * * *', 'Check the price of the Fuji X100.', ID.priceThread, t(40))
     runIn(ID.priceThread, priceCronId, 'price-watch', 1480, 'Still 1 699 € everywhere.', true)
     runIn(ID.priceThread, priceCronId, 'price-watch', 40, 'Dropped to **1 449 €** at Fnac — the lowest in six months.', false)
 
-    insThread.run(ID.quietThread, 'backup-check', t(700), t(70), null, null, 'auto')
+    insThread.run(ID.quietThread, 'backup-check', t(700), t(70), null, 'auto')
     db.prepare('INSERT INTO crons (id, name, schedule, prompt, thread_id, enabled) VALUES (?, ?, ?, ?, ?, 0)')
       .run(backupCronId, 'backup-check', '0 3 * * *', 'Check last night\'s backup.', ID.quietThread)
     runIn(ID.quietThread, backupCronId, 'backup-check', 70, 'Backup fine — 2.1 GB, 4 min.', true)
@@ -647,10 +638,11 @@ export function seedFixtures(): void {
   db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = NULL WHERE id = ?').run(t(300), ID.inboxUnread)
   db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = NULL WHERE id = ?').run(t(800), ID.inboxToRead)
   db.prepare('UPDATE conversations SET last_read_at = created_at - 1, notified_at = NULL WHERE id IN (?, ?, ?, ?)').run(ID.question, ID.approval, ID.chatAsk, ID.review)
-  // The surf chat has the one report since it was read; the threads' own runs
-  // were read where they matter (the chat, or not at all).
-  db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = ? WHERE id = ?').run(t(30), t(25), ID.surf)
-  db.prepare('UPDATE conversations SET last_read_at = updated_at + 1 WHERE id IN (?, ?)').run(ID.surfThread, ID.quietThread)
+  // The surf chat is read; its routine has the one run with news since it
+  // was read, worth a push. backup-check never had anything to read.
+  db.prepare('UPDATE conversations SET last_read_at = updated_at + 1, notified_at = NULL WHERE id = ?').run(ID.surf)
+  db.prepare('UPDATE conversations SET last_read_at = ?, notified_at = ? WHERE id = ?').run(t(30), t(25), ID.surfThread)
+  db.prepare('UPDATE conversations SET last_read_at = updated_at + 1 WHERE id = ?').run(ID.quietThread)
   db.prepare('UPDATE conversations SET last_read_at = ? WHERE id = ?').run(t(60), ID.priceThread)
 
   // Effort is a switch, off unless chosen; the columns' old default says 'high'.

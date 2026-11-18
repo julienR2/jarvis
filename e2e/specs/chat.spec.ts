@@ -122,27 +122,18 @@ test.describe('chat rendering', () => {
     await expect(page.getByTestId('routine-card').locator('visible=true').first().getByLabel('Prompt')).toHaveValue('Write the morning brief.')
   })
 
-  test('the # list holds the routines of the chat under its side chats: when they run, paused or not, one click to each', async ({ page }) => {
+  test('the # list holds every thread of the chat in one list — a routine with its mark — and the way to start one', async ({ page }) => {
     await openConversation(page, 'Morning brief')
-    // Nothing about routines in the title bar while nothing runs, nor in the ⋯ menu: they live in the # list.
+    // Nothing about routines in the title bar while nothing runs.
     await expect(page.getByRole('main').getByTestId('runs-pill')).toHaveCount(0)
-    await page.getByRole('main').getByTitle('Conversation options').locator('visible=true').first().click()
-    await expect(page.getByTestId('chat-routines')).toHaveCount(0)
-    await page.keyboard.press('Escape')
     await page.locator('[data-testid="threads-pill"]:visible').click()
     const popover = page.getByTestId('threads-popover')
-    // Side chats, then routines, each with the way to start one and what it is for.
-    await expect(popover.getByRole('button', { name: /New side chat.*without cluttering/ })).toBeVisible()
-    await expect(popover.getByRole('button', { name: /New routine.*on its own/ })).toBeVisible()
+    await expect(popover.getByRole('button', { name: /New thread.*without cluttering/ })).toBeVisible()
     await expect(popover.getByRole('button', { name: 'All routines' })).toBeVisible()
-    const row = popover.getByTestId('chat-routines').getByTestId('chat-routines-row').filter({ hasText: 'morning-brief' })
+    const row = popover.getByTestId('thread-row').filter({ hasText: 'morning-brief' })
     await expect(row).toHaveCount(1)
-    await expect(row).toContainText('Daily at 05:30')
-    await expect(row).toContainText('Paused')
-    await expect(row.getByRole('button', { name: 'Resume morning-brief' })).toBeVisible()
-    await row.getByRole('button', { name: 'Settings of morning-brief' }).click()
-    await expect(page).toHaveURL(/\?routine=open/)
-    await expect(page.getByTestId('routine-card').locator('visible=true').first().getByLabel('Prompt')).toHaveValue('Write the morning brief.')
+    await row.getByRole('button', { name: /^morning-brief/ }).click()
+    await expect(page).toHaveURL(/[?&]thread=/)
   })
 
   test('unread: the chat opens at the divider; the arrow leads back down and counts what is below', async ({ page }) => {

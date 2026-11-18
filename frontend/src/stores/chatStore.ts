@@ -16,7 +16,7 @@ import { isFinishedReply } from '../lib/transcript'
 
 type PatchableFields = Pick<
   Conversation,
-  'title' | 'notify' | 'section_id' | 'archived_at'
+  'title' | 'notify' | 'section_id' | 'parent_id' | 'archived_at'
 >
 
 // How many messages to pull per page. Deliberately generous: one round-trip
@@ -95,7 +95,6 @@ interface ChatState {
   resyncConversation: (id: string) => Promise<void>
   patchConversation: (id: string, patch: Partial<PatchableFields>) => Promise<void>
   /** List a thread in the sidebar's Threads group, or put it away. */
-  setThreadSurfaced: (id: string, surfaced: boolean) => Promise<void>
   /** Offer it as a launcher shortcut of the installed app, or stop. False when refused (the list is full). */
   setShortcut: (id: string, on: boolean) => Promise<boolean>
   /** Mirror what the backend records on send: the model the input starts on next. */
@@ -503,14 +502,13 @@ export const useChatStore = create<ChatState>()(
         if (patch.title !== undefined) apiPatch.title = patch.title
         if (patch.notify !== undefined) apiPatch.notify = patch.notify
         if (patch.section_id !== undefined) apiPatch.section_id = patch.section_id
+        if (patch.parent_id !== undefined) apiPatch.parent_id = patch.parent_id
         if (patch.archived_at !== undefined) apiPatch.archived = patch.archived_at !== null
         const updated = await api.updateConversation(id, apiPatch)
+        // The row as stored; the list's derived fields (unread, routine) stay.
         set((s) => {
-          s.conversations[id] = updated
+          s.conversations[id] = { ...s.conversations[id], ...updated }
         })
-        // A thread filed away became a chat, and its routine now reports into
-        // it: the list's derived fields (routine icons) come from the server.
-        if (before.kind === 'thread' && patch.section_id !== undefined) get().loadConversations()
       } catch (err) {
         console.error('Failed to update conversation:', err)
         toast('error', 'Failed to save changes')
@@ -533,25 +531,6 @@ export const useChatStore = create<ChatState>()(
       } catch (err) {
         toast('error', err instanceof Error ? err.message : 'Failed to save changes')
         return false
-      }
-    },
-
-    async setThreadSurfaced(id, surfaced) {
-      const before = get().conversations[id]
-      if (!before) return
-      set((s) => {
-        s.conversations[id].surfaced_at = surfaced ? Math.floor(Date.now() / 1000) : null
-      })
-      try {
-        const updated = await api.updateConversation(id, { surfaced })
-        set((s) => {
-          if (s.conversations[id]) s.conversations[id].surfaced_at = updated.surfaced_at ?? null
-        })
-      } catch (err) {
-        console.error('Failed to update thread:', err)
-        set((s) => {
-          if (s.conversations[id]) s.conversations[id].surfaced_at = before.surfaced_at ?? null
-        })
       }
     },
 

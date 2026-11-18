@@ -12,21 +12,23 @@ the ⟳ control in a chat's title bar lists those reporting into that chat.
 
 ## The model, in four facts
 
-1. **Every routine has a thread** — a conversation of its own (`kind: thread`)
-   where each run happens, in a **fresh session**. A run remembers nothing of
+1. **Every routine has a conversation of its own** (its `thread_id`) where
+   each run happens, in a **fresh session**. A run remembers nothing of
    earlier runs or of the chat where it was set up. So the prompt must be
    self-contained: what to check, where the context lives (a memory file, a
    CopyParty path), what counts as worth saying.
-2. **It can report into a chat** (`conversation_id`). Each finished run posts its
-   answer there. Every run is told, without you writing it, to open with
-   `[quiet]` when there is nothing worth seeing (a silent line), or with
+2. **It can hang under a chat** (`conversation_id`): its conversation shows
+   nested under that chat, which hears what the runs said before the user's
+   next turn there — nothing is posted into it. Every run is told, without you
+   writing it, to open with `[quiet]` when there is nothing worth seeing (no
+   unread, no notification), or with
    `[push: <summary>]` when it is worth a phone notification — or with both,
    `[quiet] [push: <summary>]`, when the work shows elsewhere (an app it
    updated) and only the notification should reach the user. So the prompt only
    has to say **what counts** as worth reporting, and as worth a push.
-3. **Unattached**, the thread stands alone and appears under the sidebar's
-   Routines section when a run is worth seeing. Its `notify` mode decides push: `auto`
-   (when worth it), `subscribe` (always), `unsubscribe` (never).
+3. **Unattached**, its conversation is a chat of its own in the sidebar.
+   Attached or not, its `notify` mode decides push: `auto` (when worth it),
+   `subscribe` (always), `unsubscribe` (never).
 4. **A chat filed under a topic** passes the topic's brief to every routine
    reporting into it.
 
@@ -70,9 +72,9 @@ changes; what you leave out is kept. The response is `{created|updated, cron|web
 | `prompt` | create | the run's instructions (see fact 1) |
 | `schedule` | cron, create | 5-field cron expression, in `$TZ` |
 | `once` | cron | `true` = fires once then deletes itself — reminders, one-offs |
-| `conversation_id` | | a **chat** id to report into; `null` detaches. A thread id is refused |
-| `thread_id` | | an existing thread to become its home (used by `routine-setup`); else one is created |
-| `notify` | | `auto` \| `subscribe` \| `unsubscribe` — matters when unattached |
+| `conversation_id` | | the conversation to hang under (any, a thread too); `null` detaches. Its own conversation, or one under it, is refused |
+| `thread_id` | | an existing conversation to become its home (used by `routine-setup`); else one is created |
+| `notify` | | `auto` \| `subscribe` \| `unsubscribe` |
 | `enabled` | | `false` pauses without deleting |
 | `model` | | a model id; `null` = the instance default. Pin a cheap one for frequent, simple runs |
 | `effort` | | `high` = think hard; else the default |
@@ -117,7 +119,7 @@ running run.
 | Hand something to **another chat now**, so it acts with its own history | `POST /internal/conversations/<id>/messages` (CLAUDE.md, *Other chats*) — not a new webhook |
 | A run should hand a payload to a self-contained processing step | a webhook with its own prompt, triggered by name with the payload |
 | A new subject that deserves its own chat | `POST /internal/conversations` (CLAUDE.md) |
-| Just tell the user | the run's answer (reports into its chat), or `POST /internal/notify` |
+| Just tell the user | the run's answer (unread in its conversation, `[push]` to notify), or `POST /internal/notify` |
 
 Before creating, `GET` the list: a routine doing nearly the same thing may
 already exist and only need its prompt or schedule changed.

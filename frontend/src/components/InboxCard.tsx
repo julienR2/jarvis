@@ -14,9 +14,9 @@ import ChatInput, { type VoiceExtras } from './ChatInput'
 import { settleUploads, spoken } from '../lib/drafts'
 import MessageBubble from './MessageBubble'
 import RunBlock from './RunBlock'
-import { RunReportCard, RunReportStack } from './RunReport'
 import { useChatStore } from '../stores/chatStore'
 import { dropQuietRuns, groupMessagesByDay } from '../lib/transcript'
+import { isForeignRun } from '../lib/threads'
 import type { Recording } from '../lib/dictation'
 
 export type InboxReason = 'action' | 'notified' | 'unread'
@@ -203,11 +203,7 @@ export default function InboxCard({
                       <div key={item.key} className='my-2 text-center text-[10.5px] uppercase tracking-wide text-text-muted/70'>{item.label}</div>
                     )
                   ) : item.type === 'unread' ? null : item.type === 'runBlock' ? (
-                    <RunBlock key={item.key} run={runsById.get(item.runId)} msgs={item.msgs} live={false} />
-                  ) : item.type === 'report' ? (
-                    <RunReportCard key={item.key} msg={item.msg} report={item.report} />
-                  ) : item.type === 'reportStack' ? (
-                    <RunReportStack key={item.key} entries={item.entries} />
+                    <RunBlock key={item.key} run={runsById.get(item.runId)} msgs={item.msgs} live={false} foreign={isForeignRun(conversation, runsById.get(item.runId)?.source_id)} />
                   ) : (
                     <MessageBubble key={item.msg.id} msg={item.msg} />
                   ),

@@ -41,7 +41,7 @@ import { DICTATION_ID_RE, dropDictation, finishDictation, transcribeFile } from 
 import { getConnectorValues } from '../connectors.js'
 import { topicContextFor } from '../topics.js'
 import { MAX_SHORTCUTS } from '../shortcuts.js'
-import { detachThreadsOf, notifyTarget, parentActivityPrompt, reportQuestion, routineRunPrompt, surfaceThread, threadActivityPrompt, threadContextPrompt, unseenReportsPrompt } from '../threads.js'
+import { parentActivityPrompt, ROUTINE_DRAFT_TITLE, routineOfThread, routineRunPrompt, setParent, threadActivityPrompt, threadContextPrompt } from '../threads.js'
 import { SILENT_MARK, splitNotify } from '../runs.js'
 import type { ConvRow, MessageRow, EffortLevel, PendingQuestion } from '../types.js'
 import { userForApiKey } from '../api-keys.js'
@@ -216,9 +216,7 @@ export function parsePageLimit(raw: string | undefined): number {
 }
 
 // What `unread_count` counts on a conversation row `c`: finished answers since
-// it was last read, quiet ones aside. A routine's thread attached to a chat
-// counts none — it is silent on its own; the chat it reports into carries the
-// badge.
+// it was last read, quiet ones aside.
 const UNREAD_SQL = `(SELECT COUNT(*) FROM messages m
   WHERE m.conversation_id = c.id
     AND m.role = 'assistant'
@@ -226,7 +224,6 @@ const UNREAD_SQL = `(SELECT COUNT(*) FROM messages m
     AND m.result IS NOT NULL
     AND m.created_at > COALESCE(c.last_read_at, 0)
     AND COALESCE(m.metadata, '') NOT LIKE '%"quiet":true%'
-    AND NOT (c.kind = 'thread' AND c.parent_id IS NOT NULL AND c.parent_message_id IS NULL)
 ) AS unread_count`
 
 // Track SSE clients per conversation for push notification decisions
@@ -296,14 +293,17 @@ function emitConversationError(conversationId: string, content: string) {
   })
 }
 
-/** A passage of an earlier message the person is replying to. */
-/** The section of the chat a thread reports into, for the topic brief. */
-function parentSectionId(conv: ConvRow): string | null {
-  if (!conv.parent_id) return null
-  const row = getDb().prepare('SELECT section_id FROM conversations WHERE id = ?').get(conv.parent_id) as
-    | { section_id: string | null }
-    | undefined
-  return row?.section_id ?? null
+/** The topic a conversation works for: its own, or that of the chat it hangs under, however deep. */
+function topicSectionId(conv: ConvRow): string | null {
+  let current: Pick<ConvRow, 'section_id' | 'parent_id'> | undefined = conv
+  const seen = new Set<string>()
+  while (current && !current.section_id && current.parent_id && !seen.has(current.parent_id)) {
+    seen.add(current.parent_id)
+    current = getDb().prepare('SELECT section_id, parent_id FROM conversations WHERE id = ?').get(current.parent_id) as
+      | Pick<ConvRow, 'section_id' | 'parent_id'>
+      | undefined
+  }
+  return current?.section_id ?? null
 }
 
 /** A passage the message replies to: of an earlier message of the chat, or —
@@ -354,8 +354,8 @@ export function processMessage(
   },
 ): string | null {
   let attachments = attachmentsIn
-  // Anything new in a thread put away brings it back to its chat's list.
-  if (conv.kind === 'thread' && conv.archived_at) {
+  // Anything new in a conversation put away brings it back.
+  if (conv.archived_at) {
     getDb().prepare('UPDATE conversations SET archived_at = NULL WHERE id = ?').run(conversationId)
   }
 
@@ -385,8 +385,8 @@ export function processMessage(
   // message is what the person typed, not what the model was told around it.
   if (!isCommand) {
     // A thread has no section of its own; it works for the topic of the chat
-    // it reports into.
-    const briefConv = conv.kind === 'thread' ? { ...conv, section_id: parentSectionId(conv) } : conv
+    // it hangs under.
+    const briefConv = { ...conv, section_id: topicSectionId(conv) }
     const brief = topicContextFor(briefConv, { freshSession: !!options?.runKey })
     if (brief) claudePrompt = brief + '\n' + claudePrompt
   }
@@ -399,15 +399,12 @@ export function processMessage(
   } else if (!options?.runId && !isCommand) {
     const threadNote = threadContextPrompt(conv)
     if (threadNote) claudePrompt = `${threadNote}\n${claudePrompt}`
-    // What the chat's routines reported meanwhile, from sessions this one
-    // never saw. Read before the user row below is written: it is "since the
-    // person last spoke".
-    const reports = unseenReportsPrompt(conversationId)
-    if (reports) claudePrompt = `${reports}\n${claudePrompt}`
-    // A chat and the threads opened from its passages: each hears what the
-    // other did meanwhile (see threadActivityPrompt).
-    const fromThreads = conv.kind === 'chat' ? threadActivityPrompt(conversationId) : parentActivityPrompt(conv)
-    if (fromThreads) claudePrompt = `${fromThreads}\n${claudePrompt}`
+    // A chat and its threads: each hears what the other did meanwhile (see
+    // threadActivityPrompt). Read before the user row below is written: it is
+    // "since the person last spoke".
+    for (const block of [threadActivityPrompt(conversationId), parentActivityPrompt(conv)]) {
+      if (block) claudePrompt = `${block}\n${claudePrompt}`
+    }
   }
 
   if (options?.transcribed && !isCommand) {
@@ -495,7 +492,9 @@ export function processMessage(
     getDb()
       .prepare('UPDATE conversations SET model = ?, effort = ?, updated_at = unixepoch() WHERE id = ?')
       .run(options.model, options.effort ?? 'default', conversationId)
-  } else {
+  } else if (!options?.routine) {
+    // A routine's run moves its conversation up only once it has news (see
+    // threads.ts reportRun): an hourly "nothing new" must not keep it on top.
     getDb()
       .prepare('UPDATE conversations SET updated_at = unixepoch() WHERE id = ?')
       .run(conversationId)
@@ -1216,17 +1215,9 @@ export function attachConversationStream(
     appendLine('note', `Waiting for you: ${summary}`)
     // A question with nobody looking is the one case where a push is always
     // worth it — short of the person having asked never to be told.
-    // A thread attached to a chat asks through it: a report there, and a push
-    // under the chat's mode — but a tap lands on the thread, where the
-    // question is.
-    const target = notifyTarget(conv)
-    if (target.id !== conv.id) {
-      const run = [...attached.runIds].map(getRun).find((r) => r?.conversation_id === conv.id)
-      if (run) reportQuestion(run, summary)
-    }
-    if (target.kind === 'thread' && target.notify !== 'unsubscribe') surfaceThread(target.id)
-    if (target.notify !== 'unsubscribe') {
-      pushForConversation(target.id, `${conv.title} · needs you`, summary.slice(0, 200), `/c/${conv.id}`).catch(
+    const current = getDb().prepare('SELECT notify FROM conversations WHERE id = ?').get(conv.id) as Pick<ConvRow, 'notify'> | undefined
+    if ((current?.notify ?? conv.notify) !== 'unsubscribe') {
+      pushForConversation(conv.id, `${conv.title} · needs you`, summary.slice(0, 200)).catch(
         (err) => console.error('[push] pushForConversation failed:', err),
       )
     }
@@ -1481,7 +1472,7 @@ export function attachConversationStream(
           console.log(`[msg] db UPDATE conversation session: ${ev.sessionId}`)
           getDb()
             .prepare(
-              'UPDATE conversations SET claude_session_id = ?, updated_at = unixepoch() WHERE id = ?',
+              `UPDATE conversations SET claude_session_id = ?${options?.routine ? '' : ', updated_at = unixepoch()'} WHERE id = ?`,
             )
             .run(ev.sessionId, conversationId)
           conv.claude_session_id = ev.sessionId
@@ -1833,7 +1824,7 @@ export function resumeProcessMessage(
     runKey: options?.runKey,
     isolated: !!options?.runKey,
     runId: options?.runId,
-    routine: !!options?.runKey && conv.kind === 'thread',
+    routine: !!options?.runKey,
   })
 }
 
@@ -1856,26 +1847,13 @@ function messageModel(
 }
 
 /**
- * For a thread: the routine it belongs to, as `cron:<id>` or `webhook:<id>`,
- * so the thread can link to it. NULL for a chat, or a thread whose routine is gone.
+ * The routine that runs in this conversation, as `cron:<id>` or
+ * `webhook:<id>`; NULL when none does.
  */
 const THREAD_OF_SQL = `COALESCE(
           (SELECT 'cron:' || id FROM crons WHERE thread_id = c.id),
           (SELECT 'webhook:' || id FROM webhooks WHERE thread_id = c.id)
         ) AS thread_of`
-
-/**
- * A thread filed into a section or the chats becomes a chat — the routine's
- * chat from then on: it reports into it, from a new thread opened on its next
- * run. The context the thread built stays with the chat.
- */
-function promoteThread(id: string): void {
-  const db = getDb()
-  db.prepare(`UPDATE conversations SET kind = 'chat', parent_id = NULL, surfaced_at = NULL WHERE id = ?`).run(id)
-  for (const table of ['crons', 'webhooks']) {
-    db.prepare(`UPDATE ${table} SET conversation_id = ?, thread_id = NULL WHERE thread_id = ?`).run(id, id)
-  }
-}
 
 export async function conversationRoutes(app: FastifyInstance) {
   const auth = { onRequest: [app.authenticate] }
@@ -1898,8 +1876,6 @@ export async function conversationRoutes(app: FastifyInstance) {
       .prepare(
         `SELECT c.*,
         ${UNREAD_SQL},
-        (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
-        (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook,
         ${THREAD_OF_SQL},
         ${privateSql('c')} AS is_private,
         (SELECT COUNT(*) > 0 FROM runs WHERE conversation_id = c.id) AS has_runs
@@ -1909,15 +1885,15 @@ export async function conversationRoutes(app: FastifyInstance) {
       .all()
   })
 
-  // A new routine starts as a thread: an empty one, where the routine's card
-  // is the form — fill it in, or say what you want and Jarvis sets it up
-  // (the thread tells him so, see threadContextPrompt). Until a routine exists
-  // the thread is a draft: put away, it is deleted. Talk here is short and
-  // practical, so the thread starts on the fast model.
+  // A new routine starts as an empty conversation, where the routine's card
+  // is the form — fill it in, or say what you want and Jarvis sets it up (it
+  // is told so, see threadContextPrompt). Until a routine exists it is a
+  // draft (isRoutineDraft). Talk here is short and practical, so it starts on
+  // the fast model.
   app.post('/routine-setup', auth, async (req, reply) => {
     const body = (req.body ?? {}) as { conversation_id?: string | null }
     const parent = body.conversation_id
-      ? (getDb().prepare(`SELECT id FROM conversations WHERE id = ? AND kind = 'chat'`).get(body.conversation_id) as
+      ? (getDb().prepare(`SELECT id FROM conversations WHERE id = ?`).get(body.conversation_id) as
           | { id: string }
           | undefined)
       : undefined
@@ -1925,18 +1901,17 @@ export async function conversationRoutes(app: FastifyInstance) {
     const id = uuid()
     getDb()
       .prepare(
-        `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, kind, parent_id, surfaced_at)
-         VALUES (?, 'New routine', ?, 'default', unixepoch(), ?, 'thread', ?, unixepoch())`,
+        `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, parent_id)
+         VALUES (?, ?, ?, 'default', unixepoch(), 'auto', ?)`,
       )
-      // Attached, it is silent — the chat it reports into decides.
-      .run(id, fastModel(), parent ? 'unsubscribe' : 'auto', parent?.id ?? null)
+      .run(id, ROUTINE_DRAFT_TITLE, fastModel(), parent?.id ?? null)
     return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id)
   })
 
-  // A thread from a passage: a new conversation that starts where this one is
-  // (its Claude session forked, so it knows everything said so far) and opens
-  // with the person's message replying to the passage. It hangs off the chat
-  // — shown at the message the passage came from — rather than in the sidebar.
+  // A thread: a new conversation under this one that starts where this one is
+  // (its Claude session forked, so it knows everything said so far). From a
+  // passage, it opens with the person's message replying to it and is shown
+  // at that message.
   app.post<{ Params: { id: string } }>('/:id/threads', auth, async (req, reply) => {
     const body = (req.body ?? {}) as {
       content?: string
@@ -1983,8 +1958,8 @@ export async function conversationRoutes(app: FastifyInstance) {
     const id = uuid()
     getDb()
       .prepare(
-        `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, kind, parent_id, parent_message_id, claude_session_id)
-         VALUES (?, ?, ?, ?, unixepoch(), 'auto', 'thread', ?, ?, ?)`,
+        `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, parent_id, parent_message_id, claude_session_id)
+         VALUES (?, ?, ?, ?, unixepoch(), 'auto', ?, ?, ?)`,
       )
       .run(id, title, model ?? null, effort ?? 'default', parent.id, anchor, forked)
     const conv = getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id) as ConvRow
@@ -2030,8 +2005,6 @@ export async function conversationRoutes(app: FastifyInstance) {
         .prepare(
           `SELECT c.*,
           ${UNREAD_SQL},
-          (SELECT COUNT(*) > 0 FROM crons WHERE conversation_id = c.id) AS has_cron,
-          (SELECT COUNT(*) > 0 FROM webhooks WHERE conversation_id = c.id) AS has_webhook,
           ${THREAD_OF_SQL},
         ${privateSql('c')} AS is_private,
           (SELECT COUNT(*) > 0 FROM runs WHERE conversation_id = c.id) AS has_runs
@@ -2077,9 +2050,9 @@ export async function conversationRoutes(app: FastifyInstance) {
       title?: string
       notify?: string
       section_id?: string | null
-      /** Threads only: list it in the sidebar's Threads group, or take it off. */
-      surfaced?: boolean
-      /** Passage threads: put away (Done), or bring back. */
+      /** Hang it under another conversation, or (null) at the top level. */
+      parent_id?: string | null
+      /** Put away (Done), or bring back. */
       archived?: boolean
       /** Offer it as a launcher shortcut of the installed app, or stop. */
       shortcut?: boolean
@@ -2087,8 +2060,8 @@ export async function conversationRoutes(app: FastifyInstance) {
     const { title, notify } = body
 
     const target = getDb()
-      .prepare('SELECT kind, parent_id, parent_message_id FROM conversations WHERE id = ?')
-      .get(req.params.id) as Pick<ConvRow, 'kind' | 'parent_id' | 'parent_message_id'> | undefined
+      .prepare('SELECT parent_id FROM conversations WHERE id = ?')
+      .get(req.params.id) as Pick<ConvRow, 'parent_id'> | undefined
     if (!target) return reply.code(404).send({ error: 'Not found' })
 
     const sets: string[] = []
@@ -2102,18 +2075,11 @@ export async function conversationRoutes(app: FastifyInstance) {
       if (!['subscribe', 'unsubscribe', 'auto'].includes(notify)) {
         return reply.code(400).send({ error: 'notify must be subscribe, unsubscribe, or auto' })
       }
-      // A routine's thread attached to a chat stays silent: the chat decides.
-      const attached = target.kind === 'thread' && !!target.parent_id && !target.parent_message_id
-      if (!attached) {
-        sets.push('notify = ?')
-        params.push(notify)
-      }
+      sets.push('notify = ?')
+      params.push(notify)
     }
-    if (body.archived !== undefined && target.kind === 'thread') {
+    if (body.archived !== undefined) {
       sets.push(body.archived ? 'archived_at = unixepoch()' : 'archived_at = NULL')
-    }
-    if (body.surfaced !== undefined && target.kind === 'thread') {
-      sets.push(body.surfaced ? 'surfaced_at = unixepoch()' : 'surfaced_at = NULL')
     }
     if (body.shortcut === false) sets.push('shortcut_at = NULL')
     if (body.shortcut === true) {
@@ -2139,24 +2105,31 @@ export async function conversationRoutes(app: FastifyInstance) {
       params.push(sectionId)
     }
 
-    if (sets.length === 0) {
+    // Re-hung: under another conversation, or at the top level. Filed into a
+    // group, a thread comes out from under its chat to sit there.
+    const parentId = 'parent_id' in body ? body.parent_id ?? null : 'section_id' in body && target.parent_id ? null : undefined
+    if (parentId !== undefined && parentId !== target.parent_id) {
+      if (!setParent(req.params.id, parentId)) {
+        return reply.code(400).send({ error: 'parent_id must be another conversation, not this one or one under it' })
+      }
+    } else if (sets.length === 0) {
       return reply.code(400).send({ error: 'Nothing to update' })
     }
 
-    if ('section_id' in body && target.kind === 'thread') promoteThread(req.params.id)
-
     // Filing a chat isn't activity: bumping updated_at here would shuffle it to
     // the top of its new section, since sections sort by most recent activity.
-    // Neither is putting a thread away, nor offering it as a shortcut.
-    const onlyMoved = sets.every((s) => s === 'section_id = ?' || s.startsWith('surfaced_at') || s.startsWith('archived_at') || s.startsWith('shortcut_at'))
+    // Neither is putting it away, nor offering it as a shortcut.
+    const onlyMoved = sets.every((s) => s === 'section_id = ?' || s.startsWith('archived_at') || s.startsWith('shortcut_at'))
     if (!onlyMoved) sets.push('updated_at = unixepoch()')
     params.push(req.params.id)
 
-    const result = getDb()
-      .prepare(`UPDATE conversations SET ${sets.join(', ')} WHERE id = ?`)
-      .run(...params)
-    if (result.changes === 0)
-      return reply.code(404).send({ error: 'Not found' })
+    if (sets.length > (onlyMoved ? 0 : 1)) {
+      const result = getDb()
+        .prepare(`UPDATE conversations SET ${sets.join(', ')} WHERE id = ?`)
+        .run(...params)
+      if (result.changes === 0)
+        return reply.code(404).send({ error: 'Not found' })
+    }
     // Another topic, other shared documents beside it.
     if ('section_id' in body) emitTabs(req.params.id)
     return getDb()
@@ -2237,7 +2210,6 @@ export async function conversationRoutes(app: FastifyInstance) {
         archiveUploadsDir(req.params.id)
       }
 
-      detachThreadsOf(req.params.id)
       getDb().prepare('DELETE FROM conversations WHERE id = ?').run(req.params.id)
       return { ok: true }
     },

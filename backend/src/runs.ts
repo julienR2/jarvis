@@ -240,9 +240,9 @@ export interface RunListRow extends RunRow {
   /** Insertion order — tie-breaker in the paging cursor. */
   seq: number
   conversation_title: string | null
-  /** The thread's section, or that of the chat it reports into. */
+  /** The conversation's section, or that of the chat it hangs under. */
   section_id: string | null
-  /** The chat the run's thread reports into, if any. */
+  /** The chat the run's conversation hangs under, if any. */
   parent_id: string | null
 }
 

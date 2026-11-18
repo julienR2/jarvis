@@ -74,12 +74,10 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
 
             {!compact && (
               <>
-                {/* Notify toggle — none when another conversation decides (a routine thread attached to a chat). */}
+                {/* Notify toggle. */}
                 <div className='px-2 py-1.5'>
                   <span className='text-[11px] text-text-muted font-medium'>Notifications</span>
-                  {!onNotifyChange ? (
-                    <div className='mt-1 text-[11px] text-text-secondary'>Through the chat it reports into</div>
-                  ) : (
+                  {!onNotifyChange ? null : (
                     <div className='flex gap-0.5 mt-1 bg-surface2 rounded-lg p-0.5'>
                       {NOTIFY_OPTIONS.map(({ value, label, icon: Icon }) => (
                         <button

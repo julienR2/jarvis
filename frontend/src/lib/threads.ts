@@ -1,44 +1,46 @@
 import type { Conversation } from '../api'
 
-/** A picker's "current" for a thread: none of the groups, so every one is a move. */
-export const THREAD_GROUP = '__threads__'
+/** The placeholder title of a conversation opened to set a routine up (backend threads.ts). */
+export const ROUTINE_DRAFT_TITLE = 'New routine'
 
 /**
- * Filing a thread does more than it looks: it becomes a chat — the routine's
- * chat from then on, which its runs report into from a new thread. Asked
- * once, here, rather than left as a surprise.
- */
-export function confirmThreadMove(conv: Conversation | undefined): boolean {
-  if (conv?.kind !== 'thread') return true
-  return confirm(
-    `Move "${conv.title}" into the chats?\n\nIt becomes a regular chat. Its routine will report into it, and run from a new thread from its next run on.`,
-  )
-}
-
-/** In the sidebar: every chat, and a thread while it is surfaced. */
-export function isListed(conv: Conversation): boolean {
-  return conv.kind !== 'thread' || !!conv.surfaced_at
-}
-
-/**
- * A thread opened to set up a routine that does not exist yet, and never ran
- * one: putting it away throws it away.
+ * A conversation opened to set up a routine that does not exist yet, and
+ * never ran one.
  */
 export function isDraftThread(conv: Conversation | undefined): boolean {
-  return conv?.kind === 'thread' && !conv.thread_of && !conv.has_runs && !conv.parent_message_id
+  return !!conv && conv.title === ROUTINE_DRAFT_TITLE && !conv.thread_of && !conv.has_runs
 }
 
-// ── A chat's sub-chats ──────────────────────────────────────────────────────
+/** The kind of routine that runs in a conversation, if one does. */
+export function routineKindOf(conv: Conversation | undefined): 'cron' | 'webhook' | null {
+  const of = conv?.thread_of
+  return of?.startsWith('cron:') ? 'cron' : of?.startsWith('webhook:') ? 'webhook' : null
+}
 
-/** A thread untouched this long leaves its chat's active list on its own. */
-const STALE_S = 7 * 24 * 3600
+/**
+ * Whether a run's block should say which routine fired it: not in that
+ * routine's own conversation, where it would only repeat the title. A run
+ * whose row is gone (the list is capped) is taken for the conversation's own.
+ */
+export function isForeignRun(conv: Conversation | undefined, sourceId: string | null | undefined): boolean {
+  const own = conv?.thread_of?.split(':')[1]
+  if (!own) return true
+  return !!sourceId && sourceId !== own
+}
 
-/** Opened from a passage (or blank, from the list) — not a routine's thread. */
-export const isSubChat = (c: Conversation) => c.kind === 'thread' && !!c.parent_message_id
+/** `conv` is `ancestorId` itself or sits somewhere under it. */
+export function isUnder(conv: Conversation, ancestorId: string, byId: Record<string, Conversation | undefined>): boolean {
+  const seen = new Set<string>()
+  for (let c: Conversation | undefined = conv; c && !seen.has(c.id); c = c.parent_id ? byId[c.parent_id] : undefined) {
+    if (c.id === ancestorId) return true
+    seen.add(c.id)
+  }
+  return false
+}
 
-/** Still in the chat's list: not put away with Done, and moved this week. */
-export function isActiveThread(c: Conversation, now = Date.now() / 1000): boolean {
-  return !c.archived_at && now - c.updated_at < STALE_S
+/** Still in its parent's active list: not put away with Done. */
+export function isActiveThread(c: Conversation): boolean {
+  return !c.archived_at
 }
 
 // The threads open as tabs beside each chat, kept per device like the pane

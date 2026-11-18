@@ -32,7 +32,7 @@ test.describe('threads from a passage', () => {
     const quote = panel.locator('blockquote')
     await expect(quote).toContainText('A paragraph with bold, italic, inline code and a link.')
     await expect(quote).not.toContainText('**')
-    await expect(page.getByRole('tablist').getByRole('tab', { name: 'New side chat' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tablist').getByRole('tab', { name: 'New thread' })).toHaveAttribute('aria-selected', 'true')
   })
 
   test('# opens a thread beside the chat; its first message creates it, marked under the message', async ({ page }) => {
@@ -55,8 +55,6 @@ test.describe('threads from a passage', () => {
     await expect(panel.getByText('Can you shorten that?')).toBeVisible()
     const mark = page.getByTestId('thread-marks').getByRole('button')
     await expect(mark).toContainText('A paragraph with bold')
-    // Not in the sidebar's Threads: it lives with its chat.
-    await expect(page.getByTestId('threads-group').getByText(/A paragraph with/)).toHaveCount(0)
 
     // Closed (its tab), then reopened from its mark.
     await page.getByRole('tablist').getByRole('button', { name: /^Close A paragraph with/ }).click()
@@ -74,10 +72,10 @@ test.describe('threads from a passage', () => {
     await page.getByTestId('thread-selection').click()
     const tabs = page.getByRole('tablist')
     await expect(page.getByTestId('thread-panel')).toBeVisible()
-    await expect(tabs.getByRole('tab', { name: 'New side chat' })).toHaveAttribute('aria-selected', 'true')
+    await expect(tabs.getByRole('tab', { name: 'New thread' })).toHaveAttribute('aria-selected', 'true')
     // The app is still there, one tab away — and the draft thread goes when you leave it.
     await tabs.getByRole('tab', { name: 'App' }).click()
     await expect(app.getByTestId('fixture-app')).toBeVisible()
-    await expect(tabs.getByRole('tab', { name: 'New side chat' })).toHaveCount(0)
+    await expect(tabs.getByRole('tab', { name: 'New thread' })).toHaveCount(0)
   })
 })

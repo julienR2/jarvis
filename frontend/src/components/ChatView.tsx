@@ -5,7 +5,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { Earth, Loader2, ArrowDown, EyeOff, FileText, Hash } from 'lucide-react'
+import { Earth, Loader2, ArrowDown, EyeOff, FileText, Hash, Clock, Link2 } from 'lucide-react'
 import {
   api,
   pendingQuestionOf,
@@ -31,13 +31,11 @@ import { useIsDesktop } from '../hooks/useIsDesktop'
 import { ContentTitle } from './ContentLayout'
 import RunsPill from './RunsPill'
 import RunBlock from './RunBlock'
-import { RunReportCard, RunReportStack } from './RunReport'
-import { confirmThreadMove, THREAD_GROUP } from '../lib/threads'
 import { RoutineCard, RoutineChip } from './RoutineCard'
 import ThreadPanel, { type ThreadPanelState } from './ThreadPanel'
 import { useShallow } from 'zustand/react/shallow'
 import { routineOf, ROUTINE_CHANGED_EVENT, type Routine } from '../lib/routines'
-import { isActiveThread, isDraftThread, isSubChat, readThreadTabs, saveThreadTabs } from '../lib/threads'
+import { isActiveThread, isDraftThread, isForeignRun, readThreadTabs, routineKindOf, saveThreadTabs } from '../lib/threads'
 import SelectionReply from './SelectionReply'
 import { dropQuietRuns, groupMessagesByDay, isFinishedReply } from '../lib/transcript'
 import { answerFromComposer } from './AnswerCard'
@@ -155,8 +153,7 @@ export default function ChatView({
     [recentRuns],
   )
 
-  // A thread reads like a channel: #name.
-  const title = conv ? `${conv.kind === 'thread' ? '# ' : ''}${conv.title}` : ''
+  const title = conv?.title ?? ''
   const hasApp = !!conv?.app_path && !embedded
   // The turn is parked on this until it is answered — the card at the bottom.
   const pending = useMemo(() => pendingQuestionOf(conv), [conv?.pending_question])
@@ -213,9 +210,6 @@ export default function ChatView({
     }
     return labels
   }, [messages])
-  const isThread = conv?.kind === 'thread'
-  // A routine's thread attached to a chat does not notify on its own: the chat decides.
-  const notifiesThroughParent = isThread && !!conv?.parent_id && !conv?.parent_message_id
   const shareMode = conv?.share_mode ?? null
   const sectionId = conv?.section_id ?? null
   const contextTokens = conv?.context_tokens ?? null
@@ -231,13 +225,10 @@ export default function ChatView({
   const { appRefreshKey, bumpApp } = useChatEvents(conversationId, { tabs: withTabs })
   const tabs = useChatTabs(withTabs ? conversationId : undefined)
   const [searchParams, setSearchParams] = useSearchParams()
-  // Threads of this chat: the sub-chats opened from its passages (or blank,
-  // from the list), and the threads of the routines reporting into it.
-  const subChats = useChatStore(useShallow((s) =>
-    embedded ? [] : s.order.map((id) => s.conversations[id]).filter((c): c is Conversation => !!c && c.parent_id === conversationId && isSubChat(c)),
-  ))
-  const routineThreads = useChatStore(useShallow((s) =>
-    embedded ? [] : s.order.map((id) => s.conversations[id]).filter((c): c is Conversation => !!c && c.parent_id === conversationId && c.kind === 'thread' && !c.parent_message_id),
+  // Threads of this chat: side chats opened from it, and the conversations of
+  // routines running under it — one list.
+  const threads = useChatStore(useShallow((s) =>
+    embedded ? [] : s.order.map((id) => s.conversations[id]).filter((c): c is Conversation => !!c && c.parent_id === conversationId),
   ))
 
   // Threads open beside the chat, as tabs of the side pane — kept per device
@@ -246,8 +237,6 @@ export default function ChatView({
   // message creates it.
   const [newThread, setNewThread] = useState<{ convId: string; quote: ReplyTo | null } | null>(null)
   const openThreadId = embedded ? null : searchParams.get('thread')
-  // `?threads=open` (the sidebar's routine mark): the # list opens once, and drops it from the address.
-  const listAsked = !embedded && searchParams.get('threads') === 'open'
   const pendingNew = !!newThread && newThread.convId === conversationId
   const [savedThreadTabs, setSavedThreadTabs] = useState(() => ({ id: conversationId, ids: conversationId && !embedded ? readThreadTabs(conversationId) : [] }))
   if (savedThreadTabs.id !== conversationId) setSavedThreadTabs({ id: conversationId, ids: conversationId && !embedded ? readThreadTabs(conversationId) : [] })
@@ -256,15 +245,15 @@ export default function ChatView({
     setSavedThreadTabs({ id: conversationId, ids })
     if (conversationId) saveThreadTabs(conversationId, ids)
   }
-  const knownThreads = new Map([...subChats, ...routineThreads].map((t) => [t.id, t]))
+  const knownThreads = new Map(threads.map((t) => [t.id, t]))
   const threadTabs: ThreadTab[] = [
     ...[...new Set([...openTabIds, ...(openThreadId ? [openThreadId] : [])])]
       .filter((id) => knownThreads.has(id) || id === openThreadId)
       .map((id) => {
         const t = knownThreads.get(id)
-        return { key: `thread:${id}`, title: t?.title ?? 'Side chat', unread: t?.unread_count ?? 0, routine: !!t && !t.parent_message_id }
+        return { key: `thread:${id}`, title: t?.title ?? 'Side chat', unread: t?.unread_count ?? 0, routine: routineKindOf(t) }
       }),
-    ...(pendingNew ? [{ key: 'thread:new', title: 'New side chat', unread: 0 }] : []),
+    ...(pendingNew ? [{ key: 'thread:new', title: 'New thread', unread: 0 }] : []),
   ]
   // The thread chosen to be shown: it brings the side pane into view.
   const threadKey: PanelKey | null = pendingNew ? 'thread:new' : openThreadId ? `thread:${openThreadId}` : null
@@ -543,13 +532,14 @@ export default function ChatView({
   // The threads started from each message, for the marks under them.
   const threadsByMessage = useMemo(() => {
     const map = new Map<string, Conversation[]>()
-    for (const t of subChats) {
-      const list = map.get(t.parent_message_id!) ?? []
+    for (const t of threads) {
+      if (!t.parent_message_id) continue
+      const list = map.get(t.parent_message_id) ?? []
       list.push(t)
-      map.set(t.parent_message_id!, list)
+      map.set(t.parent_message_id, list)
     }
     return map
-  }, [subChats])
+  }, [threads])
   const threadMarks = (ids: string[]) => {
     const threads = ids.flatMap((id) => threadsByMessage.get(id) ?? [])
     if (embedded || threads.length === 0) return null
@@ -597,18 +587,6 @@ export default function ChatView({
     return () => window.removeEventListener(ROUTINE_CHANGED_EVENT, onChanged)
   }, [conversationId, reloadRoutine])
   const routineOpen = searchParams.get('routine') === 'open'
-
-  // Opening a thread lists it in the sidebar's Threads group, where it stays
-  // until dismissed — navigating away does not put it back.
-  // Once per opening: putting it away while it is still on screen (the ✕,
-  // just before the navigation away lands) must not list it straight back.
-  const surfacedFor = useRef<string | null>(null)
-  useEffect(() => {
-    // In a chat's thread panel it is already where it belongs.
-    if (!conv || shared || embedded || surfacedFor.current === conv.id) return
-    surfacedFor.current = conv.id
-    if (conv.kind === 'thread' && !conv.surfaced_at) useChatStore.getState().setThreadSurfaced(conv.id, true)
-  }, [conv, shared, embedded])
 
   // The unread divider lasts exactly one visit: it stays put while the
   // conversation is open — scrolling past it doesn't erase where you had got
@@ -803,7 +781,7 @@ export default function ChatView({
   }
 
   function handleMove(newSectionId: string | null) {
-    if (!conversationId || !confirmThreadMove(conv)) return
+    if (!conversationId) return
     useChatStore
       .getState()
       .patchConversation(conversationId, { section_id: newSectionId })
@@ -891,22 +869,18 @@ export default function ChatView({
   )
 
   // The way back to this chat's threads, whatever was said since.
-  const threadsPill = !isThread && !shared && !embedded && conversationId && (messages.length > 0 || subChats.length > 0 || routineThreads.length > 0) ? (
+  const threadsPill = !shared && !embedded && conversationId && (messages.length > 0 || threads.length > 0) ? (
     <ThreadsPill
-      conversationId={conversationId}
-      threads={subChats}
-      routines={routineThreads}
+      threads={threads}
       messages={messages}
       activeId={openThreadId}
       onOpen={openThread}
       onNew={() => setNewThread({ convId: conversationId, quote: null })}
       onArchive={(t, archived) => archiveThread(t.id, archived)}
-      openSignal={listAsked}
-      onSignalHandled={() => setSearchParams((p) => { p.delete('threads'); return p }, { replace: true })}
     />
   ) : null
   // A thread that answered while you were here: one tap away, above the composer.
-  const threadNews = subChats
+  const threadNews = threads
     .filter((t) => t.unread_count > 0 && t.id !== openThreadId && isActiveThread(t))
     .sort((a, b) => b.updated_at - a.updated_at)
 
@@ -914,10 +888,10 @@ export default function ChatView({
     <ContentTitle
       action={conversationId && !shared ? (
         <span className='flex items-center gap-2'>
-          {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <>{threadsPill}<RunsPill conversationId={conversationId} /></>}
+          {routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />}{threadsPill}<RunsPill conversationId={conversationId} />
           <ShareIcon shareMode={shareMode} />
           <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-          <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={notifiesThroughParent ? undefined : handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
+          <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
         </span>
       ) : undefined}
     >
@@ -972,7 +946,7 @@ export default function ChatView({
     )}
     {moving && (
       <SectionPicker
-        currentId={isThread ? THREAD_GROUP : sectionId}
+        currentId={sectionId}
         onPick={handleMove}
         onClose={() => setMoving(false)}
       />
@@ -984,10 +958,10 @@ export default function ChatView({
           <ContentTitle
             action={conversationId && !shared ? (
               <span className='flex items-center gap-2'>
-                {isThread ? (routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />) : <>{threadsPill}<RunsPill conversationId={conversationId} /></>}
+                {routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />}{threadsPill}<RunsPill conversationId={conversationId} />
                 <ShareIcon shareMode={shareMode} />
                 <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={notifiesThroughParent ? undefined : handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
+                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
               </span>
             ) : undefined}
           >
@@ -1066,20 +1040,17 @@ export default function ChatView({
                     {/* A routine being set up: its card is the form, where the
                         conversation starts. Once it exists, the card lives behind
                         the title bar's chip instead. */}
-                    {isThread && conv && !shared && !routine && isDraftThread(conv) && (
+                    {conv && !shared && !routine && isDraftThread(conv) && (
                       <RoutineCard routine={null} thread={conv} onChanged={reloadRoutine} />
                     )}
-                    {/* A thread is where its runs are kept, the silent ones included:
-                        it is the record a report links back to. */}
-                    {(isThread ? groupMessagesByDay(messages, unreadAnchor) : dropQuietRuns(groupMessagesByDay(messages, unreadAnchor), runsById)).map((item) =>
+                    {/* A routine's conversation keeps every run of its own, the
+                        silent ones included: it is the routine's record. Another
+                        routine's silent runs (from before each had its own) go. */}
+                    {dropQuietRuns(groupMessagesByDay(messages, unreadAnchor), runsById, (runId) => !isForeignRun(conv, runsById.get(runId)?.source_id)).map((item) =>
                       item.type === 'separator' ? (
                         <DateSeparator key={item.key} label={item.label} />
                       ) : item.type === 'unread' ? (
                         <UnreadSeparator key={item.key} onDismiss={dismissUnread} />
-                      ) : item.type === 'report' ? (
-                        <RunReportCard key={item.key} msg={item.msg} report={item.report} onMarkUnread={canMarkUnread ? markUnread : undefined} />
-                      ) : item.type === 'reportStack' ? (
-                        <RunReportStack key={item.key} entries={item.entries} />
                       ) : item.type === 'runBlock' ? (
                         <div
                           key={item.key}
@@ -1095,7 +1066,7 @@ export default function ChatView({
                             msgs={item.msgs}
                             live={isProcessing && item.msgs.some((m) => m.id === lastMessageId)}
                             lastMessageId={lastMessageId}
-                            inOwnThread={isThread}
+                            foreign={isForeignRun(conv, runsById.get(item.runId)?.source_id)}
                             onMarkUnread={canMarkUnread ? markUnread : undefined}
                           />
                           {threadMarks(item.msgs.map((m) => m.id))}
@@ -1134,7 +1105,7 @@ export default function ChatView({
                 data-testid='thread-news'
                 className='inline-flex max-w-full items-center gap-1.5 rounded-full border border-accent/30 bg-surface px-3 py-1 text-[12px] text-text-secondary shadow-sm transition-colors hover:border-accent/60 hover:text-text-primary'
               >
-                <Hash size={12} className='shrink-0 text-accent' />
+                {routineKindOf(threadNews[0]) === 'cron' ? <Clock size={12} className='shrink-0 text-text-muted' /> : routineKindOf(threadNews[0]) === 'webhook' ? <Link2 size={12} className='shrink-0 text-text-muted' /> : <Hash size={12} className='shrink-0 text-accent' />}
                 <span className='truncate'><span className='font-medium text-text-primary'>{threadNews[0].title}</span> replied</span>
                 <span className='shrink-0 rounded-full bg-accent px-1.5 text-[10.5px] font-medium text-white'>{threadNews[0].unread_count} new</span>
                 {threadNews.length > 1 && <span className='shrink-0 text-text-muted'>+{threadNews.length - 1} more</span>}

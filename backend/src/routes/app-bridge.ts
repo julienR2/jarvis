@@ -77,7 +77,7 @@ export async function appBridgeRoutes(app: FastifyInstance) {
     const row = getDb()
       .prepare('SELECT * FROM webhooks WHERE name = ? AND conversation_id = ? AND enabled = 1')
       .get(name, req.params.id) as WebhookRow | undefined
-    if (!row) return reply.code(404).send({ error: `No enabled webhook "${name}" reports into this chat` })
+    if (!row) return reply.code(404).send({ error: `No enabled webhook "${name}" runs under this chat` })
     const body = payload && typeof payload === 'object' && Object.keys(payload).length > 0 ? payload : undefined
     if (sync === true) {
       try {

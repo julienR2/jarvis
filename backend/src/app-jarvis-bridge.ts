@@ -13,7 +13,7 @@
  *   jarvis.prefill({quote, text})  stage a message the user finishes and sends:
  *                             quote above the composer, text in it, the chat
  *                             brought into view and the input focused
- *   jarvis.run(name, payload, {sync})  fire a routine that reports into this chat
+ *   jarvis.run(name, payload, {sync})  fire a routine of this chat
  *   jarvis.openDoc(path)      open a document beside the chat, as a tab
  *   jarvis.context()          { conversationId, title, topic }
  *   jarvis.onMessage(fn)      each finished answer in the chat: { id, role, text }

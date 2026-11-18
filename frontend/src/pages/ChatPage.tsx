@@ -20,7 +20,6 @@ import {
 import { api } from '../api'
 import ShareHandler from '../components/ShareHandler'
 import { useChatStore } from '../stores/chatStore'
-import { isListed } from '../lib/threads'
 import { useServiceWorker } from '../hooks/useServiceWorker'
 import { useGlobalEvents } from '../hooks/useGlobalEvents'
 import { loadModelCatalogue } from '../components/ModelSelector'
@@ -54,7 +53,7 @@ export default function ChatPage() {
   const hasUnread = useChatStore((s) =>
     s.order.some((id) => {
       const c = s.conversations[id]
-      return !!c && isListed(c) && (c.unread_count ?? 0) > 0
+      return !!c && (c.unread_count ?? 0) > 0
     }),
   )
   const [sidebarOpen, setSidebarOpen] = useState(false)

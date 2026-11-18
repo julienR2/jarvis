@@ -39,7 +39,7 @@ export async function cronRoutes(app: FastifyInstance) {
       once?: boolean
       model?: string
       effort?: string
-      /** The chat the runs report into. Omitted: the thread stands alone. */
+      /** The chat the routine's conversation hangs under. Omitted: top level. */
       conversation_id?: string | null
       /** A thread opened to set the routine up: it becomes the routine's home. */
       thread_id?: string
@@ -114,9 +114,12 @@ export async function cronRoutes(app: FastifyInstance) {
       once: body.once !== undefined ? (body.once ? 1 : 0) : existing.once,
       model: body.model ?? existing.model ?? null,
       effort: body.effort !== undefined ? normalizeEffort(body.effort) : existing.effort,
-      // null detaches it: the thread stands alone from the next run on.
+      // null detaches it: its conversation goes to the top level.
       conversation_id: 'conversation_id' in body ? (body.conversation_id || null) : existing.conversation_id,
     }
+
+    const problem = checkRoutineRefs({ conversation_id: updated.conversation_id, thread_id: existing.thread_id ?? undefined })
+    if (problem) return reply.code(400).send({ error: problem })
 
     getDb()
       .prepare('UPDATE crons SET name=?, schedule=?, prompt=?, enabled=?, once=?, model=?, effort=?, conversation_id=? WHERE id=?')

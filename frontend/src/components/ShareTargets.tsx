@@ -48,7 +48,7 @@ function DestinationIcon({ dest }: { dest: ShareDestination }) {
 export function useShareCatalogue() {
   const chats = useChatStore(
     useShallow((s) =>
-      s.order.map((id) => s.conversations[id]).filter((c): c is Conversation => !!c && c.kind !== 'thread'),
+      s.order.map((id) => s.conversations[id]).filter((c): c is Conversation => !!c && !c.parent_id && !c.archived_at),
     ),
   )
   const sections = useChatStore(useShallow((s) => s.sections))

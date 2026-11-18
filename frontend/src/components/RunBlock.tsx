@@ -21,7 +21,7 @@ export default function RunBlock({
   msgs,
   live,
   lastMessageId,
-  inOwnThread,
+  foreign,
   onMarkUnread,
 }: {
   run?: Run
@@ -30,11 +30,13 @@ export default function RunBlock({
   live: boolean
   lastMessageId?: string
   /**
-   * Drawn in the routine's own thread, where every run is the routine's: its
-   * name and settings link would only repeat the title. What's left is the
+   * The run is not of the routine whose conversation this is — one from
+   * before routines had conversations of their own, or a card on Today. It
+   * says which routine fired it, and leads to it. In its own routine's
+   * conversation the name would only repeat the title: what's left is the
    * state, when it is news, and the prompt.
    */
-  inOwnThread?: boolean
+  foreign?: boolean
   onMarkUnread?: (messageId: string) => void
 }) {
   const navigate = useNavigate()
@@ -44,12 +46,12 @@ export default function RunBlock({
   const running = run?.status === 'running' || (live && !run)
 
   const newsworthy = running || (!!run && run.status !== 'done')
-  const header = !inOwnThread || newsworthy || !!prompt
+  const header = foreign || newsworthy || !!prompt
   return (
     <div className='my-3 animate-fade-in' data-testid='run-card'>
       {header && (
       <div className='mb-3 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-text-muted'>
-        {!inOwnThread && (
+        {foreign && (
           <span className='inline-flex items-center gap-1 rounded-full bg-surface2 px-2 py-px font-medium text-text-secondary'>
             <Repeat size={10} />
             {run?.source_name ?? 'automation'}
@@ -66,7 +68,7 @@ export default function RunBlock({
             prompt
           </button>
         )}
-        {run?.source_id && !inOwnThread && (
+        {run?.source_id && foreign && (
           <button
             type='button'
             onClick={() => navigate(`/routines?edit=${run.source_id}`)}

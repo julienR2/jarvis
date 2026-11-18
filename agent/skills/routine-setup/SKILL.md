@@ -26,12 +26,11 @@ Find out, in as few turns as possible:
 1. **What it does on each run.** This becomes its prompt.
 2. **When it runs.** On a schedule (get the time and days, then write the cron
    expression yourself) or when called (a webhook).
-3. **Where it reports.** The `routine-thread` article says whether this thread
-   was opened from a chat. If it was, default to reporting there. Otherwise the
-   thread stands alone and shows up under the sidebar's Routines section when a
-   run is worth seeing.
-4. **Notifications**, only if it stands alone: `auto` (the default: notify when
-   a run has something worth saying), `subscribe` (always), `unsubscribe` (never).
+3. **Which chat it hangs under.** The `routine-thread` article says whether this
+   conversation was opened from a chat. If it was, default to that chat.
+   Otherwise it is a chat of its own in the sidebar.
+4. **Notifications**: `auto` (the default: notify when a run has something
+   worth saying), `subscribe` (always), `unsubscribe` (never).
 
 If the user's first message already answers most of this, don't ask again.
 Confirm in one line and create. Otherwise ask with **AskUserQuestion**: one call
@@ -103,10 +102,10 @@ curl -s -X POST "$BACKEND_URL/internal/crons" \
 Every field, the webhook URL (`?sync=1`, payloads) and which mechanism fits
 which need: the `routines` skill.
 
-To find the chat to report into (most recent first, with topics):
+To find the chat to hang it under (most recent first, with topics):
 `curl -s -H "X-Internal-Secret: $INTERNAL_SECRET" "$BACKEND_URL/internal/conversations?limit=50"`.
 
 Delete, only when asked explicitly: `curl -s -X DELETE "$BACKEND_URL/internal/crons/<name>" -H "X-Internal-Secret: $INTERNAL_SECRET"`.
-The thread and its history stay.
+Its conversation and history stay, as an ordinary chat.
 
 Confirm each change in one line.

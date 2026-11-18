@@ -2,7 +2,8 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Plus,
-  Repeat,
+  Clock,
+  Link2,
   AppWindow,
   Earth,
   ChevronUp,
@@ -22,8 +23,6 @@ import {
   Blocks,
   Globe,
   Code2,
-  X,
-  Hash,
 } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 import { hasDraft, useDrafts } from '../lib/drafts'
@@ -40,7 +39,7 @@ import type { Conversation, DeleteOptions, Section } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { api } from '../api'
 import { startOfToday, useRecentRuns } from '../lib/runs'
-import { confirmThreadMove, isDraftThread, isSubChat, THREAD_GROUP } from '../lib/threads'
+import { routineKindOf } from '../lib/threads'
 import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
@@ -62,8 +61,6 @@ const COLLAPSE_KEY = 'sidebar-sections-collapsed'
 const CAN_HOVER = window.matchMedia('(hover: hover)').matches
 /** Stand-in id for the default group, which has no row of its own. */
 const DEFAULT_ID = '__default__'
-/** Collapse key of the automatic Threads group. */
-const THREADS_ID = '__threads__'
 /**
  * Indents a row under its section header, roughly past the emoji most section
  * names start with — the header itself has no chevron, so its name sits flush at
@@ -114,6 +111,7 @@ export default function Sidebar({
   // Everything the Settings menu opens lights it up.
   const onSettings =
     location.pathname.startsWith('/settings') ||
+    location.pathname.startsWith('/routines') ||
     location.pathname === '/browser' ||
     location.pathname.startsWith('/code')
 
@@ -131,8 +129,10 @@ export default function Sidebar({
 
   // Sections in their own order, then the default group last — conversations
   // inside each stay sorted by most recent activity (the store's list order).
-  // Threads are a routine's own conversations: never in these groups.
-  const chats = conversations.filter((c) => c && c.kind !== 'thread')
+  // A conversation under another (a thread) is listed under it, not here.
+  const isOpen = (c: Conversation) => location.pathname === `/c/${c.id}`
+  const byId = new Map(conversations.filter(Boolean).map((c) => [c.id, c]))
+  const chats = conversations.filter((c) => c && !(c.parent_id && byId.has(c.parent_id)) && (!c.archived_at || isOpen(c)))
   const groups: { id: string; section: Section | null; convs: Conversation[] }[] = [
     ...sections.map((section) => ({
       id: section.id,
@@ -145,22 +145,7 @@ export default function Sidebar({
       convs: chats.filter((c) => !c.section_id),
     },
   ]
-  const isOpen = (c: Conversation) => location.pathname === `/c/${c.id}`
-  // The Routines group: routines that report into no chat, while they had
-  // something worth seeing or are open, and have not been put away since.
-  const threads = conversations.filter(
-    (c) => c?.kind === 'thread' && !c.parent_id && (!!c.surfaced_at || isOpen(c)),
-  )
-  // Under a chat: its side chats with a reply you haven't seen, its routines
-  // waiting for you — a routine's news is already a report in the chat — and
-  // whichever of them is open full page, so the sidebar says where you are.
-  const children = new Map<string, Conversation[]>()
-  for (const c of conversations) {
-    if (c?.kind !== 'thread' || !c.parent_id) continue
-    const shown = isOpen(c) || (isSubChat(c) ? c.unread_count > 0 : !!c.pending_question)
-    if (shown) children.set(c.parent_id, [...(children.get(c.parent_id) ?? []), c])
-  }
-  const routineCount = useRoutineCount(conversations)
+  const children = useNestedThreads(conversations, byId, isOpen)
 
   return (
     <aside
@@ -239,26 +224,6 @@ export default function Sidebar({
           />
         ))}
 
-        <ThreadsGroup
-          threads={threads}
-          routineCount={routineCount}
-          collapsed={collapsed.includes(THREADS_ID)}
-          onToggle={() => toggleCollapsed(THREADS_ID)}
-          activePath={location.pathname}
-          onNav={handleNav}
-          onDelete={onDelete}
-          onRename={onRename}
-          onMove={onMove}
-          onDismiss={(id) => {
-            const store = useChatStore.getState()
-            // A routine never set up: nothing to keep, so putting it away
-            // cancels it.
-            if (isDraftThread(store.conversations[id])) store.deleteConversation(id)
-            else store.setThreadSurfaced(id, false)
-            if (location.pathname === `/c/${id}`) navigate('/')
-          }}
-      />
-
       </div>
 
       {/* Bottom nav: the Settings menu, plus the one-click toggles kept at hand. */}
@@ -332,7 +297,7 @@ function SectionGroup({
   onDelete: (id: string, opts: DeleteOptions) => void
   onRename: (id: string, title: string) => void
   onMove: (id: string, sectionId: string | null) => void
-  /** A chat's side chats and routines to show under it. */
+  /** The threads to show under each conversation (useNestedThreads). */
   childrenOf: Map<string, Conversation[]>
 }) {
   const renameSection = useChatStore((s) => s.renameSection)
@@ -344,9 +309,28 @@ function SectionGroup({
   const unread = convs.reduce((n, c) => n + (c.unread_count || 0), 0)
   // Collapsed groups still show the open conversation, so navigating into one
   // never makes it disappear.
-  const visible = collapsed
-    ? convs.filter((c) => activePath === `/c/${c.id}` || childrenOf.get(c.id)?.some((t) => activePath === `/c/${t.id}`))
-    : convs
+  const leadsToOpen = (id: string, seen = new Set<string>()): boolean =>
+    activePath === `/c/${id}` || (!seen.has(id) && !!childrenOf.get(id)?.some((t) => leadsToOpen(t.id, new Set(seen).add(id))))
+  const visible = collapsed ? convs.filter((c) => leadsToOpen(c.id)) : convs
+  // Under a conversation, its threads — each with its own, a step further in.
+  // Folded, only the way down to the open one.
+  const threadRows = (parentId: string, depth: number, seen: Set<string>): React.ReactNode =>
+    (childrenOf.get(parentId) ?? [])
+      .filter((t) => !seen.has(t.id) && (!collapsed || leadsToOpen(t.id)))
+      .map((t) => (
+        <Fragment key={t.id}>
+          <ConvItem
+            conv={t}
+            depth={depth}
+            active={activePath === `/c/${t.id}`}
+            onNav={() => onNav(`/c/${t.id}`)}
+            onDelete={(opts) => onDelete(t.id, opts)}
+            onRename={(title) => onRename(t.id, title)}
+            onMove={(sectionId) => onMove(t.id, sectionId)}
+          />
+          {threadRows(t.id, depth + 1, new Set(seen).add(t.id))}
+        </Fragment>
+      ))
 
   return (
     // Top padding stays put whether open or closed, so toggling doesn't nudge the
@@ -425,20 +409,7 @@ function SectionGroup({
             onRename={(title) => onRename(conv.id, title)}
             onMove={(sectionId) => onMove(conv.id, sectionId)}
           />
-          {(childrenOf.get(conv.id) ?? [])
-            .filter((t) => !collapsed || activePath === `/c/${t.id}`)
-            .map((t) => (
-              <ConvItem
-                key={t.id}
-                conv={t}
-                nested
-                active={activePath === `/c/${t.id}`}
-                onNav={() => onNav(`/c/${t.id}`)}
-                onDelete={(opts) => onDelete(t.id, opts)}
-                onRename={(title) => onRename(t.id, title)}
-                onMove={(sectionId) => onMove(t.id, sectionId)}
-              />
-            ))}
+          {threadRows(conv.id, 1, new Set([conv.id]))}
         </Fragment>
       ))}
       {!collapsed && convs.length === 0 && (
@@ -446,87 +417,6 @@ function SectionGroup({
           {section ? 'Empty — move a chat here' : 'No chats'}
         </div>
       )}
-    </div>
-  )
-}
-
-/**
- * The Routines group, last: the way to the Routines page (its title), and
- * under it the routines that report into no chat, while they have something
- * worth seeing or are open — a routine of a chat shows under that chat
- * instead. Dimmed, so it reads as the machine's corner rather than one of
- * your topics; a row is put away by hand with its ✕. Not there at all until
- * there is a routine.
- */
-function ThreadsGroup({
-  threads,
-  routineCount,
-  collapsed,
-  onToggle,
-  activePath,
-  onNav,
-  onDelete,
-  onRename,
-  onMove,
-  onDismiss,
-}: {
-  threads: Conversation[]
-  routineCount: number
-  collapsed: boolean
-  onToggle: () => void
-  activePath: string
-  onNav: (path: string) => void
-  onDelete: (id: string, opts: DeleteOptions) => void
-  onRename: (id: string, title: string) => void
-  onMove: (id: string, sectionId: string | null) => void
-  onDismiss: (id: string) => void
-}) {
-  const unread = threads.reduce((n, c) => n + (c.unread_count || 0), 0)
-  const visible = collapsed ? threads.filter((c) => activePath === `/c/${c.id}`) : threads
-  return (
-    <div className={`gap-0.5 flex flex-col ${collapsed || threads.length === 0 ? 'py-1.5' : 'pt-1.5 pb-4'}`} data-testid='threads-group'>
-      <div className={`h-8 flex items-center pr-3 rounded-lg ${activePath === '/routines' ? 'bg-selected' : ''}`}>
-        <button
-          onClick={onToggle}
-          aria-label={`${collapsed ? 'Expand' : 'Collapse'} Routines`}
-          className='self-stretch flex items-center pl-1.5 pr-1 text-text-muted/50 hover:text-text-secondary transition-colors'
-        >
-          <ChevronRight size={11} className={`shrink-0 transition-transform ${collapsed ? '' : 'rotate-90'}`} />
-        </button>
-        <button
-          onClick={() => onNav('/routines')}
-          title='All your routines: what Jarvis does on its own'
-          className='flex-1 self-stretch flex items-center gap-1.5 min-w-0 text-[11px] font-semibold uppercase tracking-wider text-text-muted/70 hover:text-text-secondary transition-colors'
-        >
-          <Repeat size={11} className='shrink-0' />
-          <span className='truncate'>Routines</span>
-          {routineCount > 0 && <span className='ml-auto font-normal normal-case tracking-normal text-text-muted/70'>{routineCount}</span>}
-        </button>
-        {/* Its own gap from the routine count, so "15" and the badge read as two
-            numbers rather than one run together. */}
-        {collapsed && unread > 0 && (
-          <span
-            className='shrink-0 ml-2 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-accent text-white text-[10px] font-semibold tabular-nums'
-            title={`${unread} unread`}
-          >
-            {unread}
-          </span>
-        )}
-      </div>
-      <div className='flex flex-col gap-0.5 opacity-80'>
-        {visible.map((conv) => (
-          <ConvItem
-            key={conv.id}
-            conv={conv}
-            active={activePath === `/c/${conv.id}`}
-            onNav={() => onNav(`/c/${conv.id}`)}
-            onDelete={(opts) => onDelete(conv.id, opts)}
-            onRename={(title) => onRename(conv.id, title)}
-            onMove={(sectionId) => onMove(conv.id, sectionId)}
-            onDismiss={() => onDismiss(conv.id)}
-          />
-        ))}
-      </div>
     </div>
   )
 }
@@ -650,21 +540,18 @@ function ConvItem({
   onDelete,
   onRename,
   onMove,
-  onDismiss,
-  nested,
+  depth = 0,
 }: {
   conv: Conversation
-  /** Under its chat: a side chat or a routine of it. */
-  nested?: boolean
+  /** How far under a top-level chat it sits: 0 for the chat itself. */
+  depth?: number
   active: boolean
   onNav: () => void
   onDelete: (opts: DeleteOptions) => void
   onRename: (title: string) => void
   onMove: (sectionId: string | null) => void
-  /** Threads: take it off the sidebar (nothing is deleted). */
-  onDismiss?: () => void
 }) {
-  const navigate = useNavigate()
+  const nested = depth > 0
   const menuRef = useRef<ConversationMenuHandle>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const unread = conv.unread_count > 0 && !active
@@ -692,10 +579,8 @@ function ConvItem({
       )}
       {moving && (
         <SectionPicker
-          currentId={conv.kind === 'thread' ? THREAD_GROUP : conv.section_id}
-          onPick={(sectionId) => {
-            if (confirmThreadMove(conv)) onMove(sectionId)
-          }}
+          currentId={conv.section_id}
+          onPick={onMove}
           onClose={() => setMoving(false)}
         />
       )}
@@ -703,18 +588,16 @@ function ConvItem({
         ref={containerRef}
         onClick={onNav}
         {...longPress}
+        // Each level a step further in, from where a chat's own title starts.
+        style={nested ? { paddingLeft: 28 + depth * 14 } : undefined}
         className={`
-          relative flex items-center ${nested ? 'pl-11' : CHILD_PAD} pr-3 ${nested ? 'py-1' : 'py-1.5'} rounded-lg cursor-pointer group select-none transition-colors gap-2
+          relative flex items-center ${nested ? '' : CHILD_PAD} pr-3 ${nested ? 'py-1' : 'py-1.5'} rounded-lg cursor-pointer group select-none transition-colors gap-2
           ${active ? 'bg-selected text-text-primary' : 'text-text-secondary hover:bg-surface2'}
         `}
       >
         <span
           className={`flex-1 overflow-hidden text-ellipsis whitespace-nowrap ${nested ? 'text-[13px]' : 'text-sm'} min-w-0 ${unread ? 'font-medium text-text-primary' : ''}`}
         >
-          {/* A side chat reads like a channel, #name; a routine's own chat has its mark. */}
-          {conv.kind === 'thread' && (isSubChat(conv)
-            ? <Hash size={12} className='inline -mt-0.5 mr-1 text-accent' />
-            : <Repeat size={11} className='inline -mt-0.5 mr-1 text-text-muted' />)}
           {conv.title}
         </span>
         <span className='flex items-center gap-2 shrink-0'>
@@ -728,13 +611,15 @@ function ConvItem({
               <AppWindow size={11} className='text-text-muted' />
             </span>
           )}
-          {!!(conv.has_cron || conv.has_webhook) && (
-            <span
-              title='Its routines'
-              className='hover:text-accent transition-colors cursor-pointer'
-              onClick={(e) => { e.stopPropagation(); navigate(`/c/${conv.id}?threads=open`) }}
-            >
-              <Repeat size={11} className='text-text-muted hover:text-accent' />
+          {/* What feeds it besides you: a schedule, or a webhook. */}
+          {routineKindOf(conv) === 'cron' && (
+            <span title='Runs on a schedule' data-testid='routine-mark'>
+              <Clock size={11} className='text-text-muted' />
+            </span>
+          )}
+          {routineKindOf(conv) === 'webhook' && (
+            <span title='Runs when its webhook is called' data-testid='routine-mark'>
+              <Link2 size={11} className='text-text-muted' />
             </span>
           )}
           {!!conv.share_mode && (
@@ -751,17 +636,6 @@ function ConvItem({
             {conv.unread_count}
           </span>
         )}
-        {onDismiss && (
-          <button
-            type='button'
-            onClick={(e) => { e.stopPropagation(); onDismiss() }}
-            title='Put away — it comes back when a run has something to say'
-            aria-label={`Put away ${conv.title}`}
-            className={`shrink-0 -mr-1 p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors ${CAN_HOVER ? 'hidden group-hover:block' : 'block'}`}
-          >
-            <X size={13} />
-          </button>
-        )}
         <ConversationMenu
           ref={menuRef}
           conversationId={conv.id}
@@ -777,6 +651,7 @@ function ConvItem({
 }
 
 const SETTINGS_ITEMS: { path: string; label: string; hint: string; icon: React.ReactNode }[] = [
+  { path: '/routines', label: 'Routines', hint: 'What Jarvis does on its own', icon: <Clock size={14} /> },
   { path: '/settings', label: 'General', hint: 'Appearance, notifications, API keys', icon: <SlidersHorizontal size={14} /> },
   { path: '/settings/customize', label: 'Customize', hint: 'Models, connectors, skills', icon: <Blocks size={14} /> },
   { path: '/browser', label: 'Browser', hint: 'The logged-in Chromium', icon: <Globe size={14} /> },
@@ -846,18 +721,38 @@ function StatusDot() {
 }
 
 /**
- * How many routines there are, for the Routines group's title — and whether
- * to show the group at all. Asked again when a chat gains or loses one.
+ * Which threads show under which conversation: one that has something for you
+ * (unread, or a question waiting) or is open, and every one above it, so the
+ * way down to it is there however deep it sits. Put away (Done), a thread
+ * shows only while open. A conversation whose parent is gone sits at the top.
  */
-function useRoutineCount(conversations: Conversation[]): number {
-  const [count, setCount] = useState(0)
-  const key = conversations.filter((c) => c && (c.has_cron || c.has_webhook || c.thread_of)).length
-  useEffect(() => {
-    let alive = true
-    Promise.all([api.getCrons(), api.getWebhooks()])
-      .then(([crons, hooks]) => { if (alive) setCount(crons.length + hooks.length) })
-      .catch(() => {})
-    return () => { alive = false }
-  }, [key])
-  return count
+function useNestedThreads(
+  conversations: Conversation[],
+  byId: Map<string, Conversation>,
+  isOpen: (c: Conversation) => boolean,
+): Map<string, Conversation[]> {
+  const kids = new Map<string, Conversation[]>()
+  for (const c of conversations) {
+    if (c?.parent_id && byId.has(c.parent_id)) kids.set(c.parent_id, [...(kids.get(c.parent_id) ?? []), c])
+  }
+  const shown = new Map<string, boolean>()
+  const visit = (c: Conversation, path: Set<string>): boolean => {
+    const known = shown.get(c.id)
+    if (known !== undefined) return known
+    // A loop in the data shows nothing rather than spinning forever.
+    if (path.has(c.id)) return false
+    path.add(c.id)
+    const own = isOpen(c) || (!c.archived_at && (c.unread_count > 0 || !!c.pending_question))
+    let below = false
+    for (const k of kids.get(c.id) ?? []) below = visit(k, path) || below
+    path.delete(c.id)
+    shown.set(c.id, own || below)
+    return own || below
+  }
+  const children = new Map<string, Conversation[]>()
+  for (const [parent, list] of kids) {
+    const visible = list.filter((k) => visit(k, new Set([parent])))
+    if (visible.length) children.set(parent, visible)
+  }
+  return children
 }

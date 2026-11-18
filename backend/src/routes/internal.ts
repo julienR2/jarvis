@@ -20,7 +20,7 @@ import { config } from '../config.js'
 import { transcribeFile } from '../stt.js'
 import { hasInternalSecret } from '../security.js'
 import type { CronRow, WebhookRow, ConvRow } from '../types.js'
-import { afterRoutineWrite, checkRoutineRefs, routineOfThread } from '../threads.js'
+import { afterRoutineWrite, checkRoutineRefs, routineOfThread, setParent } from '../threads.js'
 import { addTopicDoc, closeTab, emitTabs, getTab, listTabs, listTopicDocs, openTab, removeTopicDoc } from '../tabs.js'
 import { isPrivateConversation, privateSql } from '../private.js'
 
@@ -207,16 +207,17 @@ export async function internalRoutes(app: FastifyInstance) {
     return { ok: true, webhook: row.name }
   })
 
-  // The chats, most recent first — what a routine can report into.
+  // The conversations, most recent first — what a routine or a thread can
+  // hang under. `parent_id` says which are threads of which.
   app.get<{ Querystring: { limit?: string } }>('/conversations', async (req, reply) => {
     if (!checkSecret(req, reply)) return
     const asked = Number(req.query.limit)
     const limit = Math.min(Math.max(Number.isFinite(asked) ? asked : 50, 1), 200)
     return getDb()
       .prepare(
-        `SELECT c.id, c.title, s.name AS topic, c.updated_at FROM conversations c
+        `SELECT c.id, c.title, c.parent_id, s.name AS topic, c.updated_at FROM conversations c
            LEFT JOIN sections s ON s.id = c.section_id
-          WHERE c.kind = 'chat' AND NOT ${privateSql('c')} ORDER BY c.updated_at DESC LIMIT ?`,
+          WHERE NOT ${privateSql('c')} ORDER BY c.updated_at DESC LIMIT ?`,
       )
       .all(limit)
   })
@@ -224,14 +225,14 @@ export async function internalRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>('/conversations/:id', async (req, reply) => {
     if (!checkSecret(req, reply)) return
     const conv = getDb()
-      .prepare('SELECT id, title, section_id, app_path, kind, parent_id, created_at, updated_at FROM conversations WHERE id = ?')
-      .get(req.params.id) as Pick<ConvRow, 'id' | 'title' | 'section_id' | 'app_path' | 'kind' | 'parent_id' | 'created_at' | 'updated_at'> | undefined
+      .prepare('SELECT id, title, section_id, app_path, parent_id, archived_at, created_at, updated_at FROM conversations WHERE id = ?')
+      .get(req.params.id) as Pick<ConvRow, 'id' | 'title' | 'section_id' | 'app_path' | 'parent_id' | 'archived_at' | 'created_at' | 'updated_at'> | undefined
     // Private conversations (a local model's, see private.ts) don't exist for
     // the agent: anything it reads goes to Anthropic or the gateway next turn.
     if (!conv || isPrivateConversation(conv.id)) return reply.code(404).send({ error: 'Conversation not found' })
     const section = conv.section_id ? getSection(conv.section_id) : undefined
-    // A thread: the routine it belongs to, if one was set up in it yet.
-    const routine = conv.kind === 'thread' ? routineOfThread(conv.id) : null
+    // The routine that runs in it, if any.
+    const routine = routineOfThread(conv.id)
     return {
       ...conv,
       routine: routine ? { kind: routine.table === 'crons' ? 'cron' : 'webhook', ...routine.row } : null,
@@ -239,28 +240,56 @@ export async function internalRoutes(app: FastifyInstance) {
     }
   })
 
-  // Open a new chat, optionally filed under a topic and started with a first
-  // message — which the new chat's agent answers at once. Without a message
-  // the chat is swept after an hour like any empty one (empty-chats.ts).
+  // Open a new chat — filed under a topic, or as a thread under another
+  // conversation (`parent_id`) — optionally started with a first message,
+  // which the new chat's agent answers at once. Without a message the chat is
+  // swept after an hour like any empty one (empty-chats.ts).
   app.post('/conversations', async (req, reply) => {
     if (!checkSecret(req, reply)) return
-    const { title, topic_id, content } = (req.body ?? {}) as { title?: string; topic_id?: string | null; content?: string }
+    const { title, topic_id, parent_id, content } = (req.body ?? {}) as {
+      title?: string
+      topic_id?: string | null
+      parent_id?: string | null
+      content?: string
+    }
     const section = topic_id ? getSection(topic_id) : undefined
     if (topic_id && !section) return reply.code(400).send({ error: 'Unknown topic_id' })
+    if (topic_id && parent_id) return reply.code(400).send({ error: 'A thread sits under its parent: give topic_id or parent_id, not both' })
+    if (parent_id && (!getDb().prepare('SELECT 1 FROM conversations WHERE id = ?').get(parent_id) || isPrivateConversation(parent_id))) {
+      return reply.code(400).send({ error: 'Unknown parent_id' })
+    }
 
     const id = uuid()
     getDb()
       .prepare(
-        `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, section_id)
-         VALUES (?, ?, NULL, 'default', unixepoch(), 'auto', ?)`,
+        `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, section_id, parent_id)
+         VALUES (?, ?, NULL, 'default', unixepoch(), 'auto', ?, ?)`,
       )
       // Left as the placeholder, the title is generated from the first message.
-      .run(id, title?.trim() || 'New conversation', section?.id ?? null)
+      .run(id, title?.trim() || 'New conversation', section?.id ?? null, parent_id ?? null)
     const conv = getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id) as ConvRow
 
     const messageId = content?.trim() ? processMessage(id, conv, content.trim(), [], {}) : null
     emitGlobalEvent({ type: 'conversation_changed', conversation_id: id })
-    return { id, title: conv.title, topic: section ? { id: section.id, name: section.name } : null, message_id: messageId }
+    return { id, title: conv.title, parent_id: conv.parent_id, topic: section ? { id: section.id, name: section.name } : null, message_id: messageId }
+  })
+
+  // Re-hang a conversation: under another (`parent_id`), or at the top level
+  // (null). A routine running in it follows. Refused when it would hang under
+  // itself or one of its own threads.
+  app.patch<{ Params: { id: string } }>('/conversations/:id', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    const body = (req.body ?? {}) as { parent_id?: string | null }
+    if (!('parent_id' in body)) return reply.code(400).send({ error: 'Nothing to update: send parent_id' })
+    if (!getDb().prepare('SELECT 1 FROM conversations WHERE id = ?').get(req.params.id) || isPrivateConversation(req.params.id)) {
+      return reply.code(404).send({ error: 'Conversation not found' })
+    }
+    if (body.parent_id && isPrivateConversation(body.parent_id)) return reply.code(400).send({ error: 'Unknown parent_id' })
+    if (!setParent(req.params.id, body.parent_id ?? null)) {
+      return reply.code(400).send({ error: 'parent_id must be another conversation, not this one or one under it' })
+    }
+    const conv = getDb().prepare('SELECT id, title, parent_id, section_id FROM conversations WHERE id = ?').get(req.params.id)
+    return conv
   })
 
   // Find where something was said: chat and thread titles, and the text of
@@ -278,7 +307,7 @@ export async function internalRoutes(app: FastifyInstance) {
       ? []
       : getDb()
           .prepare(
-            `SELECT c.id, c.title, c.kind, s.name AS topic, c.updated_at FROM conversations c
+            `SELECT c.id, c.title, c.parent_id, s.name AS topic, c.updated_at FROM conversations c
                LEFT JOIN sections s ON s.id = c.section_id
               WHERE c.title LIKE ? ESCAPE '\\' AND NOT ${privateSql('c')} ORDER BY c.updated_at DESC LIMIT ?`,
           )
@@ -286,7 +315,7 @@ export async function internalRoutes(app: FastifyInstance) {
 
     const rows = getDb()
       .prepare(
-        `SELECT m.conversation_id, c.title, c.kind, s.name AS topic, m.role, m.created_at,
+        `SELECT m.conversation_id, c.title, c.parent_id, s.name AS topic, m.role, m.created_at,
                 CASE WHEN m.role = 'assistant' AND m.result IS NOT NULL THEN m.result ELSE m.content END AS text
            FROM messages m
            JOIN conversations c ON c.id = m.conversation_id
@@ -297,7 +326,7 @@ export async function internalRoutes(app: FastifyInstance) {
             AND CASE WHEN m.role = 'assistant' AND m.result IS NOT NULL THEN m.result ELSE m.content END LIKE @like ESCAPE '\\'
           ORDER BY m.created_at DESC LIMIT @limit`,
       )
-      .all({ scope, like, limit }) as { conversation_id: string; title: string; kind: string; topic: string | null; role: string; created_at: number; text: string }[]
+      .all({ scope, like, limit }) as { conversation_id: string; title: string; parent_id: string | null; topic: string | null; role: string; created_at: number; text: string }[]
 
     // A window around the first hit, so the result says why it matched.
     const needle = q.toLowerCase()
@@ -409,13 +438,11 @@ export async function internalRoutes(app: FastifyInstance) {
 
       const messages = rows.reverse().map((r) => {
         // A finished answer reads as its answer, not the step log it was
-        // assembled from — and a routine's report has nothing but that.
+        // assembled from.
         const full = r.role === 'assistant' && r.result ? r.result : (r.content ?? '')
         let attachments: string[] = []
-        let report: string | undefined
         try {
           const meta = r.metadata ? JSON.parse(r.metadata) : null
-          report = meta?.report?.source_name
           attachments = (meta?.attachments ?? []).map(
             (a: { originalName?: string; url?: string }) => a.originalName || a.url || 'file',
           )
@@ -428,8 +455,6 @@ export async function internalRoutes(app: FastifyInstance) {
           content: full.length > MAX_CHARS ? full.slice(0, MAX_CHARS) : full,
           truncated: full.length > MAX_CHARS,
           ...(attachments.length ? { attachments } : {}),
-          // Posted by a routine's run rather than said in this chat.
-          ...(report ? { report } : {}),
         }
       })
 
