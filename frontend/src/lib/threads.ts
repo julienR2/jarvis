@@ -1,16 +1,5 @@
 import type { Conversation } from '../api'
 
-/** The placeholder title of a conversation opened to set a routine up (backend threads.ts). */
-export const ROUTINE_DRAFT_TITLE = 'New routine'
-
-/**
- * A conversation opened to set up a routine that does not exist yet, and
- * never ran one.
- */
-export function isDraftThread(conv: Conversation | undefined): boolean {
-  return !!conv && conv.title === ROUTINE_DRAFT_TITLE && !conv.thread_of && !conv.has_runs
-}
-
 /** The kind of routine that runs in a conversation, if one does. */
 export function routineKindOf(conv: Conversation | undefined): 'cron' | 'webhook' | null {
   const of = conv?.thread_of

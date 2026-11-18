@@ -76,3 +76,39 @@ test.describe('threads', () => {
     expect((await patch(SURF_THREAD, { parent_id: SURF })).ok()).toBe(true)
   })
 })
+
+test.describe('a webhook with a thread per call', () => {
+  test.beforeEach(async ({ page }) => {
+    await signIn(page)
+  })
+
+  test('each call opens a thread under its chat; a call with a key already seen goes back to it', async ({ page }) => {
+    const headers = { Authorization: `Bearer ${process.env.E2E_TOKEN}`, 'Content-Type': 'application/json' }
+    const chat = await (await page.request.post('api/conversations', { headers, data: { title: 'Per-call home' } })).json() as { id: string }
+    const hook = await (await page.request.post('api/webhooks', {
+      headers, data: { name: 'e2e-per-call', prompt: 'Handle it.', conversation_id: chat.id, thread_per_fire: true },
+    })).json() as { id: string; token: string; thread_id: string }
+    const fire = (data: object) => page.request.post(`api/hooks/${hook.token}/trigger`, { headers: { 'Content-Type': 'application/json' }, data })
+    const threads = async () => ((await (await page.request.get('api/conversations', { headers })).json()) as { id: string; parent_id: string | null }[])
+      .filter((c) => c.parent_id === chat.id && c.id !== hook.thread_id)
+
+    expect((await fire({ thread_key: 'mail-a', body: 'first' })).ok()).toBe(true)
+    await expect.poll(async () => (await threads()).length).toBe(1)
+    expect((await fire({ thread_key: 'mail-b', body: 'other' })).ok()).toBe(true)
+    await expect.poll(async () => (await threads()).length).toBe(2)
+    // The same key: back into its thread, no new one.
+    expect((await fire({ thread_key: 'mail-a', body: 'reply' })).ok()).toBe(true)
+    await expect.poll(async () => {
+      const runs = await (await page.request.get(`api/runs?source_id=${hook.id}`, { headers })).json() as { conversation_id: string }[]
+      return runs.length
+    }).toBe(3)
+    expect((await threads()).length).toBe(2)
+    const runs = await (await page.request.get(`api/runs?source_id=${hook.id}`, { headers })).json() as { conversation_id: string }[]
+    expect(new Set(runs.map((r) => r.conversation_id)).size).toBe(2)
+
+    // Leave the instance as found — archived, not deleted: another test's
+    // Today may be reading these threads' messages right now.
+    await page.request.patch(`api/conversations/${chat.id}`, { headers, data: { archived: true } })
+    await page.request.delete(`api/webhooks/${hook.id}`, { headers: { Authorization: headers.Authorization } })
+  })
+})

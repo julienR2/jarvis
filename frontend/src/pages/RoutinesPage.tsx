@@ -59,7 +59,7 @@ export default function RoutinesPage() {
     const editId = params.get('edit')
     const newKind = params.get('new')
     if (newKind === 'cron' || newKind === 'webhook') {
-      navigate(newRoutinePath(newKind, filterConvId), { replace: true })
+      navigate(newRoutinePath(newKind), { replace: true })
     } else if (editId && items) {
       const target = items.find((r) => r.row.id === editId)
       if (target) navigate(routinePath(target), { replace: true })
@@ -138,7 +138,7 @@ export default function RoutinesPage() {
             )}
           </h1>
           <button
-            onClick={() => navigate(newRoutinePath('cron', filterConvId))}
+            onClick={() => navigate(newRoutinePath('cron'))}
             className='inline-flex items-center gap-1 rounded-lg border border-border bg-surface px-2.5 py-1 text-xs text-text-secondary hover:bg-surface2 hover:text-text-primary transition-colors'
           >
             <Plus size={13} /> New routine
@@ -266,8 +266,12 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
   return <h2 className='mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted'>{children}</h2>
 }
 
-function newRoutinePath(kind: 'cron' | 'webhook', conversationId: string | null): string {
-  return `/routines/new?kind=${kind}${conversationId ? `&conversation_id=${conversationId}` : ''}`
+/**
+ * Where a new routine starts: Today's composer, its settings open. (From a
+ * chat, its # list's New thread offers the same, under that chat.)
+ */
+function newRoutinePath(kind: 'cron' | 'webhook'): string {
+  return `/?routine=${kind}`
 }
 
 /** The rarer actions on a routine, behind ⋯. */

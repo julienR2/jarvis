@@ -5,6 +5,7 @@ import AnswerCard, { OptionList, hasOptions } from './AnswerCard'
 import ReviewCard from './ReviewCard'
 import ModelSelector from './ModelSelector'
 import { SlashMenu, useSlashMenu } from './SlashMenu'
+import { newSetup, routineFrom, RoutinePills, RoutineStrip, type NewRoutine, type RoutineSetup } from './RoutineStrip'
 import { api, questionsOf, reviewOf, type Attachment, type Effort, type PendingQuestion, type ReplyTo } from '../api'
 import type { OutgoingUpload } from '../lib/outbox'
 import { drafts, revoke, useDraft, type DraftFile } from '../lib/drafts'
@@ -69,9 +70,17 @@ interface Props {
   /** A private conversation: the picker offers local models only. */
   localOnly?: boolean
   onEffortChange?: (effort: Effort) => void
+  /**
+   * Offer to make this a routine instead of a message (RoutineStrip): the
+   * pills above an empty composer, then what is typed is its prompt and Send
+   * hands it here to be created.
+   */
+  onCreateRoutine?: (routine: NewRoutine) => Promise<void>
+  /** Start with the routine's settings open, of this kind (`?routine=` from the Routines page). */
+  routineKind?: 'cron' | 'webhook' | null
 }
 
-export default function ChatInput({ onSend, onSendNow, transcribing: transcribingElsewhere, onSendAudio, onCancel, isProcessing, conversationId, draftKey, autoFocus, focusKey, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange, localOnly }: Props) {
+export default function ChatInput({ onSend, onSendNow, transcribing: transcribingElsewhere, onSendAudio, onCancel, isProcessing, conversationId, draftKey, autoFocus, focusKey, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange, localOnly, onCreateRoutine, routineKind }: Props) {
   const [ownKey] = useState(() => `tmp:${Math.random().toString(36).slice(2)}`)
   const key = draftKey ?? conversationId ?? ownKey
   const keyRef = useRef(key)
@@ -88,6 +97,12 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
   useEffect(() => {
     if (quote) textareaRef.current?.focus()
   }, [quote])
+  const [routine, setRoutine] = useState<RoutineSetup | null>(() => (onCreateRoutine && routineKind ? newSetup(routineKind) : null))
+  const [routineError, setRoutineError] = useState('')
+  const [creating, setCreating] = useState(false)
+  useEffect(() => {
+    if (onCreateRoutine && routineKind) setRoutine(newSetup(routineKind))
+  }, [routineKind])
   const [audioActive, setAudioActive] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -199,7 +214,27 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
     drafts.addFiles(key, newFiles, conversationId)
   }
 
+  async function createRoutine(setup: RoutineSetup) {
+    const made = routineFrom(setup, input)
+    if (typeof made === 'string') return setRoutineError(made)
+    setCreating(true)
+    try {
+      await onCreateRoutine!(made)
+      revoke(drafts.take(key).files)
+      setRoutine(null)
+      setRoutineError('')
+    } catch (err) {
+      setRoutineError((err as Error).message || 'Could not create it')
+    } finally {
+      setCreating(false)
+    }
+  }
+
   function handleSend() {
+    if (routine && !question) {
+      if (!creating) createRoutine(routine)
+      return
+    }
     const attachments = files
       .filter(f => f.uploaded)
       .map(f => f.uploaded!)
@@ -316,6 +351,7 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
     asksQuestion ? (hasOptions(question!) ? 'Or type your own answer…' : 'Your answer…')
     : reviewing ? 'Or tell Jarvis what to change…'
     : approval ? 'Or tell Jarvis what to do instead…'
+    : routine ? 'What should Jarvis do on each run?'
     : placeholder ?? 'How can I help you today?'
   // Commands start a message; an answer to what Jarvis asked is not one.
   const slash = useSlashMenu(input, !question, (v) => {
@@ -339,6 +375,9 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
       onDragLeave={() => setDragOver(false)}
     >
       <div className={compact ? '' : 'max-w-3xl mx-auto'}>
+        {onCreateRoutine && !routine && !question && !input.trim() && !hasFiles && (
+          <RoutinePills onPick={(kind) => { setRoutine(newSetup(kind)); setRoutineError(''); textareaRef.current?.focus() }} />
+        )}
         <div className={`relative bg-surface border rounded-2xl shadow-sm transition-colors ${dragOver ? 'border-accent bg-accent/5' : question ? 'border-warning/50 focus-within:border-warning' : 'border-border focus-within:border-text-muted'}`}>
           {slash.open && (
             <SlashMenu items={slash.items} active={slash.active} onHover={slash.setActive} onPick={slash.pick} />
@@ -379,6 +418,9 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
           )}
           {approval && conversationId && (
             <AnswerCard conversationId={conversationId} question={question!} variant='strip' />
+          )}
+          {routine && !question && (
+            <RoutineStrip setup={routine} onChange={(r) => { setRoutine(r); setRoutineError('') }} onClose={() => { setRoutine(null); setRoutineError('') }} error={routineError} />
           )}
           {quote && (
             <div data-testid='composer-quote' className='flex items-start gap-2.5 border-b border-border px-4 pt-3 pb-2.5'>

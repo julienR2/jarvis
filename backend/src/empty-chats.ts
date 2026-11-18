@@ -1,7 +1,6 @@
 import { getDb } from './db.js'
 import { conversationFiles } from './app-archive.js'
 import { emitGlobalEvent } from './sse.js'
-import { ROUTINE_DRAFT_TITLE } from './threads.js'
 
 /**
  * How long a chat may sit empty before it is swept. Long enough that nobody
@@ -22,23 +21,20 @@ const EVERY_MS = 10 * 60 * 1000
  */
 export function sweepEmptyChats(): string[] {
   const db = getDb()
-  // Nothing in it, and nothing pointing at it: no routine runs in it or hangs
-  // under it. A conversation opened to set a routine up that never came to
-  // be, and that the person never wrote in, goes too: Jarvis's opening
-  // questions alone are not worth keeping.
+  // Nothing in it, and nothing pointing at it: no thread or routine under it,
+  // none running in it.
   const candidates = db
     .prepare(
       `SELECT c.id, c.app_path FROM conversations c
         WHERE c.updated_at < unixepoch() - @grace
           AND c.app_path IS NULL AND c.share_token IS NULL AND c.pending_question IS NULL
-          AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id
-                            AND (m.role = 'user' OR c.title != @draft))
+          AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id)
           AND NOT EXISTS (SELECT 1 FROM conversations t WHERE t.parent_id = c.id)
           AND NOT EXISTS (SELECT 1 FROM crons WHERE thread_id = c.id OR conversation_id = c.id)
           AND NOT EXISTS (SELECT 1 FROM webhooks WHERE thread_id = c.id OR conversation_id = c.id)
           AND NOT EXISTS (SELECT 1 FROM runs WHERE conversation_id = c.id)`,
     )
-    .all({ grace: GRACE_S, draft: ROUTINE_DRAFT_TITLE }) as { id: string; app_path: string | null }[]
+    .all({ grace: GRACE_S }) as { id: string; app_path: string | null }[]
 
   const swept = candidates
     .filter((c) => conversationFiles(c.id, c.app_path).uploads === 0)

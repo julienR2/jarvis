@@ -34,6 +34,8 @@ export interface ConvRow {
   parent_id: string | null
   /** A thread opened on a passage of its parent: the message it came from. */
   parent_message_id: string | null
+  /** A thread a webhook call opened, by its key: "<webhook id>:<thread_key>". */
+  fire_key: string | null
   created_at: number
   updated_at: number
   /** Put away (Done); cleared by its next message. */
@@ -129,6 +131,8 @@ export interface WebhookRow {
   inherit_context: number
   /** The routine's thread, where its runs happen. Opened on the first trigger. */
   thread_id: string | null
+  /** 1 = each call opens a thread of its own (or goes back to its key's). */
+  thread_per_fire: number
   last_run: number | null
   last_result: string | null
   created_at: number

@@ -556,6 +556,8 @@ export async function internalRoutes(app: FastifyInstance) {
       conversation_id?: string | null
       thread_id?: string
       notify?: string
+      /** Each call opens a thread of its own (a `thread_key` in the payload sends a follow-up back to it). */
+      thread_per_fire?: boolean
     }
     const problem = checkRoutineRefs(body)
     if (problem) return reply.code(400).send({ error: problem })
@@ -566,6 +568,9 @@ export async function internalRoutes(app: FastifyInstance) {
     if (body.id && !existing) return reply.code(404).send({ error: 'Webhook not found' })
 
     if (existing) {
+      if (body.thread_per_fire !== undefined) {
+        getDb().prepare('UPDATE webhooks SET thread_per_fire = ? WHERE id = ?').run(body.thread_per_fire ? 1 : 0, existing.id)
+      }
       getDb()
         .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=?, model=?, effort=?, user_message_key=?, conversation_id=? WHERE id=?')
         .run(
@@ -589,8 +594,8 @@ export async function internalRoutes(app: FastifyInstance) {
     const token = uuid()
     getDb()
       // model = null → "use the global default" (resolved at fire time)
-      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, conversation_id, model, effort, user_message_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, token, body.prompt, body.enabled !== false ? 1 : 0, body.conversation_id || null, body.model ?? null, normalizeEffort(body.effort), body.user_message_key ?? null)
+      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, conversation_id, model, effort, user_message_key, thread_per_fire) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, token, body.prompt, body.enabled !== false ? 1 : 0, body.conversation_id || null, body.model ?? null, normalizeEffort(body.effort), body.user_message_key ?? null, body.thread_per_fire ? 1 : 0)
     const row = afterRoutineWrite('webhooks', id, null, body)
     return { created: true, webhook: row }
   })

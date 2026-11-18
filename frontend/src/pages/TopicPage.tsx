@@ -160,7 +160,7 @@ export default function TopicPage() {
             <div className='flex items-center justify-between mb-1'>
               <Eyebrow>Routines{routines && routines.length ? ` · ${routines.length}` : ''}</Eyebrow>
               <button
-                onClick={() => navigate(`/routines/new?kind=cron${conversations[0] ? `&conversation_id=${conversations[0].id}` : ''}`)}
+                onClick={() => navigate('/?routine=cron')}
                 className='inline-flex items-center gap-1 text-[11.5px] text-text-muted hover:text-text-primary transition-colors'
               >
                 <Plus size={11} /> New routine

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Hash } from 'lucide-react'
 import { api, type Attachment, type Effort, type ReplyTo } from '../api'
 import { useChatStore } from '../stores/chatStore'
+import { createRoutine } from '../lib/routines'
 import ChatInput from './ChatInput'
 import { settleUploads, spoken } from '../lib/drafts'
 import ChatView from './ChatView'
@@ -98,6 +99,7 @@ function NewThread({ parentId, quote, onOpened }: { parentId: string; quote: Rep
         placeholder='Write in the side chat…'
         model={model}
         effort={effort}
+        onCreateRoutine={async (r) => onOpened(await createRoutine(r, { parentId, model, effort }))}
         onModelChange={(m) => setPicked((p) => ({ ...p, model: m }))}
         onEffortChange={(e) => setPicked((p) => ({ ...p, effort: e }))}
       />

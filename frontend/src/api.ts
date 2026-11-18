@@ -241,9 +241,6 @@ export const api = {
     parentId: string,
     data: { content: string; reply_to?: ReplyTo; model?: string; effort?: Effort; attachments?: Attachment[] },
   ) => request<Conversation>('POST', `/conversations/${parentId}/threads`, data),
-  /** Open an empty thread to set up a routine in — its card is the form. */
-  startRoutineSetup: (opts: { conversationId?: string | null } = {}) =>
-    request<Conversation>('POST', '/conversations/routine-setup', { conversation_id: opts.conversationId ?? null }),
   /** Mark read without opening — Today's ✓ on a chat's card. */
   markConversationRead: (id: string) => request<{ ok: boolean }>('POST', `/conversations/${id}/read`),
   /** Unread again from this message on — it is back on Today. */
@@ -993,6 +990,8 @@ export interface Webhook {
   conversation_id: string | null
   /** Where the runs happen. */
   thread_id: string | null
+  /** 1 = each call opens a thread of its own (a `thread_key` in the payload sends a follow-up back to it). */
+  thread_per_fire?: number
   enabled: number
   notify: 'auto' | 'never' | 'always'
   model: string | null
@@ -1018,6 +1017,8 @@ export interface WebhookInput {
   conversation_id?: string | null
   /** The draft thread it was set up in — it becomes the routine's home. */
   thread_id?: string
+  /** Each call opens a thread of its own. */
+  thread_per_fire?: boolean
 }
 
 export interface ApiKey {

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { CheckCheck } from 'lucide-react'
 import ChatInput from '../components/ChatInput'
 import { useModelCatalogue } from '../components/ModelSelector'
@@ -10,6 +10,7 @@ import { useChatStore } from '../stores/chatStore'
 import { BASE_PATH } from '../base'
 import { reloadRecentRuns, useRecentRuns } from '../lib/runs'
 import { startChat } from '../lib/outbox'
+import { createRoutine } from '../lib/routines'
 
 /**
  * Home — the unreads view.
@@ -29,6 +30,10 @@ import { startChat } from '../lib/outbox'
  */
 export default function TodayPage() {
   const navigate = useNavigate()
+  // `?routine=cron|webhook` (the Routines page's New routine): the composer
+  // opens on the routine's settings.
+  const asked = useSearchParams()[0].get('routine')
+  const routineKind = asked === 'cron' || asked === 'webhook' ? asked : null
   // Set by "New chat" — a fresh token each press, so the focus happens again.
   const navState = useLocation().state as { compose?: number; draft?: string } | null
   const composeKey = navState?.compose
@@ -142,6 +147,11 @@ export default function TodayPage() {
               effort={effort}
               onModelChange={setPicked}
               onEffortChange={setEffort}
+              onCreateRoutine={async (r) => {
+                const id = await createRoutine(r, { model, effort })
+                navigate(`/c/${id}`)
+              }}
+              routineKind={routineKind}
             />
           </div>
         </section>

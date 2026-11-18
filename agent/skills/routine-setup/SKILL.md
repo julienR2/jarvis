@@ -1,21 +1,21 @@
 ---
 name: routine-setup
-description: Set up a new routine, or change an existing one, from inside its thread. Use when the conversation is a routine thread (an `<article data-jarvis="routine-thread">` says so) and the user wants to create the routine, or change, pause, re-target or delete it.
+description: Change a routine from inside its own conversation, or make the current conversation a routine. Use when an `<article data-jarvis="routine-thread">` says this conversation is a routine and the user wants to change, pause, re-target or delete it — or when the user asks to turn this very chat into a routine.
 allowed-tools: Bash, Read, AskUserQuestion
 ---
 
 # Routine setup
 
 A **routine** is a prompt Jarvis runs without the user: on a schedule (a cron) or
-when something calls its link (a webhook). Every routine lives in a **thread**,
-a conversation of its own where each run happens. You are in that thread now.
-The `<article data-jarvis="routine-thread">` at the top of the message says
-whether the routine exists yet and, if it does, gives its current settings.
+when something calls its link (a webhook). Every routine lives in a
+conversation of its own where each run happens — usually you are in it now,
+and the `<article data-jarvis="routine-thread">` at the top of the message gives
+its current settings. (The user can also start one from the composer of an
+empty chat or a new thread, with its "Every…" / "When called" pills.)
 
-The thread also shows the routine as a **card** (its form) at the top. The user
-may fill it in themselves, or talk to you instead. Whatever you change through
-the API shows up on the card at once, so don't re-describe every setting in
-your answer: confirm what changed in a line.
+Its settings are behind a chip in the conversation's title bar. Whatever you
+change through the API shows up there at once, so don't re-describe every
+setting in your answer: confirm what changed in a line.
 
 Keep the exchange short and friendly. This is setup, not a project.
 

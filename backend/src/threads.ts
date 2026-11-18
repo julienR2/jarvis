@@ -20,6 +20,7 @@ import { getDb, uuid } from './db.js'
 import { emitConversationEvent, emitGlobalEvent } from './sse.js'
 import { pushForConversation } from './push.js'
 import { isPrivateConversation } from './private.js'
+import { UNTITLED } from './titles.js'
 import type { ConvRow, RunRow } from './types.js'
 
 export type RoutineTable = 'crons' | 'webhooks'
@@ -30,9 +31,6 @@ interface RoutineRef {
   conversation_id: string | null
   thread_id: string | null
 }
-
-/** The placeholder title of a conversation opened to set a routine up. */
-export const ROUTINE_DRAFT_TITLE = 'New routine'
 
 function getConv(id: string | null | undefined): ConvRow | undefined {
   if (!id) return undefined
@@ -326,10 +324,10 @@ export function ensureRoutineThreads(): void {
 /** A routine renamed: its conversation follows, unless someone renamed it by hand. */
 export function renameThread(threadId: string | null, from: string, to: string): void {
   if (!threadId || from === to) return
-  // The setup conversation's placeholder: the routine names it.
+  // Untitled (a chat made a routine before it said anything): the routine names it.
   const r = getDb()
     .prepare(`UPDATE conversations SET title = ? WHERE id = ? AND title IN (?, ?)`)
-    .run(to, threadId, from, ROUTINE_DRAFT_TITLE)
+    .run(to, threadId, from, UNTITLED)
   if (r.changes) emitConversationEvent(threadId, { type: 'conversation', id: threadId, title: to })
 }
 
@@ -347,37 +345,19 @@ export function routineOfThread(threadId: string):
 }
 
 /**
- * A conversation opened to set a routine up, which has none yet: it still
- * wears the placeholder title and never ran.
- */
-export function isRoutineDraft(conv: ConvRow): boolean {
-  return conv.title === ROUTINE_DRAFT_TITLE
-    && !routineOfThread(conv.id)
-    && !getDb().prepare('SELECT 1 FROM runs WHERE conversation_id = ?').get(conv.id)
-}
-
-/**
  * What a person's turn in a routine's conversation is told about it. Talking
- * there is how a routine is set up and changed: the model gets the routine as
- * it stands (or learns there is none yet) and the skill that edits it. Small,
+ * there is how a routine is changed: the model gets the routine as it stands
+ * and the skill that edits it. Small,
  * and sent every turn — the routine can change between two messages, from the
  * Routines page or another chat.
  */
 export function threadContextPrompt(conv: ConvRow): string | null {
   const found = routineOfThread(conv.id)
-  if (!found && !isRoutineDraft(conv)) return null
+  if (!found) return null
   const parent = getConv(conv.parent_id)
   const where = parent
     ? `It hangs under the chat "${parent.title}" (conversation ${parent.id}).`
     : 'It hangs under no chat.'
-  if (!found) {
-    return [
-      '<article data-jarvis="routine-thread">',
-      `This conversation (${conv.id}) is for a routine that does not exist yet — the user opened it to set one up. ${where}`,
-      'Use the `routine-setup` skill: find out what the routine should do and when, then create it with this conversation as its `thread_id`.',
-      '</article>',
-    ].join('\n')
-  }
   const { table, row } = found
   const settings: Record<string, unknown> = {
     kind: table === 'crons' ? 'cron' : 'webhook',

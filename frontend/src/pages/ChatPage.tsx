@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import ArchivePage from './ArchivePage'
 import RoutinesPage from './RoutinesPage'
-import NewRoutinePage from './NewRoutinePage'
 import TopicPage from './TopicPage'
 import TodayPage from './TodayPage'
 import { Routes, Route, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom'
@@ -241,7 +240,7 @@ export default function ChatPage() {
             />
             <Route path='/routines' element={<RoutinesPage />} />
             <Route path='/archive' element={<ArchivePage />} />
-            <Route path='/routines/new' element={<NewRoutinePage />} />
+            <Route path='/routines/new' element={<Navigate to='/?routine=cron' replace />} />
             <Route path='/t/:id' element={<TopicPage />} />
             {/* Crons and webhooks became routines, and the Activity page folded into
                 Today and the chats; the old addresses still land. */}

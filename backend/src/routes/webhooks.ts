@@ -29,6 +29,8 @@ export async function webhookRoutes(app: FastifyInstance) {
       conversation_id?: string | null
       /** A thread opened to set the routine up: it becomes the routine's home. */
       thread_id?: string
+      /** Each call opens a thread of its own. */
+      thread_per_fire?: boolean
     }
 
     if (!body.name || !body.prompt) {
@@ -49,8 +51,8 @@ export async function webhookRoutes(app: FastifyInstance) {
     const user_message_key = body.user_message_key ?? null
 
     getDb()
-      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, model, effort, notify, user_message_key, conversation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, body.name, token, body.prompt, enabled, model, effort, notify, user_message_key, body.conversation_id || null)
+      .prepare('INSERT INTO webhooks (id, name, token, prompt, enabled, model, effort, notify, user_message_key, conversation_id, thread_per_fire) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, body.name, token, body.prompt, enabled, model, effort, notify, user_message_key, body.conversation_id || null, body.thread_per_fire ? 1 : 0)
 
     const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(id) as WebhookRow
     const fresh = afterRoutineWrite('webhooks', row.id, null, { thread_id: body.thread_id, notify: threadNotifyOf(notify) })
@@ -68,6 +70,7 @@ export async function webhookRoutes(app: FastifyInstance) {
       notify: 'auto' | 'never' | 'always'
       user_message_key: string | null
       conversation_id: string | null
+      thread_per_fire: boolean
     }>
 
     const existing = getDb()
@@ -99,6 +102,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     // Paused or resumed by hand: no longer archiving's doing (archive.ts).
     if (body.enabled !== undefined) getDb().prepare('UPDATE webhooks SET archived_pause = 0 WHERE id = ?').run(req.params.id)
+    if (body.thread_per_fire !== undefined) getDb().prepare('UPDATE webhooks SET thread_per_fire = ? WHERE id = ?').run(body.thread_per_fire ? 1 : 0, req.params.id)
     const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(req.params.id) as WebhookRow
     syncThreadParent(row.thread_id, row.conversation_id)
     renameThread(row.thread_id, existing.name, row.name)
@@ -184,10 +188,12 @@ export async function webhookTriggerRoute(app: FastifyInstance) {
       .get(req.params.token) as WebhookRow | undefined
 
     if (!row) return reply.code(404).send({ error: 'Not found' })
-    if (!row.thread_id) return reply.code(400).send({ error: 'No active conversation' })
-
-    // Its runs happen in its thread, each under its own session.
-    await stopRunsFor(row.thread_id)
+    // Its runs happen in its thread — or, opening a thread per call, in each
+    // of those: wherever one of its runs is going.
+    const where = getDb()
+      .prepare(`SELECT DISTINCT conversation_id FROM runs WHERE source_id = ? AND status IN ('running', 'needs_you')`)
+      .all(row.id) as { conversation_id: string }[]
+    for (const { conversation_id } of where) await stopRunsFor(conversation_id)
     return { ok: true }
   })
 }

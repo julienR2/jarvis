@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Check, Clock, Copy, Hash, Link2, Loader2, MessageSquare, MoreHorizontal, Repeat, Trash2, Zap } from 'lucide-react'
+import { Check, Clock, Copy, Hash, Link2, Loader2, MessageSquare, MoreHorizontal, Trash2, Zap } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { api, type Conversation, type Effort } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { describeSchedule } from '../lib/runs'
 import { updateRoutine, webhookUrl, type Routine, type RoutineKind } from '../lib/routines'
 import { isUnder } from '../lib/threads'
-import { buildSchedule, DAY_NAMES, FREQ_LABELS, parseSchedule, type Freq, type Schedule } from '../lib/schedule'
+import { buildSchedule, parseSchedule, type Schedule } from '../lib/schedule'
 import ModelSelector, { DEFAULT_EFFORT, useModelCatalogue } from './ModelSelector'
 import Popover from './Popover'
 import Select from './Select'
+import ScheduleFields from './ScheduleFields'
 
 /** What the card edits. */
 interface Draft {
@@ -19,22 +19,13 @@ interface Draft {
   schedule: Schedule
   prompt: string
   conversation_id: string | null
+  /** Webhooks: each call opens a thread of its own. */
+  thread_per_fire: boolean
   model: string
   effort: Effort
 }
 
-function draftFrom(routine: Routine | null, thread: Conversation, fallbackModel: string): Draft {
-  if (!routine) {
-    return {
-      kind: 'cron',
-      name: '',
-      schedule: parseSchedule(''),
-      prompt: '',
-      conversation_id: thread.parent_id ?? null,
-      model: fallbackModel,
-      effort: DEFAULT_EFFORT,
-    }
-  }
+function draftFrom(routine: Routine, fallbackModel: string): Draft {
   const r = routine.row
   return {
     kind: routine.kind,
@@ -42,6 +33,7 @@ function draftFrom(routine: Routine | null, thread: Conversation, fallbackModel:
     schedule: parseSchedule(routine.kind === 'cron' ? routine.row.schedule : ''),
     prompt: r.prompt,
     conversation_id: r.conversation_id,
+    thread_per_fire: routine.kind === 'webhook' && !!routine.row.thread_per_fire,
     model: r.model ?? fallbackModel,
     effort: r.effort ?? DEFAULT_EFFORT,
   }
@@ -49,16 +41,16 @@ function draftFrom(routine: Routine | null, thread: Conversation, fallbackModel:
 
 /** The fields a save would send, for telling whether anything changed. */
 function signature(d: Draft): string {
-  return JSON.stringify([d.name.trim(), d.kind === 'cron' ? buildSchedule(d.schedule) : '', d.prompt, d.conversation_id, d.model, d.effort])
+  return JSON.stringify([d.name.trim(), d.kind === 'cron' ? buildSchedule(d.schedule) : '', d.prompt, d.conversation_id, d.kind === 'webhook' && d.thread_per_fire, d.model, d.effort])
 }
 
 /**
- * The routine, as a card in its own thread — the thread's first "message".
+ * The routine's settings, behind the chip in its conversation's title bar.
  *
- * It is the form: in a new thread it is filled in and creates the routine; in
- * an existing one it shows the routine as it stands and edits it in place. Either
- * way, typing to Jarvis below does the same, and the card follows: it is
- * re-read whenever the routine changes, unless it holds unsaved edits.
+ * It shows the routine as it stands and edits it in place. Telling Jarvis in
+ * the chat does the same, and the card follows: it is re-read whenever the
+ * routine changes, unless it holds unsaved edits. A routine is created from
+ * the composer (RoutineStrip), not here.
  */
 export function RoutineCard({
   routine,
@@ -66,15 +58,14 @@ export function RoutineCard({
   onChanged,
   compact,
 }: {
-  routine: Routine | null
+  routine: Routine
   thread: Conversation
   onChanged: () => void
-  /** In the title bar's popover: no outer margin, no hint below. */
+  /** In the title bar's popover: no outer margin. */
   compact?: boolean
 }) {
-  const navigate = useNavigate()
   const fallbackModel = useModelCatalogue().default
-  const initial = useMemo(() => draftFrom(routine, thread, fallbackModel), [routine, thread, fallbackModel])
+  const initial = useMemo(() => draftFrom(routine, fallbackModel), [routine, fallbackModel])
   const [draft, setDraft] = useState(initial)
   const dirty = signature(draft) !== signature(initial)
   // Follow the routine as it changes elsewhere (Jarvis, another tab) — but
@@ -87,7 +78,6 @@ export function RoutineCard({
 
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const isNew = !routine
   const set = (patch: Partial<Draft>) => {
     setError('')
     setDraft((d) => ({ ...d, ...patch }))
@@ -122,17 +112,10 @@ export function RoutineCard({
         effort: draft.effort,
         conversation_id: draft.conversation_id,
       }
-      if (isNew) {
-        if (draft.kind === 'cron') await api.createCron({ ...common, schedule: cronExpr, thread_id: thread.id })
-        else await api.createWebhook({ ...common, thread_id: thread.id })
-      } else {
-        await updateRoutine(routine!, { ...common, ...(draft.kind === 'cron' ? { schedule: cronExpr } : {}) })
-      }
-      // The thread's name, notify mode and routine come back from the server.
-      // Notifications are the thread's own setting (its ⋯ menu), not the routine's.
+      await updateRoutine(routine, { ...common, ...(draft.kind === 'cron' ? { schedule: cronExpr } : { thread_per_fire: draft.thread_per_fire }) })
+      // The conversation's name, notify mode and routine come back from the
+      // server. Notifications are the conversation's own setting (its ⋯ menu).
       await useChatStore.getState().loadConversations()
-      // The card leaves the transcript once the routine exists; say where it went.
-      if (isNew) window.__jarvisToast?.info(`${draft.name.trim()} is set — ${draft.kind === 'cron' ? describeSchedule(cronExpr) : 'its link is on the card'}. The chip at the top opens it.`)
       onChanged()
     } catch (err: any) {
       setError(err.message ?? 'Could not save')
@@ -142,20 +125,17 @@ export function RoutineCard({
   }
 
   async function toggle() {
-    if (!routine) return
     await updateRoutine(routine, { enabled: !routine.row.enabled })
     onChanged()
   }
 
   async function fire() {
-    if (!routine) return
     if (routine.kind === 'cron') await api.triggerCron(routine.row.id)
     else await api.triggerWebhook(routine.row.id)
     window.__jarvisToast?.info(`${routine.row.name} is running.`)
   }
 
   async function remove() {
-    if (!routine) return
     if (!window.confirm(`Delete the routine “${routine.row.name}”? It stops running; its chat and what it wrote stay.`)) return
     if (routine.kind === 'cron') await api.deleteCron(routine.row.id)
     else await api.deleteWebhook(routine.row.id)
@@ -163,13 +143,8 @@ export function RoutineCard({
     onChanged()
   }
 
-  async function discard() {
-    await useChatStore.getState().deleteConversation(thread.id)
-    navigate(thread.parent_id ? `/c/${thread.parent_id}` : '/routines', { replace: true })
-  }
-
-  const enabled = !!routine?.row.enabled
-  const Icon = draft.kind === 'webhook' ? Link2 : isNew ? Repeat : Clock
+  const enabled = !!routine.row.enabled
+  const Icon = draft.kind === 'webhook' ? Link2 : Clock
   // The free-typed fields, matched to Select's button.
   const field = 'h-8 rounded-lg border border-border bg-bg px-2.5 text-[13px] text-text-primary transition-colors hover:border-text-muted/50 focus:border-accent focus:outline-none'
 
@@ -178,79 +153,33 @@ export function RoutineCard({
       <div className={`overflow-hidden rounded-2xl border bg-surface ${compact ? 'border-transparent' : 'border-border shadow-sm'}`}>
         {/* Name, and whether it runs. */}
         <div className='flex items-center gap-3 px-4 pt-4'>
-          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${isNew || enabled ? 'bg-accent/10 text-accent' : 'bg-surface2 text-text-muted'}`}>
+          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${enabled ? 'bg-accent/10 text-accent' : 'bg-surface2 text-text-muted'}`}>
             <Icon size={16} />
           </span>
           <div className='min-w-0 flex-1'>
             <input
               value={draft.name}
               onChange={(e) => set({ name: e.target.value })}
-              placeholder={isNew ? 'Name your routine' : 'Name'}
+              placeholder='Name'
               aria-label='Name'
               className='w-full bg-transparent text-[15px] font-medium text-text-primary placeholder:text-text-muted focus:outline-none'
             />
             <div className='text-[11.5px] text-text-muted'>
-              {isNew ? 'A new routine' : enabled ? (words || 'when its link is called') : 'Paused'}
+              {enabled ? (words || 'when its link is called') : 'Paused'}
             </div>
           </div>
-          {routine && <Switch on={enabled} label={`${enabled ? 'Pause' : 'Resume'} ${routine.row.name}`} onClick={toggle} />}
+          <Switch on={enabled} label={`${enabled ? 'Pause' : 'Resume'} ${routine.row.name}`} onClick={toggle} />
         </div>
 
         {/* When, where, who hears — written as sentences. */}
         <div className='mt-3 grid grid-cols-[88px_1fr] items-center gap-x-3 gap-y-2.5 px-4 text-[13px]'>
           <span className='text-text-muted'>Runs</span>
           <div className='flex min-w-0 flex-wrap items-center gap-1.5'>
-            {isNew && (
-              <span className='inline-flex rounded-lg border border-border bg-bg p-0.5' role='radiogroup' aria-label='Trigger'>
-                {([['cron', 'On a schedule'], ['webhook', 'When called']] as const).map(([k, label]) => (
-                  <button
-                    key={k}
-                    type='button'
-                    role='radio'
-                    aria-checked={draft.kind === k}
-                    onClick={() => set({ kind: k })}
-                    className={`rounded-md px-2 py-0.5 text-[12px] transition-colors ${draft.kind === k ? 'bg-surface text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </span>
-            )}
             {draft.kind === 'cron' ? (
-              <>
-                <Select
-                  aria-label='How often'
-                  value={draft.schedule.freq}
-                  options={FREQ_LABELS.map(([f, label]) => ({ value: f, label }))}
-                  onChange={(f: Freq) => setSchedule({ freq: f, cron: cronExpr || draft.schedule.cron })}
-                />
-                {draft.schedule.freq === 'weekly' && (
-                  <Select
-                    aria-label='Day'
-                    value={draft.schedule.day}
-                    options={DAY_NAMES.map((d, i) => ({ value: i, label: `on ${d}` }))}
-                    onChange={(day: number) => setSchedule({ day })}
-                  />
-                )}
-                {draft.schedule.freq === 'hourly' && (
-                  <label className='inline-flex items-center gap-1 text-text-muted'>
-                    at :
-                    <input type='number' min={0} max={59} value={draft.schedule.minute} onChange={(e) => setSchedule({ minute: Math.min(59, Math.max(0, Number(e.target.value) || 0)) })} className={`${field} w-14`} aria-label='Minute' />
-                  </label>
-                )}
-                {['daily', 'weekdays', 'weekly'].includes(draft.schedule.freq) && (
-                  <input type='time' value={draft.schedule.time} onChange={(e) => setSchedule({ time: e.target.value })} className={field} aria-label='Time' />
-                )}
-                {draft.schedule.freq === 'custom' && (
-                  <input value={draft.schedule.cron} onChange={(e) => setSchedule({ cron: e.target.value })} placeholder='0 7 * * *' className={`${field} w-32 font-mono`} aria-label='Schedule' />
-                )}
-                {draft.schedule.freq === 'custom' && words && words !== cronExpr && <span className='text-[12px] text-text-muted'>{words}</span>}
-              </>
-            ) : routine?.kind === 'webhook' ? (
+              <ScheduleFields schedule={draft.schedule} onChange={setSchedule} />
+            ) : routine.kind === 'webhook' ? (
               <TriggerUrl token={routine.row.token} />
-            ) : (
-              <span className='text-[12px] text-text-muted'>its link appears once it exists</span>
-            )}
+            ) : null}
           </div>
 
           <span className='text-text-muted'>Under</span>
@@ -266,6 +195,23 @@ export function RoutineCard({
               searchable
             />
           </div>
+
+          {/* A call per email, say: each its own thread, where a follow-up
+              with the same thread_key goes back to. */}
+          {draft.kind === 'webhook' && (
+            <>
+              <span className='text-text-muted'>Threads</span>
+              <label className='flex min-w-0 items-center gap-2 text-[12.5px] text-text-secondary'>
+                <Switch on={draft.thread_per_fire} label='A new thread for each call' onClick={() => set({ thread_per_fire: !draft.thread_per_fire })} />
+                <span className='min-w-0'>
+                  A new thread for each call
+                  <span className='block text-[11px] text-text-muted'>
+                    {draft.conversation_id ? 'Under the chat above' : 'Under this one'}; a call with the same <code>thread_key</code> goes back to its thread.
+                  </span>
+                </span>
+              </label>
+            </>
+          )}
         </div>
 
         {/* What it is asked, drawn like the message it is: sent on every run. */}
@@ -285,25 +231,17 @@ export function RoutineCard({
 
         {/* Actions. */}
         <div className='mt-2 flex items-center gap-2 border-t border-border/70 px-4 py-2.5'>
-          {routine ? (
-            <>
-              <button type='button' onClick={fire} className='inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px] text-text-secondary hover:bg-surface2 hover:text-accent transition-colors'>
-                <Zap size={13} /> Run now
-              </button>
-              <CardMenu onDelete={remove} />
-            </>
-          ) : (
-            <button type='button' onClick={discard} className='rounded-lg px-2 py-1 text-[12.5px] text-text-muted hover:bg-surface2 hover:text-text-primary transition-colors'>
-              Discard
-            </button>
-          )}
+          <button type='button' onClick={fire} className='inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px] text-text-secondary hover:bg-surface2 hover:text-accent transition-colors'>
+            <Zap size={13} /> Run now
+          </button>
+          <CardMenu onDelete={remove} />
           <span className='flex-1 text-right text-[12px] text-danger' role={error ? 'alert' : undefined}>{error}</span>
-          {routine && dirty && (
+          {dirty && (
             <button type='button' onClick={() => { setDraft(initial); setError('') }} className='rounded-lg px-2 py-1 text-[12.5px] text-text-muted hover:text-text-primary'>
               Revert
             </button>
           )}
-          {(isNew || dirty) && (
+          {dirty && (
             <button
               type='button'
               onClick={submit}
@@ -311,15 +249,12 @@ export function RoutineCard({
               className='inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-accent-hover disabled:opacity-60 transition-colors'
             >
               {busy && <Loader2 size={12} className='animate-spin' />}
-              {isNew ? 'Create routine' : 'Save'}
+              Save
             </button>
           )}
-          {routine && !dirty && <span className='inline-flex items-center gap-1 text-[12px] text-text-muted'><Check size={12} /> Up to date</span>}
+          {!dirty && <span className='inline-flex items-center gap-1 text-[12px] text-text-muted'><Check size={12} /> Up to date</span>}
         </div>
       </div>
-      {!compact && isNew && (
-        <p className='mt-2 text-center text-[12px] text-text-muted'>Fill it in — or just tell Jarvis below what you want it to do.</p>
-      )}
     </div>
   )
 }

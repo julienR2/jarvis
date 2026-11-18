@@ -25,7 +25,7 @@ import {
   questionsOf,
 } from '../questions.js'
 import { generateTitle, mediaTitle, UNTITLED } from '../titles.js'
-import { fastModel, resolveModel } from '../models.js'
+import { resolveModel } from '../models.js'
 import { forkEngineSession } from '../engine.js'
 import { modelKind } from '../catalogue.js'
 import { generateMedia } from '../media.js'
@@ -41,7 +41,7 @@ import { getConnectorValues } from '../connectors.js'
 import { topicContextFor } from '../topics.js'
 import { MAX_SHORTCUTS } from '../shortcuts.js'
 import { archiveConversation, purgeConversation, unarchiveConversation } from '../archive.js'
-import { parentActivityPrompt, ROUTINE_DRAFT_TITLE, routineOfThread, routineRunPrompt, setParent, threadActivityPrompt, threadContextPrompt } from '../threads.js'
+import { parentActivityPrompt, routineRunPrompt, setParent, threadActivityPrompt, threadContextPrompt } from '../threads.js'
 import { SILENT_MARK, splitNotify } from '../runs.js'
 import type { ConvRow, MessageRow, EffortLevel, PendingQuestion } from '../types.js'
 import { userForApiKey } from '../api-keys.js'
@@ -351,6 +351,11 @@ export function processMessage(
     // Who hears about it is decided when the run closes (threads.ts reportRun),
     // not by the notify prompt.
     routine?: { name: string; kind: 'cron' | 'webhook' }
+    // A routine's run that goes on in a thread rather than starting fresh: a
+    // webhook call back into the thread its key opened (webhooks.ts). Still
+    // its own one-shot session, but resumed from the thread's, so it knows
+    // what was said there.
+    resumeSession?: boolean
   },
 ): string | null {
   let attachments = attachmentsIn
@@ -564,7 +569,7 @@ export function processMessage(
 
   sendMessage({
     prompt: claudePrompt,
-    sessionId: isolated ? null : conv.claude_session_id,
+    sessionId: isolated && !options?.resumeSession ? null : conv.claude_session_id,
     conversationId: runKey ?? conversationId,
     model,
     effort: options?.effort,
@@ -1555,7 +1560,9 @@ export function attachConversationStream(
           .prepare('SELECT title, model FROM conversations WHERE id = ?')
           .get(conversationId) as { title: string; model: string | null } | undefined
 
-        if (!isolated && current?.title === UNTITLED) {
+        // A routine's run titles a conversation too — one a webhook call
+        // opened is untitled until its first answer says what it is about.
+        if ((!isolated || options?.routine) && current?.title === UNTITLED) {
           generateTitle(conversationId, current.model).then((title) => {
             if (title) applyTitle(conversationId, title)
           })
@@ -1886,29 +1893,6 @@ export async function conversationRoutes(app: FastifyInstance) {
        ORDER BY c.updated_at DESC`,
       )
       .all()
-  })
-
-  // A new routine starts as an empty conversation, where the routine's card
-  // is the form — fill it in, or say what you want and Jarvis sets it up (it
-  // is told so, see threadContextPrompt). Until a routine exists it is a
-  // draft (isRoutineDraft). Talk here is short and practical, so it starts on
-  // the fast model.
-  app.post('/routine-setup', auth, async (req, reply) => {
-    const body = (req.body ?? {}) as { conversation_id?: string | null }
-    const parent = body.conversation_id
-      ? (getDb().prepare(`SELECT id FROM conversations WHERE id = ?`).get(body.conversation_id) as
-          | { id: string }
-          | undefined)
-      : undefined
-    if (body.conversation_id && !parent) return reply.code(400).send({ error: 'Unknown conversation' })
-    const id = uuid()
-    getDb()
-      .prepare(
-        `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, parent_id)
-         VALUES (?, ?, ?, 'default', unixepoch(), 'auto', ?)`,
-      )
-      .run(id, ROUTINE_DRAFT_TITLE, fastModel(), parent?.id ?? null)
-    return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id)
   })
 
   // A thread: a new conversation under this one that starts where this one is

@@ -79,6 +79,7 @@ changes; what you leave out is kept. The response is `{created|updated, cron|web
 | `model` | | a model id; `null` = the instance default. Pin a cheap one for frequent, simple runs |
 | `effort` | | `high` = think hard; else the default |
 | `user_message_key` | webhook | a payload field shown as the run's message in the thread (e.g. `message` for dictation) |
+| `thread_per_fire` | webhook | `true` = each call opens a **thread of its own** — under the chat in `conversation_id`, else under the routine's conversation — titled from what the run says. A call whose payload has a `thread_key` (an email's thread id, say) goes back into the thread that key opened, which resumes its session: a reply in the same exchange is handled with what was said before. One thread per email, per order, per ticket |
 
 **Which chat?** From inside a chat, `$JARVIS_CONVERSATION_ID` is that chat —
 use it unless the user names another. From inside a thread or a routine's run,
@@ -105,7 +106,7 @@ POST https://<jarvis public host>/api/hooks/<token>/trigger
 ```
 
 No other auth — the token is the secret, so don't paste it anywhere public.
-Either way, a JSON body becomes the run's `Webhook payload:` appended to the prompt.
+Either way, a JSON body becomes the run's `Webhook payload:` appended to the prompt. With `thread_per_fire`, a `thread_key` field in it picks the thread (see the table).
 `?sync=1` waits and returns the run's answer as `response` (what the Pebble
 uses); without it the call returns at once. `POST …/<token>/cancel` stops a
 running run.

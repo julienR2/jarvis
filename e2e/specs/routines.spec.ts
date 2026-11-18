@@ -53,34 +53,35 @@ test.describe('routines', () => {
     await expect(page.getByRole('switch', { name: 'Pause new-year-wish' })).toBeVisible()
   })
 
-  test('a new routine is a thread whose card is the form', async ({ page }) => {
+  test('a new routine starts in the composer: its settings above, its message below; the chip edits it after', async ({ page }) => {
     await page.goto('routines')
     await page.getByRole('button', { name: 'New routine' }).click()
-    await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
-    await expect(page.locator('aside').getByText('New routine', { exact: true })).toBeVisible()
-    const card = page.getByTestId('routine-card')
-    // Missing pieces are said, not guessed.
-    await card.getByRole('button', { name: 'Create routine' }).click()
-    await expect(card.getByRole('alert')).toHaveText('Give it a name.')
-    await card.getByLabel('Name').fill('e2e-nightly')
-    await card.getByRole('button', { name: 'How often' }).click()
+    // Today's composer, the schedule open.
+    await expect(page).toHaveURL(/\?routine=cron$/)
+    const strip = page.getByTestId('routine-strip')
+    await expect(strip).toContainText('A routine on a schedule')
+    await strip.getByRole('button', { name: 'How often' }).click()
     await page.getByRole('option', { name: 'On weekdays' }).click()
-    await card.getByLabel('Time').fill('03:00')
-    await card.getByLabel('Prompt').fill('Tidy up.')
-    await card.getByRole('button', { name: 'Create routine' }).click()
-    // The thread is now the routine's: named after it; the card leaves the
-    // transcript for the chip in the title bar.
+    await strip.getByLabel('Time').fill('03:00')
+    await strip.getByLabel('Routine name').fill('e2e-nightly')
+    // Missing pieces are said, not guessed.
+    const box = page.getByPlaceholder('What should Jarvis do on each run?')
+    await box.press('Enter')
+    await expect(strip.getByRole('alert')).toHaveText('Say what Jarvis should do on each run.')
+    await box.fill('Tidy up.')
+    await box.press('Enter')
+    // Its own chat now, named after it, the chip in the title bar.
+    await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
     await expect(page.getByRole('heading', { name: 'e2e-nightly' }).first()).toBeAttached()
     const chip = page.getByTestId('routine-chip').locator('visible=true')
     await expect(chip).toContainText('weekdays at 03:00')
-    await expect(page.getByRole('main').getByTestId('routine-card')).toHaveCount(0)
 
     // Edited from the chip's card: Save appears with a change, and a dropdown
     // opened inside it doesn't close it.
     await chip.click()
     const edit = page.getByTestId('routine-card')
     await edit.getByRole('button', { name: 'Under' }).click()
-    await page.getByRole('option', { name: /Surf/ }).click()
+    await page.getByRole('option', { name: /Surf/ }).first().click()
     await edit.getByLabel('Prompt').fill('Tidy up the downloads.')
     await edit.getByRole('button', { name: 'Save' }).click()
     await expect(edit.getByText('Up to date')).toBeVisible()
@@ -92,17 +93,26 @@ test.describe('routines', () => {
     await expect(page.getByTestId('routine-chip')).toHaveCount(0)
   })
 
-  test('discarding a new routine throws the draft away', async ({ page }) => {
-    await page.goto('routines')
-    await page.getByRole('button', { name: 'New routine' }).click()
-    await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
-    const id = new URL(page.url()).pathname.split('/').pop()!
-    await page.getByTestId('routine-card').getByRole('button', { name: 'Discard' }).click()
-    await expect(page).toHaveURL(/\/routines$/)
-    await expect(page.locator('aside').getByText('New routine', { exact: true })).toHaveCount(0)
-    // Gone, not merely hidden.
-    const res = await page.request.get(`api/conversations/${id}`, { headers: { Authorization: `Bearer ${process.env.E2E_TOKEN}` } })
-    expect(res.status()).toBe(404)
+  test('a new thread can be a routine too: it hangs under the chat, a webhook with a thread per call', async ({ page }) => {
+    await page.goto('c/00000000-0000-4000-8000-00000000000f')
+    await page.locator('[data-testid="threads-pill"]:visible').click()
+    await page.getByTestId('threads-popover').getByRole('button', { name: /New thread/ }).click()
+    const panel = page.getByTestId('thread-panel')
+    await panel.getByTestId('routine-pills').getByRole('button', { name: 'When called' }).click()
+    const strip = panel.getByTestId('routine-strip')
+    await strip.getByRole('switch', { name: 'A new thread for each call' }).click()
+    await strip.getByLabel('Routine name').fill('e2e-inbox')
+    const box = panel.getByPlaceholder('What should Jarvis do on each run?')
+    await box.fill('Sort what comes in.')
+    await box.press('Enter')
+    // Opened beside its chat, as a thread of it.
+    await expect(page).toHaveURL(/\?thread=[0-9a-f-]+/)
+    const headers = { Authorization: `Bearer ${process.env.E2E_TOKEN}` }
+    const hooks = await (await page.request.get('api/webhooks', { headers })).json() as { id: string; name: string; conversation_id: string | null; thread_per_fire: number }[]
+    const hook = hooks.find((h) => h.name === 'e2e-inbox')!
+    expect(hook.conversation_id).toBe('00000000-0000-4000-8000-00000000000f')
+    expect(hook.thread_per_fire).toBe(1)
+    await page.request.delete(`api/webhooks/${hook.id}`, { headers })
   })
 
   test('a row opens the routine’s thread', async ({ page }) => {

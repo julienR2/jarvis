@@ -30,11 +30,11 @@ import { useIsDesktop } from '../hooks/useIsDesktop'
 import { ContentTitle } from './ContentLayout'
 import RunsPill from './RunsPill'
 import RunBlock from './RunBlock'
-import { RoutineCard, RoutineChip } from './RoutineCard'
+import { RoutineChip } from './RoutineCard'
 import ThreadPanel, { type ThreadPanelState } from './ThreadPanel'
 import { useShallow } from 'zustand/react/shallow'
-import { routineOf, ROUTINE_CHANGED_EVENT, type Routine } from '../lib/routines'
-import { archiveDeadline, isActiveThread, isDraftThread, isForeignRun, readThreadTabs, routineKindOf, saveThreadTabs } from '../lib/threads'
+import { createRoutine, routineOf, ROUTINE_CHANGED_EVENT, type Routine } from '../lib/routines'
+import { archiveDeadline, isActiveThread, isForeignRun, readThreadTabs, routineKindOf, saveThreadTabs } from '../lib/threads'
 import SelectionReply from './SelectionReply'
 import { dropQuietRuns, groupMessagesByDay, isFinishedReply } from '../lib/transcript'
 import { answerFromComposer } from './AnswerCard'
@@ -586,6 +586,8 @@ export default function ChatView({
     return () => window.removeEventListener(ROUTINE_CHANGED_EVENT, onChanged)
   }, [conversationId, reloadRoutine])
   const routineOpen = searchParams.get('routine') === 'open'
+  const routineParam = searchParams.get('routine')
+  const routineAsked = routineParam === 'cron' || routineParam === 'webhook' ? routineParam : null
 
   // The unread divider lasts exactly one visit: it stays put while the
   // conversation is open — scrolling past it doesn't erase where you had got
@@ -1037,12 +1039,6 @@ export default function ChatView({
                         <Loader2 size={16} className='animate-spin text-text-muted' />
                       </div>
                     )}
-                    {/* A routine being set up: its card is the form, where the
-                        conversation starts. Once it exists, the card lives behind
-                        the title bar's chip instead. */}
-                    {conv && !shared && !routine && isDraftThread(conv) && (
-                      <RoutineCard routine={null} thread={conv} onChanged={reloadRoutine} />
-                    )}
                     {/* A routine's conversation keeps every run of its own, the
                         silent ones included: it is the routine's record. Another
                         routine's silent runs (from before each had its own) go. */}
@@ -1144,7 +1140,7 @@ export default function ChatView({
             conversationId={conversationId}
             autoFocus={!showSkeleton && messages.length === 0}
             question={!shared?.readOnly && pending ? pending : undefined}
-            placeholder={isDraftThread(conv) ? 'Or describe the routine you want — Jarvis sets it up…' : embedded ? 'Write in the side chat…' : undefined}
+            placeholder={embedded ? 'Write in the side chat…' : undefined}
             initialText={initialMessage || undefined}
             initialFiles={initialFiles || undefined}
             onInitialFilesConsumed={onInitialFilesConsumed}
@@ -1158,6 +1154,15 @@ export default function ChatView({
             onModelChange={handleModelChange}
             onEffortChange={handleEffortChange}
             localOnly={!!conv?.is_private}
+            // An empty chat can still become a routine: this one, fed on a
+            // schedule or by a webhook.
+            onCreateRoutine={conv && !shared && !routine && messages.length === 0 && loaded
+              ? async (r) => {
+                  await createRoutine(r, { threadId: conv.id, parentId: conv.parent_id ?? null, model, effort })
+                  reloadRoutine()
+                }
+              : undefined}
+            routineKind={routineAsked}
           />
           )}
         </div>

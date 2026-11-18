@@ -1,4 +1,6 @@
-import { api, type Cron, type CronInput, type Webhook } from '../api'
+import { api, type Cron, type CronInput, type Effort, type Webhook, type WebhookInput } from '../api'
+import { useChatStore } from '../stores/chatStore'
+import type { NewRoutine } from '../components/RoutineStrip'
 
 /**
  * A routine is a saved prompt Jarvis runs without you: on a schedule, or when
@@ -43,8 +45,38 @@ export async function routineOf(threadOf: string): Promise<Routine | null> {
   return row ? { kind: 'webhook', row } : null
 }
 
-export function updateRoutine(r: Routine, patch: Partial<CronInput>): Promise<Cron | Webhook> {
-  if (r.kind === 'cron') return api.updateCron(r.row.id, patch)
+export function updateRoutine(r: Routine, patch: Partial<CronInput & WebhookInput>): Promise<Cron | Webhook> {
+  if (r.kind === 'cron') {
+    const { thread_per_fire: _perFire, ...cron } = patch
+    return api.updateCron(r.row.id, cron)
+  }
   const { schedule: _schedule, once: _once, ...rest } = patch
   return api.updateWebhook(r.row.id, rest)
+}
+
+/**
+ * Create a routine from the composer (RoutineStrip): in the conversation it
+ * was started in (`threadId`, an empty chat), or in a new one under `parentId`
+ * — or at the top level. Answers with its conversation.
+ */
+export async function createRoutine(
+  r: NewRoutine,
+  where: { parentId?: string | null; threadId?: string; model?: string; effort?: Effort },
+): Promise<string> {
+  const common = {
+    name: r.name,
+    prompt: r.prompt,
+    model: where.model,
+    effort: where.effort,
+    conversation_id: where.parentId ?? null,
+    ...(where.threadId ? { thread_id: where.threadId } : {}),
+  }
+  const row = r.kind === 'cron'
+    ? await api.createCron({ ...common, schedule: r.schedule })
+    : await api.createWebhook({ ...common, thread_per_fire: r.thread_per_fire })
+  await useChatStore.getState().loadConversations()
+  window.__jarvisToast?.info(r.kind === 'cron'
+    ? `${r.name} is set. Its settings are behind the chip at the top.`
+    : `${r.name} is set. Its link is behind the chip at the top.`)
+  return row.thread_id ?? where.threadId ?? ''
 }

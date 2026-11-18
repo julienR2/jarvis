@@ -481,6 +481,16 @@ export function initDb(): void {
       db.exec(`ALTER TABLE ${table} ADD COLUMN thread_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`)
     } catch { /* already exists */ }
   }
+  // A webhook that opens a new thread for each call (webhooks.ts), and the key
+  // a call names its thread by — a follow-up with the same key goes back into
+  // it ("<webhook id>:<key>").
+  try {
+    db.exec(`ALTER TABLE webhooks ADD COLUMN thread_per_fire INTEGER NOT NULL DEFAULT 0`)
+  } catch { /* already exists */ }
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN fire_key TEXT`)
+  } catch { /* already exists */ }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_conversations_fire_key ON conversations(fire_key) WHERE fire_key IS NOT NULL')
   // A routine paused because its conversation was archived (archive.ts):
   // bringing the conversation back resumes it — one paused by hand stays so.
   for (const table of ['crons', 'webhooks']) {

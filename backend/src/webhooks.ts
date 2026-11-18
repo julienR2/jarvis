@@ -1,8 +1,52 @@
-import { getDb } from './db.js'
+import { getDb, uuid } from './db.js'
 import { processMessage, type Attachment } from './routes/conversations.js'
 import { startRun } from './runs.js'
 import { ensureThread, threadNotifyOf } from './threads.js'
-import type { WebhookRow } from './types.js'
+import { unarchiveConversation } from './archive.js'
+import { emitGlobalEvent } from './sse.js'
+import { UNTITLED } from './titles.js'
+import type { ConvRow, WebhookRow } from './types.js'
+
+/** The key a call names its thread by: `thread_key` in its payload. */
+function threadKeyOf(payload: unknown): string | null {
+  const key = payload && typeof payload === 'object' ? (payload as Record<string, unknown>).thread_key : undefined
+  return typeof key === 'string' && key.trim() ? key.trim().slice(0, 200) : null
+}
+
+/**
+ * Where a call runs. Usually the routine's own conversation, every call one
+ * after the other. A webhook set to open a thread per call (an email
+ * processor: one thread per email) gets a new conversation each time, under
+ * the chat it is attached to — or under its own conversation when it is
+ * attached to none — titled from what the run says. A call with a
+ * `thread_key` already seen goes back into that thread instead (a reply in
+ * the same email exchange), brought back from the Archive if need be, and
+ * resumes its session: the run knows what was said there before.
+ */
+function fireTarget(entry: WebhookRow, payload: unknown): { conv: ConvRow; resume: boolean } {
+  const home = ensureThread('webhooks', entry, threadNotifyOf(entry.notify))
+  if (!entry.thread_per_fire) return { conv: home, resume: false }
+  const db = getDb()
+  const key = threadKeyOf(payload)
+  const fireKey = key ? `${entry.id}:${key}` : null
+  if (fireKey) {
+    const existing = db.prepare('SELECT * FROM conversations WHERE fire_key = ? ORDER BY created_at DESC LIMIT 1').get(fireKey) as ConvRow | undefined
+    if (existing) {
+      if (existing.archived_at) unarchiveConversation(existing.id)
+      return { conv: { ...existing, archived_at: null }, resume: !!existing.claude_session_id }
+    }
+  }
+  const parentId = (entry.conversation_id && db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(entry.conversation_id))
+    ? entry.conversation_id
+    : home.id
+  const id = uuid()
+  db.prepare(
+    `INSERT INTO conversations (id, title, model, effort, last_read_at, notify, parent_id, fire_key)
+     VALUES (?, ?, NULL, 'default', unixepoch(), ?, ?, ?)`,
+  ).run(id, UNTITLED, home.notify, parentId, fireKey)
+  emitGlobalEvent({ type: 'conversation_changed', conversation_id: id })
+  return { conv: db.prepare('SELECT * FROM conversations WHERE id = ?').get(id) as ConvRow, resume: false }
+}
 
 export function fireWebhook(entry: WebhookRow, payload?: unknown): void {
   console.log(`[webhook] firing "${entry.name}"`)
@@ -24,21 +68,25 @@ export interface SharedContent {
  */
 export function fireWebhookShare(entry: WebhookRow, shared: SharedContent): string {
   console.log(`[webhook] firing "${entry.name}" from the share sheet`)
-  _fireWebhook(entry, undefined, false, shared)
-  return entry.thread_id!
+  return _fireWebhook(entry, undefined, false, shared).conversationId
 }
 
 export function fireWebhookSync(entry: WebhookRow, payload?: unknown): Promise<string> {
   console.log(`[webhook] firing sync "${entry.name}"`)
-  return _fireWebhook(entry, payload, true) as Promise<string>
+  return _fireWebhook(entry, payload, true).done!
 }
 
-function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean, shared?: SharedContent): Promise<string> | void {
+function _fireWebhook(
+  entry: WebhookRow,
+  payload?: unknown,
+  sync?: boolean,
+  shared?: SharedContent,
+): { conversationId: string; done?: Promise<string> } {
   getDb()
     .prepare('UPDATE webhooks SET last_run = unixepoch() WHERE id = ?')
     .run(entry.id)
 
-  const thread = ensureThread('webhooks', entry, threadNotifyOf(entry.notify))
+  const { conv: thread, resume } = fireTarget(entry, payload)
   const conversationId = thread.id
 
   let prompt = entry.prompt
@@ -92,6 +140,7 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean, shar
     runKey,
     runId: run.id,
     routine: { name: entry.name, kind: 'webhook' as const },
+    resumeSession: resume,
   }
 
   const donePromise = sync
@@ -120,5 +169,5 @@ function _fireWebhook(entry: WebhookRow, payload?: unknown, sync?: boolean, shar
     })
   }
 
-  return donePromise
+  return { conversationId, done: donePromise }
 }
