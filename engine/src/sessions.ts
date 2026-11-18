@@ -969,7 +969,10 @@ function jarvisServer(sess: Session) {
           'editable above their input; they either approve it (possibly after editing it), reply with what to ' +
           'change, or discard it. Pass exactly the text that would go out in `text`, nothing around it. Who it ' +
           'goes to, the subject and the attached files go in their own fields, shown above the text in full: ' +
-          'fill every one that applies, so what they approve is the whole message, not just its body.',
+          'fill every one that applies, so what they approve is the whole message, not just its body. ' +
+          'The card shows only the message. Your report goes in the chat before you call it: what came in, ' +
+          'what you found or did, why this reply. Write it as fully as you would have without the tool, ' +
+          'because nothing you write after the call is seen until they answer.',
         {
           text: z.string().min(1).describe('The exact text that would be sent or published.'),
           note: z

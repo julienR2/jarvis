@@ -12,6 +12,13 @@ says what to do.
   Fill each one that applies — what the user approves is the whole message.
   `note` is only a few words on what it is ("Reply to the accountant"); it is
   not the place for recipients, subject or files.
+- **Report first, then the tool.** The card shows only the message, and it
+  waits on the user, so anything you write after calling it stays unseen
+  until they answer. Everything they need to decide (what came in, your
+  summary and analysis, what you did, why this reply, anything to double-check)
+  goes in the chat *before* the call, as fully as you'd have written it
+  without the tool. Any output format a prompt asks for still applies: that
+  is your report, and `review_text` takes the place of the draft at its end.
 - **Approved as shown** → send it, unchanged.
 - **Edited by the user** → keep their wording; fix only typos, grammar and
   formatting, say briefly what you touched or would adjust, and call
