@@ -38,9 +38,18 @@ export function isUnder(conv: Conversation, ancestorId: string, byId: Record<str
   return false
 }
 
-/** Still in its parent's active list: not put away with Done. */
+/** Still in its parent's active list: not archived. */
 export function isActiveThread(c: Conversation): boolean {
   return !c.archived_at
+}
+
+/** How long the Archive keeps a conversation (backend archive.ts). */
+export const ARCHIVE_KEEP_DAYS = 7
+
+/** When an archived conversation will be deleted, in words: "in 6 days". */
+export function archiveDeadline(archivedAt: number): string {
+  const left = Math.ceil((archivedAt + ARCHIVE_KEEP_DAYS * 86400 - Date.now() / 1000) / 86400)
+  return left <= 0 ? 'within the hour' : `in ${left} day${left > 1 ? 's' : ''}`
 }
 
 // The threads open as tabs beside each chat, kept per device like the pane

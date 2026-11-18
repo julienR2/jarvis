@@ -124,12 +124,10 @@ test.describe('topic', () => {
     // Back on the topic, the new chat is listed under it.
     await page.goBack()
     await expect(page.getByTestId('topic-chats').getByTestId('topic-chat').filter({ hasText: 'New conversation' }).first()).toBeVisible()
-    // Leave the instance as found: the menu's Delete opens the dialog, whose
-    // own Delete does it (files archived, no routines to ask about).
+    // Leave the instance as found: archived from its menu, at once.
     await page.goto(`c/${id}`)
     await page.getByRole('main').locator('button[title*="onversation options"]:visible').first().click()
-    await page.getByRole('button', { name: 'Delete' }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click()
+    await page.getByRole('button', { name: 'Archive' }).click()
     await expect(page).toHaveURL(HOME)
   })
 })

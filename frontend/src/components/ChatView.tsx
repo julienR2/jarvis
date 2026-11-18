@@ -5,14 +5,13 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { Earth, Loader2, ArrowDown, EyeOff, FileText, Hash, Clock, Link2 } from 'lucide-react'
+import { Earth, Loader2, ArrowDown, EyeOff, FileText, Hash, Clock, Link2, Archive } from 'lucide-react'
 import {
   api,
   pendingQuestionOf,
   type Message,
   type Attachment,
   type Conversation,
-  type DeleteOptions,
   type ReplyTo,
   type Run,
 } from '../api'
@@ -35,7 +34,7 @@ import { RoutineCard, RoutineChip } from './RoutineCard'
 import ThreadPanel, { type ThreadPanelState } from './ThreadPanel'
 import { useShallow } from 'zustand/react/shallow'
 import { routineOf, ROUTINE_CHANGED_EVENT, type Routine } from '../lib/routines'
-import { isActiveThread, isDraftThread, isForeignRun, readThreadTabs, routineKindOf, saveThreadTabs } from '../lib/threads'
+import { archiveDeadline, isActiveThread, isDraftThread, isForeignRun, readThreadTabs, routineKindOf, saveThreadTabs } from '../lib/threads'
 import SelectionReply from './SelectionReply'
 import { dropQuietRuns, groupMessagesByDay, isFinishedReply } from '../lib/transcript'
 import { answerFromComposer } from './AnswerCard'
@@ -406,7 +405,7 @@ export default function ChatView({
   // Done: out of the chat's active list (and its tab). Any new message in it
   // brings it back.
   function archiveThread(id: string, archived: boolean) {
-    useChatStore.getState().patchConversation(id, { archived_at: archived ? Math.floor(Date.now() / 1000) : null })
+    useChatStore.getState().setArchived(id, archived)
     if (archived) closeThreadTab(`thread:${id}`)
   }
   const sidePane: 'app' | null = hasPanel ? 'app' : null
@@ -802,10 +801,11 @@ export default function ChatView({
     setRenaming(false)
   }
 
-  async function handleDelete(opts: DeleteOptions) {
+  async function handleArchive() {
     if (!conversationId) return
-    await useChatStore.getState().deleteConversation(conversationId, opts)
-    navigate('/', { replace: true })
+    const parent = conv?.parent_id
+    await useChatStore.getState().setArchived(conversationId, true)
+    navigate(parent ? `/c/${parent}` : '/', { replace: true })
   }
 
   function cancelMessage() {
@@ -891,7 +891,7 @@ export default function ChatView({
           {routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />}{threadsPill}<RunsPill conversationId={conversationId} />
           <ShareIcon shareMode={shareMode} />
           <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-          <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
+          <ConversationMenu onArchive={handleArchive} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
         </span>
       ) : undefined}
     >
@@ -961,7 +961,7 @@ export default function ChatView({
                 {routine && conv && <RoutineChip routine={routine} thread={conv} onChanged={reloadRoutine} defaultOpen={routineOpen} />}{threadsPill}<RunsPill conversationId={conversationId} />
                 <ShareIcon shareMode={shareMode} />
                 <ContextGauge tokens={contextTokens} windowTokens={contextWindow} />
-                <ConversationMenu onDelete={handleDelete} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
+                <ConversationMenu onArchive={handleArchive} onRename={startRename} notify={notify} onNotifyChange={handleNotifyChange} conversationId={conversationId} onMove={() => setMoving(true)} onRefreshApp={hasApp ? bumpApp : undefined} appUrl={hasApp ? appShareUrl : undefined} onRotateAppToken={hasApp && conversationId ? async () => { const { token } = await api.rotateAppToken(conversationId); setAppShare({ id: conversationId, token }) } : undefined} />
               </span>
             ) : undefined}
           >
@@ -1096,6 +1096,23 @@ export default function ChatView({
               </div>
             </div>
           </div>
+
+          {/* Put away: it says so, and how long it has left. Writing brings it back too. */}
+          {conv?.archived_at && !shared && (
+            <div className='flex justify-center px-4 pb-1' data-testid='archived-banner'>
+              <span className='inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1 text-[12px] text-text-secondary'>
+                <Archive size={12} className='shrink-0 text-text-muted' />
+                Archived — deleted for good {archiveDeadline(conv.archived_at)}
+                <button
+                  type='button'
+                  onClick={() => useChatStore.getState().setArchived(conv.id, false)}
+                  className='font-medium text-accent hover:underline'
+                >
+                  Bring back
+                </button>
+              </span>
+            </div>
+          )}
 
           {threadNews.length > 0 && (
             <div className='flex justify-center px-4 pb-1'>

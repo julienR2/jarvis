@@ -481,6 +481,13 @@ export function initDb(): void {
       db.exec(`ALTER TABLE ${table} ADD COLUMN thread_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`)
     } catch { /* already exists */ }
   }
+  // A routine paused because its conversation was archived (archive.ts):
+  // bringing the conversation back resumes it — one paused by hand stays so.
+  for (const table of ['crons', 'webhooks']) {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN archived_pause INTEGER NOT NULL DEFAULT 0`)
+    } catch { /* already exists */ }
+  }
   // Once: a chat a routine opened for itself ("Cron: x", never filed) was a
   // thread in all but name — it becomes the routine's thread, attached to
   // nothing. A chat someone chose for the routine stays a chat, and the

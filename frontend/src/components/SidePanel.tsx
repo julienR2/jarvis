@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Check, ExternalLink, FileText, FolderInput, FolderMinus, FolderOpen, Globe, Hash, LayoutGrid, Maximize2, Pin, RefreshCw, X, Clock, Link2 } from 'lucide-react'
+import { ArrowLeft, Archive, ExternalLink, FileText, FolderInput, FolderMinus, FolderOpen, Globe, Hash, LayoutGrid, Maximize2, Pin, RefreshCw, X, Clock, Link2 } from 'lucide-react'
 import { api, tabContentUrl, type ChatTab } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { useTabsStore } from '../stores/tabsStore'
@@ -177,8 +177,8 @@ export default function SidePanel({ conversationId, tabs, active, onActivate, ap
             </a>
           )}
           {threadId && onThreadDone && (
-            <button type='button' onClick={() => onThreadDone(threadId)} title='Done — put the side chat away' aria-label='Done with this side chat' className={ACTION}>
-              <Check size={15} />
+            <button type='button' onClick={() => onThreadDone(threadId)} title='Archive this thread' aria-label='Archive this thread' className={ACTION}>
+              <Archive size={14} />
             </button>
           )}
           {threadId && (

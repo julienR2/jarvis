@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import ArchivePage from './ArchivePage'
 import RoutinesPage from './RoutinesPage'
 import NewRoutinePage from './NewRoutinePage'
 import TopicPage from './TopicPage'
@@ -160,9 +161,9 @@ export default function ChatPage() {
       >
         <Sidebar
           onNew={newConversation}
-          onDelete={async (id, opts) => {
+          onArchive={async (id) => {
             const onCurrent = locationRef.current === `/c/${id}`
-            await useChatStore.getState().deleteConversation(id, opts)
+            await useChatStore.getState().setArchived(id, true)
             if (onCurrent) navigate('/', { replace: true })
           }}
           onRename={(id, title) => useChatStore.getState().patchConversation(id, { title })}
@@ -239,6 +240,7 @@ export default function ChatPage() {
               }
             />
             <Route path='/routines' element={<RoutinesPage />} />
+            <Route path='/archive' element={<ArchivePage />} />
             <Route path='/routines/new' element={<NewRoutinePage />} />
             <Route path='/t/:id' element={<TopicPage />} />
             {/* Crons and webhooks became routines, and the Activity page folded into

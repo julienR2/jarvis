@@ -151,8 +151,8 @@ export default function RoutinesPage() {
           <section className='rounded-xl bg-surface2/70 px-4 py-3 text-[13.5px] leading-relaxed text-text-secondary' data-testid='routines-intro'>
             <strong className='font-semibold text-text-primary'>What Jarvis does on its own.</strong>{' '}
             A routine runs by itself — on a schedule (every morning, every hour…) or when something arrives (an email
-            forwarded to it, a link being called). Each has its own chat where every run happens, and can post what it
-            finds into one of your chats. Ask for one in any chat, or press New routine.
+            forwarded to it, a link being called). Each has its own chat where every run happens, which can sit under
+            one of your chats as a thread. Ask for one in any chat, or press New routine.
           </section>
 
           {filterLabel && (

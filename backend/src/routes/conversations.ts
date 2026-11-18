@@ -6,8 +6,7 @@ import { basename, extname, resolve, sep } from 'path'
 import { getDb, uuid, normalizeEffort } from '../db.js'
 import { activeRuns, finishRun, getRun, runStatus, stopRunsFor } from '../runs.js'
 import { ownerOrShare, resolveShareToken } from '../share-access.js'
-import { appAcceptsShares, archiveAppDir, archiveUploadsDir, conversationFiles, purgeConversationFiles } from '../app-archive.js'
-import { rescheduleAll } from '../crons.js'
+import { appAcceptsShares } from '../app-archive.js'
 import { ensureAppToken, rotateAppToken, generateShareToken } from '../app-tokens.js'
 import { UPLOADS_DIR, privatizeAttachments } from './uploads.js'
 import {
@@ -41,6 +40,7 @@ import { DICTATION_ID_RE, dropDictation, finishDictation, transcribeFile } from 
 import { getConnectorValues } from '../connectors.js'
 import { topicContextFor } from '../topics.js'
 import { MAX_SHORTCUTS } from '../shortcuts.js'
+import { archiveConversation, purgeConversation, unarchiveConversation } from '../archive.js'
 import { parentActivityPrompt, ROUTINE_DRAFT_TITLE, routineOfThread, routineRunPrompt, setParent, threadActivityPrompt, threadContextPrompt } from '../threads.js'
 import { SILENT_MARK, splitNotify } from '../runs.js'
 import type { ConvRow, MessageRow, EffortLevel, PendingQuestion } from '../types.js'
@@ -354,9 +354,12 @@ export function processMessage(
   },
 ): string | null {
   let attachments = attachmentsIn
-  // Anything new in a conversation put away brings it back.
-  if (conv.archived_at) {
-    getDb().prepare('UPDATE conversations SET archived_at = NULL WHERE id = ?').run(conversationId)
+  // Writing in a conversation put away brings it back (and the chats above it).
+  // A routine's run does not: archiving paused it, and one fired by hand
+  // meanwhile leaves it where it is.
+  if (conv.archived_at && !options?.runId) {
+    unarchiveConversation(conversationId)
+    conv.archived_at = null
   }
 
   // Slash commands pass through untouched — no notify prefix, no attachment refs.
@@ -2078,8 +2081,10 @@ export async function conversationRoutes(app: FastifyInstance) {
       sets.push('notify = ?')
       params.push(notify)
     }
+    // Put away with everything under it, or brought back with it (archive.ts).
     if (body.archived !== undefined) {
-      sets.push(body.archived ? 'archived_at = unixepoch()' : 'archived_at = NULL')
+      if (body.archived) archiveConversation(req.params.id)
+      else unarchiveConversation(req.params.id)
     }
     if (body.shortcut === false) sets.push('shortcut_at = NULL')
     if (body.shortcut === true) {
@@ -2112,14 +2117,14 @@ export async function conversationRoutes(app: FastifyInstance) {
       if (!setParent(req.params.id, parentId)) {
         return reply.code(400).send({ error: 'parent_id must be another conversation, not this one or one under it' })
       }
-    } else if (sets.length === 0) {
+    } else if (sets.length === 0 && body.archived === undefined) {
       return reply.code(400).send({ error: 'Nothing to update' })
     }
 
     // Filing a chat isn't activity: bumping updated_at here would shuffle it to
     // the top of its new section, since sections sort by most recent activity.
     // Neither is putting it away, nor offering it as a shortcut.
-    const onlyMoved = sets.every((s) => s === 'section_id = ?' || s.startsWith('archived_at') || s.startsWith('shortcut_at'))
+    const onlyMoved = sets.every((s) => s === 'section_id = ?' || s.startsWith('shortcut_at'))
     if (!onlyMoved) sets.push('updated_at = unixepoch()')
     params.push(req.params.id)
 
@@ -2164,56 +2169,17 @@ export async function conversationRoutes(app: FastifyInstance) {
     return { ok: true }
   })
 
-  // GET /:id/footprint — what a delete would touch besides the messages, so the
-  // dialog asks only about what exists.
-  app.get<{ Params: { id: string } }>('/:id/footprint', auth, async (req, reply) => {
-    const conv = getDb()
-      .prepare('SELECT app_path FROM conversations WHERE id = ?')
-      .get(req.params.id) as Pick<ConvRow, 'app_path'> | undefined
-    if (!conv) return reply.code(404).send({ error: 'Not found' })
-    const { n: routines } = getDb()
-      .prepare(
-        `SELECT (SELECT COUNT(*) FROM crons WHERE conversation_id = @id OR thread_id = @id)
-              + (SELECT COUNT(*) FROM webhooks WHERE conversation_id = @id OR thread_id = @id) AS n`,
-      )
-      .get({ id: req.params.id }) as { n: number }
-    return { ...conversationFiles(req.params.id, conv.app_path), routines }
+  // DELETE /:id — for good, now: the conversation, everything under it, their
+  // files and the routines running in them. The app archives instead (PATCH
+  // archived), and the Archive deletes after a week; this is for what was
+  // never worth keeping, like a routine draft discarded.
+  app.delete<{ Params: { id: string } }>('/:id', auth, async (req, reply) => {
+    if (!getDb().prepare('SELECT 1 FROM conversations WHERE id = ?').get(req.params.id)) {
+      return reply.code(404).send({ error: 'Not found' })
+    }
+    purgeConversation(req.params.id)
+    return { ok: true }
   })
-
-  // DELETE /:id?files=delete&routines=delete
-  //
-  // By default the chat's files (its app, its uploads) are archived rather than
-  // deleted, so a chat removed by mistake can be recovered from the file
-  // browser, and its routines are left in place — the FK sets their
-  // conversation_id to NULL and the next fire opens a fresh chat. Either
-  // choice is the person's to make in the delete dialog, not the default.
-  app.delete<{ Params: { id: string }; Querystring: { files?: string; routines?: string } }>(
-    '/:id',
-    auth,
-    async (req, reply) => {
-      const conv = getDb()
-        .prepare('SELECT app_path FROM conversations WHERE id = ?')
-        .get(req.params.id) as ConvRow | undefined
-      if (!conv) return reply.code(404).send({ error: 'Not found' })
-
-      if (req.query.routines === 'delete') {
-        const db = getDb()
-        const crons = db.prepare('DELETE FROM crons WHERE conversation_id = @id OR thread_id = @id').run({ id: req.params.id })
-        db.prepare('DELETE FROM webhooks WHERE conversation_id = @id OR thread_id = @id').run({ id: req.params.id })
-        if (crons.changes) rescheduleAll()
-      }
-
-      if (req.query.files === 'delete') {
-        purgeConversationFiles(req.params.id, conv.app_path)
-      } else {
-        if (conv.app_path) archiveAppDir(req.params.id, conv.app_path)
-        archiveUploadsDir(req.params.id)
-      }
-
-      getDb().prepare('DELETE FROM conversations WHERE id = ?').run(req.params.id)
-      return { ok: true }
-    },
-  )
 
   // ── Conversation sharing ───────────────────────────────────────────────────
 

@@ -217,7 +217,7 @@ export async function internalRoutes(app: FastifyInstance) {
       .prepare(
         `SELECT c.id, c.title, c.parent_id, s.name AS topic, c.updated_at FROM conversations c
            LEFT JOIN sections s ON s.id = c.section_id
-          WHERE NOT ${privateSql('c')} ORDER BY c.updated_at DESC LIMIT ?`,
+          WHERE c.archived_at IS NULL AND NOT ${privateSql('c')} ORDER BY c.updated_at DESC LIMIT ?`,
       )
       .all(limit)
   })

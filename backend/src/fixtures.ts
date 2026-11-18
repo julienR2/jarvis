@@ -367,7 +367,7 @@ export function seedFixtures(): void {
     insSubChat.run(ID.listerFresh, 'Wine cellars', t(40), t(20), t(39), ID.lister, listerAnswer, null)
     insMsg.run(uuid(), ID.listerFresh, 'user', 'Which cellars?', null, null, null, t(40))
     insMsg.run(uuid(), ID.listerFresh, 'assistant', 'Graham’s and Taylor’s.', null, null, 'Graham’s and Taylor’s, both in Gaia.', t(20))
-    insSubChat.run(ID.listerOld, 'Coast road', t(60 * 24 * 11), t(60 * 24 * 10), t(60 * 24 * 10), ID.lister, listerAnswer, t(60 * 24 * 10))
+    insSubChat.run(ID.listerOld, 'Coast road', t(60 * 24 * 11), t(60 * 24 * 10), t(60 * 24 * 10), ID.lister, listerAnswer, t(60 * 24 * 2))
     insMsg.run(uuid(), ID.listerOld, 'user', 'Which coast?', null, null, null, t(60 * 24 * 11))
     insMsg.run(uuid(), ID.listerOld, 'assistant', 'The Costa Verde.', null, null, 'The Costa Verde, north to Viana.', t(60 * 24 * 10))
 

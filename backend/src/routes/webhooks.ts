@@ -97,6 +97,8 @@ export async function webhookRoutes(app: FastifyInstance) {
       .prepare('UPDATE webhooks SET name=?, prompt=?, enabled=?, model=?, effort=?, notify=?, user_message_key=?, conversation_id=? WHERE id=?')
       .run(updated.name, updated.prompt, updated.enabled, updated.model, updated.effort, updated.notify, updated.user_message_key, updated.conversation_id, req.params.id)
 
+    // Paused or resumed by hand: no longer archiving's doing (archive.ts).
+    if (body.enabled !== undefined) getDb().prepare('UPDATE webhooks SET archived_pause = 0 WHERE id = ?').run(req.params.id)
     const row = getDb().prepare('SELECT * FROM webhooks WHERE id = ?').get(req.params.id) as WebhookRow
     syncThreadParent(row.thread_id, row.conversation_id)
     renameThread(row.thread_id, existing.name, row.name)

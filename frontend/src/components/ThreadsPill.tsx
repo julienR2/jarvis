@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Check, ChevronRight, Clock, Hash, Link2, RotateCcw } from 'lucide-react'
+import { Archive, ArchiveRestore, ChevronRight, Clock, Hash, Link2 } from 'lucide-react'
 import type { Conversation, Message } from '../api'
 import { relative } from '../lib/runs'
 import { CreateRow, SubChatRow } from './SubChatRow'
@@ -21,8 +21,8 @@ interface Props {
 /**
  * A chat's threads, in its title bar: the way back to them without scrolling
  * to where they started. One list, most recent first — a side chat, or a
- * routine's conversation (its mark says which: a schedule, a webhook); put
- * away with Done, they fold under Archived. Ends with the way to start one.
+ * routine's conversation (its mark says which: a schedule, a webhook);
+ * archived, they fold under Archived until the Archive deletes them. Ends with the way to start one.
  */
 export default function ThreadsPill({ threads, messages, activeId, onOpen, onNew, onArchive }: Props) {
   const [open, setOpen] = useState(false)
@@ -60,8 +60,8 @@ export default function ThreadsPill({ threads, messages, activeId, onOpen, onNew
         italicSub
         onOpen={() => pick(t.id)}
         actions={[archivedRow
-          ? { label: `Reopen ${t.title}`, icon: <RotateCcw size={12} />, run: () => onArchive(t, false) }
-          : { label: `Done with ${t.title}`, icon: <Check size={12} />, run: () => onArchive(t, true) }]}
+          ? { label: `Bring back ${t.title}`, icon: <ArchiveRestore size={12} />, run: () => onArchive(t, false) }
+          : { label: `Archive ${t.title}`, icon: <Archive size={12} />, run: () => onArchive(t, true) }]}
       />
     )
   }

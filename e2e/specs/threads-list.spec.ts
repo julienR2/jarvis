@@ -38,7 +38,7 @@ test.describe('the threads of a chat', () => {
     await expect(list.getByTestId('thread-row').filter({ has: page.getByText('Coast road', { exact: true }) })).toBeVisible()
   })
 
-  test('the chip opens the thread as a tab; Done puts it away, and Reopen brings it back', async ({ page }) => {
+  test('the chip opens the thread as a tab; Archive puts it away, and Bring back brings it back', async ({ page }) => {
     await openConversation(page, 'Trip planning')
     await page.getByTestId('thread-news').click()
     await expect(page).toHaveURL(/\?thread=00000000-0000-4000-8000-00000000001a/)
@@ -47,13 +47,13 @@ test.describe('the threads of a chat', () => {
     await expect(page.getByTestId('thread-panel').getByText('Graham’s and Taylor’s.')).toBeVisible()
     await expect(page.getByTestId('thread-news')).toHaveCount(0)
 
-    await page.getByRole('button', { name: 'Done with this side chat' }).click()
+    await page.getByRole('button', { name: 'Archive this thread' }).click()
     await expect(tabs).toHaveCount(0)
     await page.locator('[data-testid="threads-pill"]:visible').click()
     const list = page.getByTestId('threads-popover')
     await expect(list.getByTestId('thread-row')).toHaveCount(0)
     await list.getByRole('button', { name: /Archived \(2\)/ }).click()
-    await list.getByRole('button', { name: 'Reopen Wine cellars' }).click()
+    await list.getByRole('button', { name: 'Bring back Wine cellars' }).click()
     await expect(list.getByTestId('thread-row').filter({ has: page.getByText('Wine cellars', { exact: true }) })).toHaveCount(1)
   })
 

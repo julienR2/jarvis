@@ -125,6 +125,8 @@ export async function cronRoutes(app: FastifyInstance) {
       .prepare('UPDATE crons SET name=?, schedule=?, prompt=?, enabled=?, once=?, model=?, effort=?, conversation_id=? WHERE id=?')
       .run(updated.name, updated.schedule, updated.prompt, updated.enabled, updated.once, updated.model, updated.effort, updated.conversation_id, req.params.id)
 
+    // Paused or resumed by hand: no longer archiving's doing (archive.ts).
+    if (body.enabled !== undefined) getDb().prepare('UPDATE crons SET archived_pause = 0 WHERE id = ?').run(req.params.id)
     const row = getDb().prepare('SELECT * FROM crons WHERE id = ?').get(req.params.id) as CronRow
     syncThreadParent(row.thread_id, row.conversation_id)
     renameThread(row.thread_id, existing.name, row.name)

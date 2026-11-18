@@ -166,32 +166,37 @@ test.describe('chat rendering', () => {
     await expect(page.getByTestId('jump-to-bottom')).toBeHidden()
   })
 
-  test('delete: the dialog asks about what the chat has — here a routine, off by default; Cancel keeps everything', async ({ page }) => {
-    await openConversation(page, 'Morning brief')
-    await page.getByRole('main').locator('button[title*="onversation options"]:visible').first().click()
-    await page.getByRole('button', { name: 'Delete' }).click()
-    const dialog = page.getByRole('dialog')
-    await expect(dialog.getByText('Delete this chat?')).toBeVisible()
-    const routines = dialog.getByRole('switch', { name: /Also delete its routine/ })
-    await expect(routines).toHaveAttribute('aria-checked', 'false')
-    await expect(dialog.getByText('Otherwise they keep running and open a new chat')).toBeVisible()
-    // No uploads, no app: nothing to ask about files.
-    await expect(dialog.getByRole('switch', { name: /Also delete .*file|app/ })).toHaveCount(0)
-    await dialog.getByRole('button', { name: 'Cancel' }).click()
-    await expect(dialog).toHaveCount(0)
-    await expect(page).toHaveURL(/000000000003$/)
-  })
+  test('archive: a chat goes with its routine, paused, to the Archive — and comes back with it, resumed', async ({ page }) => {
+    const headers = { Authorization: `Bearer ${process.env.E2E_TOKEN}`, 'Content-Type': 'application/json' }
+    const conv = await (await page.request.post('api/conversations', { headers, data: { title: 'Archive me' } })).json() as { id: string }
+    await page.request.post('api/crons', { headers, data: { name: 'e2e-archive-cron', schedule: '0 3 * * *', prompt: 'Nothing.', conversation_id: conv.id } })
+    const cron = async () => ((await (await page.request.get('api/crons', { headers })).json()) as { name: string; enabled: number }[])
+      .find((c) => c.name === 'e2e-archive-cron')!
 
-  test('delete: a chat with nothing attached is just asked to confirm, and Delete removes it', async ({ page }) => {
-    await openConversation(page, 'Scratch')
+    await page.goto(`c/${conv.id}`)
     await page.getByRole('main').locator('button[title*="onversation options"]:visible').first().click()
-    await page.getByRole('button', { name: 'Delete' }).click()
-    const dialog = page.getByRole('dialog')
-    await expect(dialog.getByText('Delete this chat?')).toBeVisible()
-    await expect(dialog.getByRole('switch')).toHaveCount(0)
-    await dialog.getByRole('button', { name: 'Delete' }).click()
+    await page.getByRole('button', { name: 'Archive' }).click()
+    // No dialog: it is put away at once, with its routine paused.
     await expect(page).toHaveURL(/^https?:\/\/[^/]+\/?$/)
-    await expect(page.getByRole('complementary').getByText('Scratch', { exact: true })).toHaveCount(0)
+    await expect(page.getByRole('complementary').getByText('Archive me', { exact: true })).toHaveCount(0)
+    expect((await cron()).enabled).toBeFalsy()
+
+    // In the Archive once, its routine's conversation counted under it.
+    await page.goto('archive')
+    const row = page.getByTestId('archive-row').filter({ hasText: 'Archive me' })
+    await expect(row).toContainText('with 1 thread')
+    await expect(row).toContainText('deleted in 7 days')
+    // Opened, it says so; Bring back there restores it and resumes the routine.
+    await row.getByRole('button', { name: /^Archive me/ }).click()
+    const banner = page.getByTestId('archived-banner')
+    await expect(banner).toContainText('Archived — deleted for good in 7 days')
+    await banner.getByRole('button', { name: 'Bring back' }).click()
+    await expect(banner).toHaveCount(0)
+    await expect.poll(async () => (await cron()).enabled).toBeTruthy()
+
+    // Leave the instance as found: for good, routine included.
+    expect((await page.request.delete(`api/conversations/${conv.id}`, { headers: { Authorization: headers.Authorization } })).ok()).toBe(true)
+    expect(await cron()).toBeUndefined()
   })
 
   test('reply to a passage: selecting text offers a reply button that quotes it into the composer', async ({ page }) => {

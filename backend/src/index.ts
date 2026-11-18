@@ -50,6 +50,7 @@ import { initPush } from './push.js'
 import { subscribeGlobal, addGlobalClient, removeGlobalClient } from './sse.js'
 import { engineStatus } from './engine.js'
 import { startEmptyChatSweep } from './empty-chats.js'
+import { startArchivePurge } from './archive.js'
 import type { ConvRow } from './types.js'
 
 // ── Fastify type augmentation ────────────────────────────────────────────────
@@ -356,6 +357,7 @@ async function reconnectActiveSessions(): Promise<void> {
 reconnectActiveSessions().then(reconcileStaleRuns)
 
 startEmptyChatSweep()
+startArchivePurge()
 
 // The engine reads its credentials from a mirror of secrets.json, not the file
 // itself (see secrets.ts). Written now so a fresh engine finds it.

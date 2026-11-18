@@ -4,6 +4,7 @@ import {
   Plus,
   Clock,
   Link2,
+  Archive,
   AppWindow,
   Earth,
   ChevronUp,
@@ -35,7 +36,7 @@ import ConversationMenu, {
 import NameModal from './NameModal'
 import SectionPicker from './SectionPicker'
 import Popover from './Popover'
-import type { Conversation, DeleteOptions, Section } from '../api'
+import type { Conversation, Section } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { api } from '../api'
 import { startOfToday, useRecentRuns } from '../lib/runs'
@@ -44,7 +45,7 @@ import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
   onNew: () => void
-  onDelete: (id: string, opts: DeleteOptions) => void
+  onArchive: (id: string) => void
   onRename: (id: string, title: string) => void
   onMove: (id: string, sectionId: string | null) => void
   onSelect: () => void
@@ -79,7 +80,7 @@ function readCollapsed(): string[] {
 
 export default function Sidebar({
   onNew,
-  onDelete,
+  onArchive,
   onRename,
   onMove,
   onSelect,
@@ -112,6 +113,7 @@ export default function Sidebar({
   const onSettings =
     location.pathname.startsWith('/settings') ||
     location.pathname.startsWith('/routines') ||
+    location.pathname === '/archive' ||
     location.pathname === '/browser' ||
     location.pathname.startsWith('/code')
 
@@ -217,7 +219,7 @@ export default function Sidebar({
             canMoveDown={!!group.section && i < sections.length - 1}
             activePath={location.pathname}
             onNav={handleNav}
-            onDelete={onDelete}
+            onArchive={onArchive}
             onRename={onRename}
             onMove={onMove}
             childrenOf={children}
@@ -281,7 +283,7 @@ function SectionGroup({
   canMoveDown,
   activePath,
   onNav,
-  onDelete,
+  onArchive,
   onRename,
   onMove,
   childrenOf,
@@ -294,7 +296,7 @@ function SectionGroup({
   canMoveDown: boolean
   activePath: string
   onNav: (path: string) => void
-  onDelete: (id: string, opts: DeleteOptions) => void
+  onArchive: (id: string) => void
   onRename: (id: string, title: string) => void
   onMove: (id: string, sectionId: string | null) => void
   /** The threads to show under each conversation (useNestedThreads). */
@@ -324,7 +326,7 @@ function SectionGroup({
             depth={depth}
             active={activePath === `/c/${t.id}`}
             onNav={() => onNav(`/c/${t.id}`)}
-            onDelete={(opts) => onDelete(t.id, opts)}
+            onArchive={() => onArchive(t.id)}
             onRename={(title) => onRename(t.id, title)}
             onMove={(sectionId) => onMove(t.id, sectionId)}
           />
@@ -405,7 +407,7 @@ function SectionGroup({
             conv={conv}
             active={activePath === `/c/${conv.id}`}
             onNav={() => onNav(`/c/${conv.id}`)}
-            onDelete={(opts) => onDelete(conv.id, opts)}
+            onArchive={() => onArchive(conv.id)}
             onRename={(title) => onRename(conv.id, title)}
             onMove={(sectionId) => onMove(conv.id, sectionId)}
           />
@@ -537,7 +539,7 @@ function ConvItem({
   conv,
   active,
   onNav,
-  onDelete,
+  onArchive,
   onRename,
   onMove,
   depth = 0,
@@ -547,7 +549,7 @@ function ConvItem({
   depth?: number
   active: boolean
   onNav: () => void
-  onDelete: (opts: DeleteOptions) => void
+  onArchive: () => void
   onRename: (title: string) => void
   onMove: (sectionId: string | null) => void
 }) {
@@ -639,7 +641,7 @@ function ConvItem({
         <ConversationMenu
           ref={menuRef}
           conversationId={conv.id}
-          onDelete={onDelete}
+          onArchive={onArchive}
           onRename={() => setRenaming(true)}
           onMove={() => setMoving(true)}
           triggerClassName='hidden group-hover:flex'
@@ -652,6 +654,7 @@ function ConvItem({
 
 const SETTINGS_ITEMS: { path: string; label: string; hint: string; icon: React.ReactNode }[] = [
   { path: '/routines', label: 'Routines', hint: 'What Jarvis does on its own', icon: <Clock size={14} /> },
+  { path: '/archive', label: 'Archive', hint: 'Put away, kept a week', icon: <Archive size={14} /> },
   { path: '/settings', label: 'General', hint: 'Appearance, notifications, API keys', icon: <SlidersHorizontal size={14} /> },
   { path: '/settings/customize', label: 'Customize', hint: 'Models, connectors, skills', icon: <Blocks size={14} /> },
   { path: '/browser', label: 'Browser', hint: 'The logged-in Chromium', icon: <Globe size={14} /> },

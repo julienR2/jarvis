@@ -233,8 +233,6 @@ export const api = {
     id: string,
     data: { title?: string; notify?: string; section_id?: string | null; parent_id?: string | null; archived?: boolean; shortcut?: boolean },
   ) => request<Conversation>('PATCH', `/conversations/${id}`, data),
-  // Files are archived and routines kept unless told otherwise — the delete
-  // dialog's two checkboxes, both off by default.
   /**
    * Start a thread from a passage: a conversation forked from this one, opening
    * with `content` as a reply to the passage. Answers with the thread.
@@ -251,16 +249,8 @@ export const api = {
   /** Unread again from this message on — it is back on Today. */
   markConversationUnread: (id: string, messageId: string) =>
     request<{ ok: boolean }>('POST', `/conversations/${id}/unread`, { message_id: messageId }),
-  /** What a delete would touch besides the messages. */
-  getConversationFootprint: (id: string) =>
-    request<{ uploads: number; app: boolean; routines: number }>('GET', `/conversations/${id}/footprint`),
-  deleteConversation: (id: string, opts: DeleteOptions = {}) => {
-    const q = new URLSearchParams()
-    if (opts.files) q.set('files', 'delete')
-    if (opts.routines) q.set('routines', 'delete')
-    const qs = q.toString()
-    return request<{ ok: boolean }>('DELETE', `/conversations/${id}${qs ? `?${qs}` : ''}`)
-  },
+  /** For good, now, with everything under it. The app archives instead (updateConversation). */
+  deleteConversation: (id: string) => request<{ ok: boolean }>('DELETE', `/conversations/${id}`),
 
   // Sections (sidebar groups). The default "Chats" group is section_id === null
   // and has no row of its own.
@@ -711,14 +701,6 @@ export interface ReplyTo {
   text: string
 }
 
-/** What goes with a deleted conversation besides its messages. */
-export interface DeleteOptions {
-  /** Delete the chat's uploads and app for good instead of archiving them. */
-  files?: boolean
-  /** Delete the routines posting into it instead of leaving them to open a new chat. */
-  routines?: boolean
-}
-
 export interface Conversation {
   id: string
   title: string
@@ -756,7 +738,7 @@ export interface Conversation {
   has_runs?: number
   /** A thread opened on a passage of its parent: the message it was taken from. */
   parent_message_id?: string | null
-  /** Put away with Done (out of its parent's active list); cleared by its next message. */
+  /** Archived since then, with what is under it; deleted for good a week later. Cleared by its next message. */
   archived_at?: number | null
   /** Offered as a launcher shortcut of the installed app since then; null = not. */
   shortcut_at?: number | null

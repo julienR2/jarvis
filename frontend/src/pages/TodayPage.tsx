@@ -257,6 +257,7 @@ function buildInbox(conversations: Conversation[], runs: RunListItem[]): InboxEn
 
   const entries: InboxEntry[] = []
   for (const conv of conversations) {
+    if (conv.archived_at) continue
     const convRuns = byConv.get(conv.id) ?? []
     const pending = pendingQuestionOf(conv)
     const failed = failedByConv.get(conv.id)

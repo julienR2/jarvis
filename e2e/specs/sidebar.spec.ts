@@ -23,13 +23,13 @@ test.describe('sidebar', () => {
     expect(Math.abs(t!.height - c!.height)).toBeLessThan(0.5)
   })
 
-  test('a chat row\'s ⋯ menu is the short one: move, rename, delete — no sharing', async ({ page }) => {
+  test('a chat row\'s ⋯ menu is the short one: move, rename, archive — no sharing', async ({ page }) => {
     const side = page.getByRole('complementary')
     await side.getByText('Markdown showcase').hover()
     await side.locator('button[title*="onversation options"]:visible').first().click()
     await expect(page.getByRole('button', { name: 'Move to topic' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Edit name' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Archive' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Share conversation' })).toHaveCount(0)
   })
 
@@ -46,8 +46,7 @@ test.describe('sidebar', () => {
     // Leave the instance as found.
     await page.goto(`c/${id}`)
     await page.getByRole('main').locator('button[title*="onversation options"]:visible').first().click()
-    await page.getByRole('button', { name: 'Delete' }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click()
+    await page.getByRole('button', { name: 'Archive' }).click()
   })
 
   test('new chat is Today with the composer focused — no conversation is created', async ({ page }) => {

@@ -1,9 +1,7 @@
 import { useState, useRef, forwardRef, useImperativeHandle } from 'react'
-import { MoreHorizontal, Trash2, Bell, BellOff, BellRing, Pencil, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2, Smartphone } from 'lucide-react'
+import { MoreHorizontal, Archive, Bell, BellOff, BellRing, Pencil, FolderInput, RefreshCw, ExternalLink, Copy, KeyRound, Share2, Smartphone } from 'lucide-react'
 import Popover from './Popover'
 import ShareDialog from './ShareDialog'
-import DeleteConversationDialog from './DeleteConversationDialog'
-import type { DeleteOptions } from '../api'
 import { useChatStore } from '../stores/chatStore'
 
 type NotifyMode = 'subscribe' | 'unsubscribe' | 'auto'
@@ -16,7 +14,8 @@ const NOTIFY_OPTIONS: { value: NotifyMode; label: string; icon: typeof Bell; hin
 ]
 
 interface Props {
-  onDelete: (opts: DeleteOptions) => void
+  /** Put it away, with what is under it — the Archive keeps it a week. */
+  onArchive: () => void
   onRename?: () => void
   notify?: NotifyMode
   onNotifyChange?: (mode: NotifyMode) => void
@@ -38,7 +37,7 @@ export interface ConversationMenuHandle {
 
 const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
   function ConversationMenu({
-    onDelete, onRename,
+    onArchive, onRename,
     notify = 'auto', onNotifyChange,
     conversationId,
     onMove,
@@ -48,7 +47,6 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
   }, ref) {
     const [open, setOpen] = useState(false)
     const [sharing, setSharing] = useState(false)
-    const [deleting, setDeleting] = useState(false)
     const btnRef = useRef<HTMLButtonElement>(null)
     const isShortcut = useChatStore((s) => !!(conversationId && s.conversations[conversationId]?.shortcut_at))
 
@@ -215,15 +213,11 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
             </button>
 
             <button
-              onClick={() => {
-                setOpen(false)
-                // What goes with the chat — files, routines — is asked, not assumed.
-                setDeleting(true)
-              }}
-              className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-danger hover:bg-surface2 transition-colors rounded-lg'
+              onClick={() => { setOpen(false); onArchive() }}
+              className='w-full flex items-center gap-2.5 px-2 py-1.5 text-sm text-text-secondary hover:bg-surface2 transition-colors rounded-lg'
             >
-              <Trash2 size={14} />
-              Delete
+              <Archive size={14} />
+              Archive
             </button>
           </div>
         </Popover>
@@ -232,13 +226,6 @@ const ConversationMenu = forwardRef<ConversationMenuHandle, Props>(
           <ShareDialog
             conversationId={conversationId}
             onClose={() => setSharing(false)}
-          />
-        )}
-        {deleting && (
-          <DeleteConversationDialog
-            conversationId={conversationId}
-            onConfirm={(opts) => { setDeleting(false); onDelete(opts) }}
-            onClose={() => setDeleting(false)}
           />
         )}
       </div>

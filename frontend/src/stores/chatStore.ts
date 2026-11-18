@@ -5,7 +5,6 @@ import {
   ApiError,
   type Conversation,
   type ConversationWithMessages,
-  type DeleteOptions,
   type Message,
   type PendingQuestion,
   type Run,
@@ -16,7 +15,7 @@ import { isFinishedReply } from '../lib/transcript'
 
 type PatchableFields = Pick<
   Conversation,
-  'title' | 'notify' | 'section_id' | 'parent_id' | 'archived_at'
+  'title' | 'notify' | 'section_id' | 'parent_id'
 >
 
 // How many messages to pull per page. Deliberately generous: one round-trip
@@ -76,7 +75,9 @@ interface ChatState {
   // ── List actions ─────────────────────────────────────────────────────────
   loadConversations: () => Promise<void>
   createConversation: (title?: string, sectionId?: string | null) => Promise<Conversation>
-  deleteConversation: (id: string, opts?: DeleteOptions) => Promise<void>
+  deleteConversation: (id: string) => Promise<void>
+  /** Put away with everything under it, or bring back (archive.ts); the list is re-read for what came along. */
+  setArchived: (id: string, archived: boolean) => Promise<void>
   /** Drop conversations the server already removed. */
   forgetConversations: (ids: string[]) => void
 
@@ -272,7 +273,7 @@ export const useChatStore = create<ChatState>()(
       })
     },
 
-    async deleteConversation(id, opts) {
+    async deleteConversation(id) {
       const snapshot = {
         conv: get().conversations[id],
         orderIdx: get().order.indexOf(id),
@@ -288,7 +289,7 @@ export const useChatStore = create<ChatState>()(
         delete s.convsLoaded[id]
       })
       try {
-        await api.deleteConversation(id, opts)
+        await api.deleteConversation(id)
       } catch (err) {
         console.error('Failed to delete conversation:', err)
         toast('error', 'Failed to delete conversation')
@@ -301,6 +302,25 @@ export const useChatStore = create<ChatState>()(
           })
         }
         throw err
+      }
+    },
+
+    async setArchived(id, archived) {
+      const before = get().conversations[id]
+      if (!before) return
+      set((s) => {
+        s.conversations[id].archived_at = archived ? Math.floor(Date.now() / 1000) : null
+      })
+      try {
+        await api.updateConversation(id, { archived })
+        // Its threads and the chats above it moved with it.
+        await get().loadConversations()
+      } catch (err) {
+        console.error('Failed to archive conversation:', err)
+        toast('error', archived ? 'Failed to archive' : 'Failed to bring it back')
+        set((s) => {
+          if (s.conversations[id]) s.conversations[id].archived_at = before.archived_at ?? null
+        })
       }
     },
 
@@ -503,7 +523,6 @@ export const useChatStore = create<ChatState>()(
         if (patch.notify !== undefined) apiPatch.notify = patch.notify
         if (patch.section_id !== undefined) apiPatch.section_id = patch.section_id
         if (patch.parent_id !== undefined) apiPatch.parent_id = patch.parent_id
-        if (patch.archived_at !== undefined) apiPatch.archived = patch.archived_at !== null
         const updated = await api.updateConversation(id, apiPatch)
         // The row as stored; the list's derived fields (unread, routine) stay.
         set((s) => {
