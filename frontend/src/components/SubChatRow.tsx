@@ -34,7 +34,7 @@ export function SubChatRow({ icon, title, right, sub, italicSub, fresh, selected
   return (
     <div className={`group flex items-start gap-1 rounded-lg ${selected ? 'bg-surface2' : 'hover:bg-surface2'}`} data-testid={testId}>
       <button onClick={onOpen} title={openLabel} className={`flex min-w-0 flex-1 items-start gap-2 px-2.5 py-1.5 text-left ${muted ? 'opacity-60' : ''}`}>
-        <span className='mt-0.5 shrink-0'>{icon}</span>
+        <span className='flex h-[1lh] shrink-0 items-center text-[12.5px]'>{icon}</span>
         <span className='min-w-0 flex-1'>
           <span className='flex items-baseline gap-2'>
             <span className={`truncate text-[12.5px] text-text-primary ${fresh ? 'font-semibold' : ''}`}>{title}</span>
@@ -57,14 +57,14 @@ export function SubChatRow({ icon, title, right, sub, italicSub, fresh, selected
   )
 }
 
-/** "＋ New …" with the line that says what it is for. */
-export function CreateRow({ label, hint, onClick, busy }: { label: string; hint: string; onClick: () => void; busy?: boolean }) {
+/** "＋ New …", with a line on what it is for when it needs one. */
+export function CreateRow({ label, hint, onClick, busy }: { label: string; hint?: string; onClick: () => void; busy?: boolean }) {
   return (
     <button onClick={onClick} disabled={busy} className='flex w-full items-start gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-surface2 disabled:opacity-60'>
-      <Plus size={12} className='mt-0.5 shrink-0 text-text-muted' />
+      <span className='flex h-[1lh] shrink-0 items-center text-[12.5px]'><Plus size={12} className='text-text-muted' /></span>
       <span className='min-w-0'>
         <span className='block text-[12.5px] text-text-secondary'>{label}</span>
-        <span className='block text-[11px] leading-snug text-text-muted'>{hint}</span>
+        {hint && <span className='block text-[11px] leading-snug text-text-muted'>{hint}</span>}
       </span>
     </button>
   )

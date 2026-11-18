@@ -84,11 +84,7 @@ export default function ThreadsPill({ threads, messages, activeId, onOpen, onNew
       <Popover anchor={btnRef} open={open} onClose={close} className='w-80 max-w-[calc(100vw-16px)] max-h-[75vh] overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-md/5'>
         <div onClick={(e) => e.stopPropagation()} data-testid='threads-popover'>
           {active.map((t) => row(t, false))}
-          <CreateRow
-            label='New thread'
-            hint='Ask something on the side, without cluttering this chat. You can also select a passage and press #.'
-            onClick={() => { close(); onNew() }}
-          />
+          <CreateRow label='New thread' onClick={() => { close(); onNew() }} />
 
           <div className='my-1 h-px bg-border' />
           <div className='flex items-center gap-1 px-1'>

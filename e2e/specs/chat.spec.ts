@@ -128,7 +128,7 @@ test.describe('chat rendering', () => {
     await expect(page.getByRole('main').getByTestId('runs-pill')).toHaveCount(0)
     await page.locator('[data-testid="threads-pill"]:visible').click()
     const popover = page.getByTestId('threads-popover')
-    await expect(popover.getByRole('button', { name: /New thread.*without cluttering/ })).toBeVisible()
+    await expect(popover.getByRole('button', { name: 'New thread', exact: true })).toBeVisible()
     await expect(popover.getByRole('button', { name: 'All routines' })).toBeVisible()
     const row = popover.getByTestId('thread-row').filter({ hasText: 'morning-brief' })
     await expect(row).toHaveCount(1)
