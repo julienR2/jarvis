@@ -6,6 +6,8 @@ export interface ConvRow {
   title: string
   claude_session_id: string | null
   app_path: string | null
+  /** The count its app set as the chat's badge (app-badge.ts); null = none. */
+  app_badge?: number | null
   notify: 'subscribe' | 'unsubscribe' | 'auto'
   /**
    * The last model/effort a person sent a message with — where the input

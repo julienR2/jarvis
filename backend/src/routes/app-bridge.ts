@@ -5,6 +5,7 @@ import { config } from '../config.js'
 import type { ConvRow, WebhookRow } from '../types.js'
 import { fireWebhook, fireWebhookSync } from '../webhooks.js'
 import { isPrivateConversation } from '../private.js'
+import { setAppBadge } from '../app-badge.js'
 
 /** Past this an app is sending a document, not asking a question. */
 const MAX_PROMPT = 20_000
@@ -87,6 +88,17 @@ export async function appBridgeRoutes(app: FastifyInstance) {
       }
     }
     fireWebhook(row, body)
+    return { ok: true }
+  })
+
+  // `window.jarvis.setBadge(n)`: the count shown on this chat (app-badge.ts).
+  app.put<{ Params: { id: string } }>('/:id/badge', {
+    ...auth,
+    config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+  }, async (req, reply) => {
+    const { count } = (req.body ?? {}) as { count?: unknown }
+    const error = setAppBadge(req.params.id, count ?? null)
+    if (error) return reply.code(error === 'Conversation not found' ? 404 : 400).send({ error })
     return { ok: true }
   })
 }

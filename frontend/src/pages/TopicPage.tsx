@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { badgeCount } from '../lib/badge'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   AppWindow, Check, Clock, FileText, Globe, Link2, Loader2, MessageSquare, MoreHorizontal, Pencil, Plus, Repeat, Settings2, Sparkles, Trash2, X, Zap, ChevronDown, EyeOff, FolderOpen
@@ -223,8 +224,8 @@ export default function TopicPage() {
                     <MessageSquare size={13} className='shrink-0 text-text-muted' />
                     <span className={`min-w-0 flex-1 truncate text-[13.5px] ${c.unread_count > 0 ? 'font-medium text-text-primary' : 'text-text-primary'}`}>{c.title}</span>
                     {!!c.app_path && <AppWindow size={12} className='shrink-0 text-text-muted' />}
-                    {c.unread_count > 0 && (
-                      <span className='shrink-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-accent text-white text-[10.5px] font-medium'>{c.unread_count}</span>
+                    {badgeCount(c) > 0 && (
+                      <span className='shrink-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-accent text-white text-[10.5px] font-medium'>{badgeCount(c)}</span>
                     )}
                     <span className='shrink-0 text-[11.5px] text-text-muted'>{relative(c.updated_at)}</span>
                   </button>

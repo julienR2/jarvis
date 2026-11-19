@@ -17,6 +17,8 @@
  *   jarvis.openDoc(path)      open a document beside the chat, as a tab
  *   jarvis.context()          { conversationId, title, topic }
  *   jarvis.onMessage(fn)      each finished answer in the chat: { id, role, text }
+ *   jarvis.setBadge(n)        the count shown on the chat (and in the app icon's
+ *                             total); null or 0 clears it — see app-badge.ts
  *
  * Calls return promises; they reject when the bridge is unavailable.
  */
@@ -59,6 +61,7 @@ const SCRIPT = `(function () {
     run: function (name, payload, opts) { return call('run', { name: String(name), payload: payload || {}, sync: !!(opts && opts.sync) }) },
     openDoc: function (path) { return call('openDoc', { path: String(path) }) },
     context: function () { return call('context', {}) },
+    setBadge: function (n) { return call('setBadge', { count: n == null ? null : Number(n) }) },
     onMessage: function (fn) {
       listeners.push(fn)
       return function () { listeners = listeners.filter(function (g) { return g !== fn }) }

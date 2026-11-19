@@ -6,6 +6,7 @@ import { FRONTEND_UPDATED_EVENT } from '../components/UpdateBanner'
 import { RUNS_NUDGE_EVENT } from '../lib/runs'
 import { ROUTINE_CHANGED_EVENT } from '../lib/routines'
 import { closeNotificationsFor, closeNotificationsOfRead } from '../lib/notifications'
+import { syncAppIconBadge } from '../lib/badge'
 
 // Subscribes to the global SSE stream and dispatches into the chat store.
 // Mounted once near the app root.
@@ -15,6 +16,14 @@ export function useGlobalEvents() {
   useEffect(() => {
     pathRef.current = location.pathname
   }, [location.pathname])
+
+  // The installed app's icon carries the sum of the chats' badges.
+  useEffect(() => {
+    syncAppIconBadge(useChatStore.getState().conversations)
+    return useChatStore.subscribe((s, prev) => {
+      if (s.conversations !== prev.conversations) syncAppIconBadge(s.conversations)
+    })
+  }, [])
 
   useEffect(() => {
     const currentConvId = () => pathRef.current.match(/^\/c\/(.+)$/)?.[1]

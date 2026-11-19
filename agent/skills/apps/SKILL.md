@@ -92,6 +92,7 @@ if (jarvis.available) {                                    // false when opened 
   await jarvis.openDoc('/jarvis/agent/workspace/memory/dossier/state.md')           // a tab beside the chat
   const { conversationId, title, topicId } = await jarvis.context()
   const stop = jarvis.onMessage(({ id, text }) => render(text))   // each answer that finishes in the chat
+  await jarvis.setBadge(unhandled.length)                  // the count on the chat; null or 0 clears it
 }
 ```
 
@@ -107,6 +108,14 @@ if (jarvis.available) {                                    // false when opened 
   typed. The chat comes into view (a phone switches to it, a desktop with the
   chat hidden shows it beside the app) with the cursor in the input. Nothing
   is sent. Either field may be left out, not both.
+- `setBadge` is for an app with a count that matters — mail still to deal
+  with, tasks due today. It shows on the chat in the sidebar in place of its
+  unread replies, stays while the user is in the chat, and goes into the total
+  on the installed app's icon. Set it whenever the number changes; leave it
+  unset when the app has nothing to count. The app only runs while it is open,
+  so when a routine changes the data, the routine sets the badge too:
+  `curl -s -X PUT "$BACKEND_URL/internal/apps/<chat id>/badge" -H "X-Internal-Secret: $INTERNAL_SECRET" -H 'Content-Type: application/json' -d '{"count": 6}'`
+  (`{"count": null}` clears it). Use the app's chat id, not the routine's own.
 - `run` is for an app with its own automation — a webhook with a narrow prompt
   that hangs under the app's chat (create it with `conversation_id` set to the
   chat). Only routines attached to the app's own chat can be run.

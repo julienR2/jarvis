@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { badgeCount } from '../lib/badge'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Plus,
@@ -334,7 +335,7 @@ function SectionGroup({
   const createConversation = useChatStore((s) => s.createConversation)
   const [renaming, setRenaming] = useState(false)
 
-  const unread = convs.reduce((n, c) => n + (c.unread_count || 0), 0)
+  const unread = convs.reduce((n, c) => n + badgeCount(c), 0)
   // Collapsed groups still show the open conversation, so navigating into one
   // never makes it disappear.
   const isActive = (id: string) => activePath === `/c/${id}`
@@ -390,7 +391,7 @@ function SectionGroup({
         {collapsed && unread > 0 && (
           <span
             className='shrink-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-accent text-white text-[10px] font-semibold tabular-nums'
-            title={`${unread} unread`}
+            title={`${unread} waiting`}
           >
             {unread}
           </span>
@@ -589,6 +590,8 @@ function ConvItem({
   const menuRef = useRef<ConversationMenuHandle>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const unread = conv.unread_count > 0 && !active
+  // The number: what its app set (jarvis.setBadge), else its unread replies.
+  const badge = badgeCount(conv, active)
   // Something typed or attached here and left unsent — shown, as in Slack,
   // on the chats you are not in.
   const drafted = useDrafts((s) => hasDraft(s[conv.id])) && !active
@@ -686,9 +689,9 @@ function ConvItem({
         {nested && !!conv.pending_question && !active && (
           <span className='shrink-0 h-2 w-2 rounded-full bg-warning' title='Waiting for you' data-testid='waiting-dot' />
         )}
-        {unread && (
-          <span className='shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[11px] font-medium'>
-            {conv.unread_count}
+        {badge > 0 && (
+          <span className='shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[11px] font-medium' data-testid='chat-badge'>
+            {badge}
           </span>
         )}
         <ConversationMenu

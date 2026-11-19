@@ -23,6 +23,7 @@ import type { CronRow, WebhookRow, ConvRow } from '../types.js'
 import { afterRoutineWrite, checkRoutineRefs, routineOfThread, setParent } from '../threads.js'
 import { addTopicDoc, closeTab, emitTabs, getTab, listTabs, listTopicDocs, openTab, removeTopicDoc } from '../tabs.js'
 import { isPrivateConversation, privateSql } from '../private.js'
+import { setAppBadge } from '../app-badge.js'
 
 export function checkSecret(req: any, reply: any): boolean {
   if (!hasInternalSecret(req)) {
@@ -671,6 +672,18 @@ export async function internalRoutes(app: FastifyInstance) {
     if (!checkSecret(req, reply)) return
 
     emitConversationEvent(req.params.conversationId, { type: 'app_updated' })
+    return { ok: true }
+  })
+
+  // The chat's badge, set from outside its app — a routine that syncs the
+  // inbox keeps the count right while nobody has the app open. Body:
+  // { "count": 6 }, or { "count": null } to clear. See app-badge.ts.
+  app.put<{ Params: { conversationId: string } }>('/apps/:conversationId/badge', async (req, reply) => {
+    if (!checkSecret(req, reply)) return
+    if (isPrivateConversation(req.params.conversationId)) return reply.code(404).send({ error: 'Conversation not found' })
+    const { count } = (req.body ?? {}) as { count?: unknown }
+    const error = setAppBadge(req.params.conversationId, count ?? null)
+    if (error) return reply.code(error === 'Conversation not found' ? 404 : 400).send({ error })
     return { ok: true }
   })
 

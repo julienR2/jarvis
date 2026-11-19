@@ -530,6 +530,11 @@ export default function ChatView({
       }
       case 'context':
         return { conversationId, title: conv?.title ?? '', topicId: conv?.section_id ?? null }
+      case 'setBadge': {
+        const count = args.count == null ? null : Number(args.count)
+        await api.setAppBadge(conversationId, count)
+        return true
+      }
       default:
         throw new Error(`Unknown jarvis method: ${method}`)
     }

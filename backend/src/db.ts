@@ -205,6 +205,12 @@ export function initDb(): void {
     db.exec(`ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`)
   } catch { /* already exists */ }
 
+  // Migration: the count a chat's app sets as its badge (app-badge.ts) — an
+  // inbox's pending mail, say. NULL = none; the unread count shows instead.
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN app_badge INTEGER`)
+  } catch { /* already exists */ }
+
   // Migration: sections replace the pinned flag. Existing pins are folded into a
   // real "Pinned" section at the top of the sidebar; deleting a section drops its
   // conversations back into the default group via ON DELETE SET NULL. The legacy

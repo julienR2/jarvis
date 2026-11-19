@@ -305,6 +305,9 @@ export const api = {
   /** `window.jarvis.ask` from the chat's app: a one-off answer that stays out of the chat. */
   askFromApp: (conversationId: string, prompt: string) =>
     request<{ answer: string }>('POST', `/conversations/${conversationId}/ask`, { prompt }),
+  /** `window.jarvis.setBadge`: the count shown on this chat; null clears it. */
+  setAppBadge: (conversationId: string, count: number | null) =>
+    request<{ ok: boolean }>('PUT', `/conversations/${conversationId}/badge`, { count }),
   /** `window.jarvis.run`: fire a routine that runs under this chat. */
   runFromApp: (conversationId: string, name: string, payload: unknown, sync: boolean) =>
     request<{ ok: boolean; answer?: string }>('POST', `/conversations/${conversationId}/run`, { name, payload, sync }),
@@ -693,6 +696,8 @@ export interface Conversation {
   context_tokens: number | null
   context_window: number | null
   unread_count: number
+  /** The count its app set as its badge (jarvis.setBadge); shown in place of unread_count. */
+  app_badge?: number | null
   /** Non-null while a share link is live — 'read' or 'write'. */
   share_mode: 'read' | 'write' | null
   /** JSON of a PendingQuestion while Jarvis waits on you — see pendingQuestionOf. */
