@@ -66,6 +66,15 @@ test.describe('tabs beside a chat', () => {
     await expect(page.frameLocator('iframe[title="mockup.html"]').getByRole('heading', { name: 'Rendered mockup' })).toBeVisible()
   })
 
+  test("the panel's tab strip ends on the same line as the chat's title bar", async ({ page }) => {
+    await openConversation(page, 'Spec draft')
+    await expect(page.getByRole('tablist')).toBeVisible()
+    const bottom = (el: Element) => el.closest('.border-b')!.getBoundingClientRect().bottom
+    const title = await page.getByRole('main').locator('h1:visible').first().evaluate(bottom)
+    const strip = await page.getByRole('tablist').evaluate(bottom)
+    expect(strip).toBe(title)
+  })
+
   test('the app keeps the first tab, documents sit beside it', async ({ page }) => {
     await openConversation(page, 'App with docs')
     const pane = page.getByRole('tablist')

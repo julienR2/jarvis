@@ -115,7 +115,8 @@ export default function SidePanel({ conversationId, tabs, active, onActivate, ap
     // flex-1, not h-full: alone on desktop the chat's title bar sits above it,
     // and a full height would push the composer below the window.
     <div className='flex flex-col flex-1 min-h-0 bg-bg'>
-      <div className='flex items-center gap-1 border-b border-border h-12 shrink-0 pl-1.5 pr-2'>
+      {/* box-content: 48px plus its border, like the title bar beside it (ContentTitle). */}
+      <div className='flex items-center gap-1 border-b border-border h-12 box-content shrink-0 pl-1.5 pr-2'>
         {onBack && (
           <button type='button' onClick={onBack} aria-label='Back to the chat' className={ACTION}>
             <ArrowLeft size={16} />
