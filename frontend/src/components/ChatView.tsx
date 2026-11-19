@@ -437,16 +437,22 @@ export default function ChatView({
   // (or opened) in this chat — and back to it when that tab closes.
   const [activeTab, setActiveTab] = useState<{ id: string | undefined; key: PanelKey } | null>(null)
   const pickedKey = activeTab && activeTab.id === conversationId ? activeTab.key : null
-  const panelKey: PanelKey = threadKey ?? (
+  const docKey: PanelKey =
     pickedKey && (pickedKey === 'app' ? hasApp : tabs.some((t) => t.id === pickedKey)) ? pickedKey
     : hasApp ? 'app'
-    : [...tabs].reverse().find((t) => !t.topic)?.id ?? tabs[tabs.length - 1]?.id ?? threadTabs[threadTabs.length - 1]?.key ?? 'app')
+    : [...tabs].reverse().find((t) => !t.topic)?.id ?? tabs[tabs.length - 1]?.id ?? threadTabs[threadTabs.length - 1]?.key ?? 'app'
+  const panelKey: PanelKey = threadKey ?? docKey
+  // The app alone on desktop, and a thread opened: the thread takes a column
+  // of its own on the right rather than the app's place — what is in the main
+  // area stays, and a thread is always beside it.
+  const threadBeside = isDesktop && !chatShown && !!threadKey && (hasApp || tabs.length > 0)
   const activate = (key: PanelKey) => {
     if (key.startsWith('thread:')) {
       if (key !== 'thread:new') openThread(key.slice('thread:'.length))
       return
     }
-    if (threadKey) openThread(null)
+    // Beside the app, the thread has its own column: picking a document leaves it open.
+    if (threadKey && !threadBeside) openThread(null)
     setActiveTab({ id: conversationId, key })
   }
 
@@ -905,6 +911,15 @@ export default function ChatView({
     </ContentTitle>
   )
 
+  const renderThread = (key: string) => conversationId && (
+    <ThreadPanel
+      key={key}
+      parentId={conversationId}
+      state={key === 'thread:new' ? { kind: 'new', quote: newThread?.quote ?? null } : { kind: 'open', id: key.slice('thread:'.length) }}
+      onOpened={(id) => openThread(id)}
+    />
+  )
+
   return (
     <PanelOpenerContext.Provider value={withTabs && conversationId ? openFile : null}>
     {renaming && createPortal(
@@ -1194,7 +1209,7 @@ export default function ChatView({
           >
             {/* The app alone on desktop: the title comes along, toggle included */}
             {isDesktop && !chatShown && title && desktopTitle}
-            {hasApp && tabs.length === 0 && threadTabs.length === 0 ? (
+            {hasApp && tabs.length === 0 && (threadTabs.length === 0 || threadBeside) ? (
               <AppPreview
                 appSlug={conv!.app_path!.replace(/^apps\//, '')}
                 appToken={appShareToken}
@@ -1211,22 +1226,15 @@ export default function ChatView({
               <SidePanel
                 conversationId={conversationId!}
                 tabs={tabs}
-                active={panelKey}
+                active={threadBeside ? docKey : panelKey}
                 onActivate={activate}
                 topicId={conv?.section_id ?? null}
-                threads={threadTabs}
+                threads={threadBeside ? [] : threadTabs}
                 onCloseThread={closeThreadTab}
                 onThreadDone={(id) => archiveThread(id, true)}
                 // A phone shows the thread instead of the chat, title bar included: the way back is in the strip.
                 onBack={!isDesktop && threadKey ? () => (threadKey === 'thread:new' ? setNewThread(null) : openThread(null)) : undefined}
-                renderThread={(key) => conversationId && (
-                  <ThreadPanel
-                    key={key}
-                    parentId={conversationId}
-                    state={key === 'thread:new' ? { kind: 'new', quote: newThread?.quote ?? null } : { kind: 'open', id: key.slice('thread:'.length) }}
-                    onOpened={(id) => openThread(id)}
-                  />
-                )}
+                renderThread={renderThread}
                 app={hasApp ? {
                   onRefresh: bumpApp,
                   url: appShareUrl,
@@ -1246,6 +1254,22 @@ export default function ChatView({
                 } : undefined}
               />
             )}
+          </div>
+        )}
+
+        {/* The app alone, and a thread beside it: a column of its own. */}
+        {threadBeside && (
+          <div className='flex flex-col h-full min-w-0 shrink-0 w-[40%] min-w-[340px] max-w-[640px] border-l border-border' data-testid='thread-column'>
+            <SidePanel
+              conversationId={conversationId!}
+              tabs={[]}
+              active={threadKey!}
+              onActivate={activate}
+              threads={threadTabs}
+              onCloseThread={closeThreadTab}
+              onThreadDone={(id) => archiveThread(id, true)}
+              renderThread={renderThread}
+            />
           </div>
         )}
       </div>

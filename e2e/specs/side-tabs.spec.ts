@@ -194,3 +194,36 @@ test.describe('tabs beside a chat', () => {
     await expect(page.getByText('bridge: off')).toBeVisible()
   })
 })
+
+test.describe('a thread beside the app alone', () => {
+  test('opens in a column of its own, the app kept; its composer in the window, its menu its own', async ({ page }) => {
+    await signIn(page)
+    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.E2E_TOKEN}` }
+    const all = (await (await page.request.get('api/conversations', { headers })).json()) as { id: string; title: string }[]
+    const app = all.find((c) => c.title === '◫ Second app')!
+    const thread = (await (await page.request.post('api/conversations', { headers, data: { title: 'Beside the app' } })).json()) as { id: string }
+    await page.request.patch(`api/conversations/${thread.id}`, { headers, data: { parent_id: app.id } })
+
+    await page.goto(`c/${app.id}`)
+    const main = page.getByRole('main')
+    await main.getByRole('button', { name: 'Chat', exact: true }).click()
+    await expect(page.getByPlaceholder('How can I help you today?')).toBeHidden()
+    await page.locator('[data-testid="threads-pill"]:visible').click()
+    await page.getByTestId('threads-popover').getByTestId('thread-row').filter({ hasText: 'Beside the app' }).click()
+
+    const column = page.getByTestId('thread-column')
+    await expect(column).toBeVisible()
+    await expect(page.locator('iframe[title="App preview"]')).toBeVisible()
+    // The composer sits inside the window, not pushed below it by the title bar.
+    const composer = column.getByRole('textbox').last()
+    await expect(composer).toBeVisible()
+    const box = await composer.boundingBox()
+    expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height)
+    // Its ··· is the thread's: Archive there closes the column, the app stays.
+    await column.getByTestId('thread-menu').getByTitle('Conversation options').click()
+    await page.getByRole('button', { name: 'Archive', exact: true }).click()
+    await expect(column).toHaveCount(0)
+    await expect(page.locator('iframe[title="App preview"]')).toBeVisible()
+    await main.getByRole('button', { name: 'Chat', exact: true }).click()
+  })
+})

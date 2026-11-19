@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Archive, ExternalLink, FileText, FolderInput, FolderMinus, FolderOpen, Globe, Hash, LayoutGrid, Maximize2, Pin, RefreshCw, X, Clock, Link2 } from 'lucide-react'
+import { ArrowLeft, ExternalLink, FileText, FolderInput, FolderMinus, FolderOpen, Globe, Hash, LayoutGrid, Maximize2, Pin, RefreshCw, X, Clock, Link2 } from 'lucide-react'
 import { api, tabContentUrl, type ChatTab } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { useTabsStore } from '../stores/tabsStore'
 import { Markdown } from './MessageBubble'
+import ConversationMenu from './ConversationMenu'
+import NameModal from './NameModal'
 
 /** What the side pane shows: the chat's app, one of its tabs, or a thread (`thread:<id>`, `thread:new`). */
 export type PanelKey = 'app' | string
@@ -67,6 +69,8 @@ export default function SidePanel({ conversationId, tabs, active, onActivate, ap
   const openUrl = activeThread ? undefined : activeTab ? (activeTab.kind === 'link' ? activeTab.target : tabContentUrl(activeTab)) : app?.url
   const refresh = activeThread ? undefined : activeTab ? () => bump(activeTab.id) : app?.onRefresh
   const threadId = activeThread && activeThread.key !== 'thread:new' ? activeThread.key.slice('thread:'.length) : null
+  const threadNotify = useChatStore((s) => (threadId ? s.conversations[threadId]?.notify : undefined))
+  const [renaming, setRenaming] = useState(false)
   const renameThread = (key: string, title: string) =>
     key !== 'thread:new' && useChatStore.getState().patchConversation(key.slice('thread:'.length), { title })
 
@@ -108,7 +112,9 @@ export default function SidePanel({ conversationId, tabs, active, onActivate, ap
   const fade = `linear-gradient(to right, ${hidden.left ? 'transparent' : '#000'}, #000 ${hidden.left ? '1.5rem' : '0'}, #000 calc(100% - ${hidden.right ? '1.5rem' : '0px'}), ${hidden.right ? 'transparent' : '#000'})`
 
   return (
-    <div className='flex flex-col h-full bg-bg'>
+    // flex-1, not h-full: alone on desktop the chat's title bar sits above it,
+    // and a full height would push the composer below the window.
+    <div className='flex flex-col flex-1 min-h-0 bg-bg'>
       <div className='flex items-center gap-1 border-b border-border h-12 shrink-0 pl-1.5 pr-2'>
         {onBack && (
           <button type='button' onClick={onBack} aria-label='Back to the chat' className={ACTION}>
@@ -176,15 +182,30 @@ export default function SidePanel({ conversationId, tabs, active, onActivate, ap
               <ExternalLink size={14} />
             </a>
           )}
-          {threadId && onThreadDone && (
-            <button type='button' onClick={() => onThreadDone(threadId)} title='Archive this thread' aria-label='Archive this thread' className={ACTION}>
-              <Archive size={14} />
-            </button>
-          )}
           {threadId && (
             <button type='button' onClick={() => navigate(`/c/${threadId}`)} title='Open as a full chat' aria-label='Open as a full chat' className={ACTION}>
               <Maximize2 size={14} />
             </button>
+          )}
+          {/* The thread's own settings — its notifications, not the chat's in the title bar. */}
+          {threadId && onThreadDone && (
+            <span data-testid='thread-menu' className='flex'>
+            <ConversationMenu
+              conversationId={threadId}
+              notify={threadNotify}
+              onNotifyChange={(notify) => useChatStore.getState().patchConversation(threadId, { notify })}
+              onArchive={() => onThreadDone(threadId)}
+              onRename={() => setRenaming(true)}
+            />
+            </span>
+          )}
+          {renaming && activeThread && (
+            <NameModal
+              title='Edit name'
+              initialValue={activeThread.title}
+              onSubmit={(title) => { if (title !== activeThread.title) renameThread(activeThread.key, title) }}
+              onClose={() => setRenaming(false)}
+            />
           )}
         </div>
       </div>

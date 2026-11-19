@@ -46,7 +46,10 @@ test.describe('the threads of a chat', () => {
     await expect(page.getByTestId('thread-panel').getByText('Graham’s and Taylor’s.')).toBeVisible()
     await expect(page.getByTestId('thread-news')).toHaveCount(0)
 
-    await page.getByRole('button', { name: 'Archive this thread' }).click()
+    // The thread's own menu, in its strip: its notifications, and Archive.
+    await page.getByTestId('thread-menu').getByTitle('Conversation options').click()
+    await expect(page.getByTitle(/^Notifications:/).first()).toBeVisible()
+    await page.getByRole('button', { name: 'Archive', exact: true }).click()
     await expect(tabs).toHaveCount(0)
     await page.locator('[data-testid="threads-pill"]:visible').click()
     const list = page.getByTestId('threads-popover')
