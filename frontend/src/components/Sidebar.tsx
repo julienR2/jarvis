@@ -58,10 +58,16 @@ const COLLAPSE_KEY = 'sidebar-sections-collapsed'
 /** The chats whose threads are all listed, not only the ones with news. Per device too. */
 const THREADS_OPEN_KEY = 'sidebar-threads-open'
 /**
- * Where a chat's title text starts, past its emoji: a thread's # lines up
- * there, so it reads as under the chat rather than beside it.
+ * A chat's emoji and the space after it, at the sidebar's 14px: about 22px
+ * (21 with Noto, 22 with Apple's). A thread's # starts where the chat's
+ * title starts, so it reads as under it; its own title follows at the
+ * row's usual gap — a # is narrower than an emoji, and the emoji's width
+ * after it left a hole.
  */
-const THREAD_PAD = 28 + 21
+const EMOJI_SLOT = 22
+/** Lucide's # is drawn 2px inside its 12px box: shifted back, the mark itself lines up. */
+const HASH_INSET = 2
+const THREAD_PAD = 28 + EMOJI_SLOT - HASH_INSET
 /**
  * Touch devices never hover, so a hover-revealed section menu would be
  * unreachable there — show it permanently instead.
@@ -639,7 +645,11 @@ function ConvItem({
             <ChevronRight size={11} className={`transition-transform ${threads.open ? 'rotate-90' : ''}`} />
           </button>
         )}
-        {nested && <Hash size={11} className='shrink-0 -mr-1 text-text-muted/70' />}
+        {nested && (
+          <span className='shrink-0 flex items-center'>
+            <Hash size={12} className='text-text-muted/70' />
+          </span>
+        )}
         <span
           className={`flex-1 overflow-hidden text-ellipsis whitespace-nowrap ${nested ? 'text-[13px]' : 'text-sm'} min-w-0 ${unread ? 'font-medium text-text-primary' : nested && !active ? 'text-text-muted' : ''}`}
         >
