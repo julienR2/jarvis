@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react'
-import { ExternalLink, PanelLeftClose, PanelLeftOpen, RefreshCw } from 'lucide-react'
+import { ExternalLink, RefreshCw } from 'lucide-react'
 import { APPS_ORIGIN } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { isFinishedReply } from '../lib/transcript'
@@ -22,8 +22,6 @@ interface Props {
   onShareIntentConsumed?: () => void
   /** Off when the side pane's tab strip carries the refresh and open actions. */
   toolbar?: boolean
-  /** Desktop, beside the chat: take the full width (the chat put away), or give it back. */
-  panelWidth?: { full: boolean; onToggle: () => void }
   /** The chat the app belongs to: its answers go to the app's `jarvis.onMessage`. */
   conversationId?: string
   /** Answers the app's `window.jarvis` calls. Absent where the bridge is not offered (a share link). */
@@ -47,7 +45,6 @@ export default function AppPreview({
   shareIntent,
   onShareIntentConsumed,
   toolbar = true,
-  panelWidth,
   conversationId,
   onCall,
 }: Props) {
@@ -180,16 +177,6 @@ export default function AppPreview({
           >
             <ExternalLink size={13} />
           </a>
-          {panelWidth && (
-            <button
-              onClick={panelWidth.onToggle}
-              title={panelWidth.full ? 'Show the chat beside it' : 'Full width — put the chat away'}
-              aria-label={panelWidth.full ? 'Show the chat' : 'Full width'}
-              className='p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors'
-            >
-              {panelWidth.full ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
-            </button>
-          )}
         </div>
       </div>
 

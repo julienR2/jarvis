@@ -119,7 +119,7 @@ test.describe('tabs beside a chat', () => {
     // Morning brief is in Daily, whose spec is pinned to the topic: the pane
     // waits behind the toggle (the chat has nothing of its own beside it).
     await openConversation(page, 'Morning brief')
-    await page.getByRole('button', { name: 'Show the panel' }).first().click()
+    await page.getByRole('radio', { name: 'Both' }).first().click()
     const pane = page.getByRole('tablist')
     const shared = pane.getByRole('tab', { name: /Daily spec/ })
     await expect(shared).toHaveAttribute('aria-selected', 'true')
@@ -167,7 +167,7 @@ test.describe('tabs beside a chat', () => {
     const main = page.getByRole('main')
     const composer = page.getByPlaceholder('How can I help you today?')
     // The app alone, the chat put away…
-    await main.getByRole('button', { name: 'Full width' }).click()
+    await main.getByRole('radio', { name: 'App', exact: true }).click()
     await expect(composer).toBeHidden()
     const app = page.frameLocator('iframe[title="App preview"]')
     await app.getByRole('button', { name: 'Prefill' }).click()
@@ -218,7 +218,7 @@ test.describe('a thread beside the app alone', () => {
 
     await page.goto(`c/${app.id}`)
     const main = page.getByRole('main')
-    await main.getByRole('button', { name: 'Full width' }).click()
+    await main.getByRole('radio', { name: 'App', exact: true }).click()
     await expect(page.getByPlaceholder('How can I help you today?')).toBeHidden()
     await page.locator('[data-testid="threads-pill"]:visible').click()
     await page.getByTestId('threads-popover').getByTestId('thread-row').filter({ hasText: 'Beside the app' }).click()
@@ -236,6 +236,6 @@ test.describe('a thread beside the app alone', () => {
     await page.getByRole('button', { name: 'Archive', exact: true }).click()
     await expect(column).toHaveCount(0)
     await expect(page.locator('iframe[title="App preview"]')).toBeVisible()
-    await main.getByRole('button', { name: 'Show the chat' }).first().click()
+    await main.getByRole('radio', { name: 'Both', exact: true }).click()
   })
 })

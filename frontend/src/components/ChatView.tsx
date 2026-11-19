@@ -5,7 +5,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { Earth, Loader2, ArrowDown, EyeOff, FileText, Hash, Clock, Link2, Archive, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { Earth, Loader2, ArrowDown, EyeOff, FileText, Hash, Clock, Link2, Archive } from 'lucide-react'
 import {
   api,
   pendingQuestionOf,
@@ -45,7 +45,6 @@ import { readPaneView, savePaneView, type PaneView } from '../lib/paneView'
 /** Shared so the jump button can find the divider without threading a ref
  *  through the day-grouping list. */
 const UNREAD_ANCHOR_ID = 'unread-anchor'
-const TITLE_ICON = 'p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors shrink-0'
 
 /** The app pane's share of the split, and what double-click returns to (w-2/5). */
 const APP_DEFAULT_PCT = 40
@@ -420,24 +419,15 @@ export default function ChatView({
 
   // Desktop: each button adds or removes its pane, but one always stays.
   // Mobile: they pick the one pane shown.
-  function togglePane(pane: 'chat' | 'app') {
-    const shown = pane === 'chat' ? chatShown : appShown
-    const other = pane === 'chat' ? appShown : chatShown
-    setView(!isDesktop ? pane : !shown ? 'both' : other ? (pane === 'chat' ? 'app' : 'chat') : pane)
-  }
   function setView(next: PaneView) {
     // Putting the pane away puts its thread away too, or it would hold it open.
     if (threadKey && next === 'chat') openThread(null)
     setPane({ id: conversationId, view: next })
     if (conversationId) savePaneView(conversationId, next)
   }
-  // Desktop: the chat is the main view and the panel sits beside it. The
-  // title bar shows or hides the panel; the panel's own bar takes the full
-  // width (the chat put away) and gives it back.
-  // At full width the way back is in the title bar, which then sits above it.
-  const panelWidth = !isDesktop || !hasPanel || !chatShown ? undefined : {
-    full: false,
-    onToggle: () => setView('app'),
+  // The app asking for the chat (jarvis.prefill): beside it on desktop, instead of it on a phone.
+  function togglePane(pane: 'chat' | 'app') {
+    setView(!isDesktop ? pane : 'both')
   }
   // For the app's `jarvis.prefill`, which brings the chat into view.
   const chatShownRef = useRef(chatShown)
@@ -869,37 +859,28 @@ export default function ChatView({
     hideTimerRef.current = setTimeout(() => setShowFloating(false), 1200)
   }
 
-  const panelButton = isDesktop && hasPanel ? (
-    !chatShown ? (
-      <button type='button' onClick={() => setView('both')} title='Show the chat beside it' aria-label='Show the chat' className={TITLE_ICON}>
-        <PanelLeftOpen size={15} />
-      </button>
-    ) : (
-      <button
-        type='button'
-        onClick={() => setView(appShown ? 'chat' : 'both')}
-        title={appShown ? 'Hide the panel' : `Show the panel — ${hasApp ? 'the app' : tabs.length ? 'documents' : 'threads'}`}
-        aria-label={appShown ? 'Hide the panel' : 'Show the panel'}
-        aria-pressed={appShown}
-        className={`${TITLE_ICON} ${appShown ? 'text-text-primary' : ''}`}
-      >
-        {appShown ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
-      </button>
-    )
-  ) : null
-
+  // What the panel holds, as the switch names it.
+  const panelLabel = hasApp ? 'App' : tabs.length ? 'Docs' : 'Threads'
+  // Desktop: one of three layouts, exactly one selected — the chat, both side
+  // by side, or the panel alone. A phone has room for one pane: Chat | App.
+  const current: PaneView = chatShown && appShown ? 'both' : chatShown ? 'chat' : 'app'
+  const paneOptions: { view: PaneView; label: string }[] = isDesktop
+    ? [{ view: 'chat', label: 'Chat' }, { view: 'both', label: 'Both' }, { view: 'app', label: panelLabel }]
+    : [{ view: 'chat', label: 'Chat' }, { view: 'app', label: panelLabel }]
   const paneToggle = (
-    <span className='flex gap-0.5 bg-surface2 rounded-lg p-0.5 shrink-0'>
-      {(['chat', 'app'] as const).map((pane) => {
-        const on = pane === 'chat' ? chatShown : appShown
+    <span role='radiogroup' aria-label='Layout' className='flex gap-0.5 bg-surface2 rounded-lg p-0.5 shrink-0'>
+      {paneOptions.map(({ view: v, label }) => {
+        const on = v === current
         return (
           <button
-            key={pane}
-            onClick={() => togglePane(pane)}
-            aria-pressed={on}
+            key={v}
+            role='radio'
+            aria-checked={on}
+            onClick={() => setView(v)}
+            title={v === 'both' ? `The chat and the ${panelLabel.toLowerCase()} side by side` : undefined}
             className={`px-3 py-1 text-xs rounded-md transition-colors ${on ? 'bg-bg text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}
           >
-            {pane === 'chat' ? 'Chat' : hasApp ? 'App' : tabs.length ? 'Docs' : 'Side chats'}
+            {label}
           </button>
         )
       })}
@@ -932,10 +913,10 @@ export default function ChatView({
         </span>
       ) : undefined}
     >
-      {panelButton ? (
-        <span className='flex items-center gap-2'>
+      {sidePane === 'app' ? (
+        <span className='flex items-center gap-3'>
           <span className='truncate flex-1'>{title}</span>
-          {panelButton}
+          {paneToggle}
         </span>
       ) : title}
     </ContentTitle>
@@ -1249,7 +1230,6 @@ export default function ChatView({
                 onShareIntentConsumed={onShareIntentConsumed}
                 // Alone, the title bar above it is its bar: refresh and open are in its ··· menu, as on a phone.
                 toolbar={chatShown}
-                panelWidth={panelWidth}
                 conversationId={conversationId}
                 onCall={withTabs ? handleAppCall : undefined}
               />
@@ -1261,7 +1241,6 @@ export default function ChatView({
                 onActivate={activate}
                 topicId={conv?.section_id ?? null}
                 threads={threadBeside ? [] : threadTabs}
-                panelWidth={panelWidth}
                 onCloseThread={closeThreadTab}
                 onThreadDone={(id) => archiveThread(id, true)}
                 // A phone shows the thread instead of the chat, title bar included: the way back is in the strip.
