@@ -9,39 +9,28 @@ export interface RowAction {
 
 /**
  * One row of a chat's # list — a side chat or a routine, drawn the same way:
- * icon and title, how recent on the right, one grey line under it (the
- * passage it came from, or when the routine runs and what it last did). Its
- * actions show on hover; on a touch screen they stay.
+ * icon and title, how recent (or how many unread) on the right. Its actions
+ * show on hover; on a touch screen they stay.
  */
-export function SubChatRow({ icon, title, right, sub, italicSub, fresh, selected, muted, tag, onOpen, openLabel, actions, testId }: {
+export function SubChatRow({ icon, title, right, fresh, selected, muted, onOpen, actions, testId }: {
   icon: ReactNode
   title: string
   right?: ReactNode
-  sub?: string
-  /** The sub line is a quote. */
-  italicSub?: boolean
   /** Has something you haven't seen. */
   fresh?: boolean
   selected?: boolean
   muted?: boolean
-  /** A small label after the title ("Paused"). */
-  tag?: string
   onOpen: () => void
-  openLabel?: string
   actions: RowAction[]
   testId: string
 }) {
   return (
     <div className={`group flex items-start gap-1 rounded-lg ${selected ? 'bg-surface2' : 'hover:bg-surface2'}`} data-testid={testId}>
-      <button onClick={onOpen} title={openLabel} className={`flex min-w-0 flex-1 items-start gap-2 px-2.5 py-1.5 text-left ${muted ? 'opacity-60' : ''}`}>
+      <button onClick={onOpen} className={`flex min-w-0 flex-1 items-start gap-2 px-2.5 py-1.5 text-left ${muted ? 'opacity-60' : ''}`}>
         <span className='flex h-[1lh] shrink-0 items-center text-[12.5px]'>{icon}</span>
-        <span className='min-w-0 flex-1'>
-          <span className='flex items-baseline gap-2'>
-            <span className={`truncate text-[12.5px] text-text-primary ${fresh ? 'font-semibold' : ''}`}>{title}</span>
-            {tag && <span className='shrink-0 rounded bg-surface2 px-1 text-[10px] text-text-muted'>{tag}</span>}
-            <span className='ml-auto shrink-0 text-[10.5px] text-text-muted'>{right}</span>
-          </span>
-          {sub && <span className={`mt-0.5 block truncate text-[11px] text-text-muted ${italicSub ? 'italic' : ''}`}>{italicSub ? `❝ ${sub}` : sub}</span>}
+        <span className='flex min-w-0 flex-1 items-baseline gap-2'>
+          <span className={`truncate text-[12.5px] text-text-primary ${fresh ? 'font-semibold' : ''}`}>{title}</span>
+          <span className='ml-auto shrink-0 text-[10.5px] text-text-muted'>{right}</span>
         </span>
       </button>
       {actions.length > 0 && (

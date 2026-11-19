@@ -874,7 +874,6 @@ export default function ChatView({
   const threadsPill = !shared && !embedded && conversationId && (messages.length > 0 || threads.length > 0) ? (
     <ThreadsPill
       threads={threads}
-      messages={messages}
       activeId={openThreadId}
       onOpen={openThread}
       onNew={() => setNewThread({ convId: conversationId, quote: null })}

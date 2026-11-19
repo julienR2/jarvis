@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Archive, ArchiveRestore, ChevronRight, Clock, Hash, Link2 } from 'lucide-react'
-import type { Conversation, Message } from '../api'
+import type { Conversation } from '../api'
 import { relative } from '../lib/runs'
 import { CreateRow, SubChatRow } from './SubChatRow'
 import { isActiveThread, routineKindOf } from '../lib/threads'
@@ -10,8 +10,6 @@ import Popover from './Popover'
 interface Props {
   /** The conversations under this chat: side chats and routines alike. */
   threads: Conversation[]
-  /** The chat's loaded messages, for the passage a thread was opened on. */
-  messages: Message[]
   activeId: string | null
   onOpen: (id: string) => void
   onNew: () => void
@@ -24,7 +22,7 @@ interface Props {
  * routine's conversation (its mark says which: a schedule, a webhook);
  * archived, they fold under Archived until the Archive deletes them. Ends with the way to start one.
  */
-export default function ThreadsPill({ threads, messages, activeId, onOpen, onNew, onArchive }: Props) {
+export default function ThreadsPill({ threads, activeId, onOpen, onNew, onArchive }: Props) {
   const [open, setOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
@@ -56,8 +54,6 @@ export default function ThreadsPill({ threads, messages, activeId, onOpen, onNew
         right={waiting
           ? <span className='rounded-full bg-warning px-1.5 font-medium text-white'>waiting for you</span>
           : fresh ? <span className='inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1 text-[10.5px] font-medium tabular-nums text-white' title={`${t.unread_count} new`}>{t.unread_count}</span> : relative(t.updated_at)}
-        sub={passageOf(t, messages)}
-        italicSub
         onOpen={() => pick(t.id)}
         actions={[archivedRow
           ? { label: `Bring back ${t.title}`, icon: <ArchiveRestore size={12} />, run: () => onArchive(t, false) }
@@ -102,10 +98,4 @@ export default function ThreadsPill({ threads, messages, activeId, onOpen, onNew
       </Popover>
     </div>
   )
-}
-
-/** The passage a thread was opened on, on one line. */
-function passageOf(thread: Conversation, messages: Message[]): string {
-  const source = messages.find((m) => m.id === thread.parent_message_id)
-  return source ? (source.role === 'assistant' ? source.result ?? source.content : source.content).replace(/\s+/g, ' ').trim() : ''
 }

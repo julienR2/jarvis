@@ -33,7 +33,6 @@ test.describe('the threads of a chat', () => {
     const list = page.getByTestId('threads-popover')
     await expect(list.getByTestId('thread-row')).toHaveCount(1)
     await expect(list.getByTestId('thread-row')).toContainText('Wine cellars')
-    await expect(list.getByTestId('thread-row')).toContainText('Three days: Ribeira')
     await list.getByRole('button', { name: /Archived \(1\)/ }).click()
     await expect(list.getByTestId('thread-row').filter({ has: page.getByText('Coast road', { exact: true }) })).toBeVisible()
   })
