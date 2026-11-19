@@ -5,7 +5,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { Earth, Loader2, ArrowDown, EyeOff, FileText, Hash, Clock, Link2, Archive } from 'lucide-react'
+import { Earth, Loader2, ArrowDown, EyeOff, FileText, Hash, Clock, Link2, Archive, AppWindow, Columns2, MessageSquare } from 'lucide-react'
 import {
   api,
   pendingQuestionOf,
@@ -864,12 +864,15 @@ export default function ChatView({
   // Desktop: one of three layouts, exactly one selected — the chat, both side
   // by side, or the panel alone. A phone has room for one pane: Chat | App.
   const current: PaneView = chatShown && appShown ? 'both' : chatShown ? 'chat' : 'app'
-  const paneOptions: { view: PaneView; label: string }[] = isDesktop
-    ? [{ view: 'chat', label: 'Chat' }, { view: 'both', label: 'Both' }, { view: 'app', label: panelLabel }]
-    : [{ view: 'chat', label: 'Chat' }, { view: 'app', label: panelLabel }]
+  const PanelIcon = hasApp ? AppWindow : tabs.length ? FileText : Hash
+  const paneOptions: { view: PaneView; label: string; hint: string; icon: React.ReactNode }[] = [
+    { view: 'chat', label: 'Chat', hint: 'The chat alone', icon: <MessageSquare size={14} /> },
+    ...(isDesktop ? [{ view: 'both' as const, label: 'Both', hint: `The chat and the ${panelLabel.toLowerCase()} side by side`, icon: <Columns2 size={14} /> }] : []),
+    { view: 'app', label: panelLabel, hint: `The ${panelLabel.toLowerCase()} alone`, icon: <PanelIcon size={14} /> },
+  ]
   const paneToggle = (
     <span role='radiogroup' aria-label='Layout' className='flex gap-0.5 bg-surface2 rounded-lg p-0.5 shrink-0'>
-      {paneOptions.map(({ view: v, label }) => {
+      {paneOptions.map(({ view: v, label, hint, icon }) => {
         const on = v === current
         return (
           <button
@@ -877,10 +880,11 @@ export default function ChatView({
             role='radio'
             aria-checked={on}
             onClick={() => setView(v)}
-            title={v === 'both' ? `The chat and the ${panelLabel.toLowerCase()} side by side` : undefined}
-            className={`px-3 py-1 text-xs rounded-md transition-colors ${on ? 'bg-bg text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}
+            aria-label={label}
+            title={hint}
+            className={`px-2 py-1 rounded-md transition-colors ${on ? 'bg-bg text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}
           >
-            {label}
+            {icon}
           </button>
         )
       })}
