@@ -70,7 +70,8 @@ export async function sectionRoutes(app: FastifyInstance) {
   })
 
   // Read from the topic page, outside any chat — served as a chat's tab is.
-  app.get<{ Params: { id: string; docId: string } }>('/:id/docs/:docId/content', auth, async (req, reply) => {
+  // Framed or shown as an image, so its credential may be in the URL.
+  app.get<{ Params: { id: string; docId: string } }>('/:id/docs/:docId/content', { onRequest: [app.authenticateEmbed] }, async (req, reply) => {
     const doc = getDb().prepare(`SELECT * FROM section_docs WHERE id = ? AND section_id = ? AND kind = 'doc'`)
       .get(req.params.docId, req.params.id) as TopicDocRow | undefined
     if (!doc) return reply.code(404).send({ error: 'Not found' })

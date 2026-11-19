@@ -54,6 +54,18 @@ test.describe('tabs beside a chat', () => {
     await expect(page.getByTestId('doc-view').getByRole('heading', { name: 'Side pane tabs — spec' })).toBeVisible()
   })
 
+  test('an HTML document opens in its tab, framed — signed in by the URL it is loaded from', async ({ page }) => {
+    await openConversation(page, 'Spec draft')
+    const headers = { 'X-Internal-Secret': internalSecret(), 'Content-Type': 'application/json' }
+    const res = await fetch(`${API}/internal/conversations/${SPEC_CHAT}/tabs`, {
+      method: 'POST', headers, body: JSON.stringify({ path: `/jarvis/agent/workspace/uploads/${SPEC_CHAT}/mockup.html` }),
+    })
+    expect(res.ok).toBe(true)
+    await expect(page.getByRole('tablist').getByRole('tab', { name: /mockup\.html/ })).toHaveAttribute('aria-selected', 'true')
+    // A frame cannot send the session header: it rode in ?token=, and used to get a 401.
+    await expect(page.frameLocator('iframe[title="mockup.html"]').getByRole('heading', { name: 'Rendered mockup' })).toBeVisible()
+  })
+
   test('the app keeps the first tab, documents sit beside it', async ({ page }) => {
     await openConversation(page, 'App with docs')
     const pane = page.getByRole('tablist')

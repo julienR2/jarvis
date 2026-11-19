@@ -72,7 +72,8 @@ export async function tabRoutes(app: FastifyInstance) {
   // moved, grown or been replaced by a symlink since the tab was opened. Run
   // in a sandbox (no script, no same-origin) wherever it is opened, this tab
   // or a new one: an HTML or SVG document is content, not an app.
-  app.get<{ Params: { id: string; tabId: string } }>('/:id/tabs/:tabId/content', auth, async (req, reply) => {
+  // Framed or shown as an image, so its credential may be in the URL.
+  app.get<{ Params: { id: string; tabId: string } }>('/:id/tabs/:tabId/content', { onRequest: [app.authenticateEmbed] }, async (req, reply) => {
     const tab = getTab(req.params.id, req.params.tabId)
     if (!tab || tab.kind !== 'doc') return reply.code(404).send({ error: 'Not found' })
     const r = resolveDocPath(tab.target)

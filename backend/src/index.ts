@@ -57,6 +57,7 @@ import type { ConvRow } from './types.js'
 declare module 'fastify' {
   interface FastifyInstance {
     authenticate: (req: any, reply: any) => Promise<void>
+    authenticateEmbed: (req: any, reply: any) => Promise<void>
   }
 }
 
@@ -179,6 +180,28 @@ app.decorate('authenticate', async function (req: any, reply: any) {
     /* not a session — an API key may still authenticate this */
   }
   if (!applyApiKey(req, extractRequestToken(req))) {
+    reply.code(401).send({ error: 'Unauthorized' })
+  }
+})
+
+// For what a page embeds — a document in an <iframe> or <img> — which cannot
+// set a header: the session may also ride in ?token= or the session cookie,
+// as for uploaded files. Read-only routes only: a credential in a URL or a
+// cookie must never be enough to change anything.
+app.decorate('authenticateEmbed', async function (req: any, reply: any) {
+  const token = extractRequestToken(req)
+  if (token) {
+    try {
+      const user = (await app.jwt.verify(token)) as { id?: unknown; email?: string }
+      if (typeof user.id === 'number' && getDb().prepare('SELECT 1 FROM users WHERE id = ?').get(user.id)) {
+        req.user = { ...user, via: 'session' }
+        return
+      }
+    } catch {
+      /* not a session — an API key may still authenticate this */
+    }
+  }
+  if (!applyApiKey(req, token)) {
     reply.code(401).send({ error: 'Unauthorized' })
   }
 })

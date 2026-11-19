@@ -306,6 +306,7 @@ export function seedFixtures(): void {
     mkdirSync(specDir, { recursive: true })
     writeFileSync(join(specDir, 'spec.md'), FIXTURE_SPEC_MD)
     writeFileSync(join(specDir, 'report.md'), '# Weekly report\n\nThree things shipped, one slipped.\n')
+    writeFileSync(join(specDir, 'mockup.html'), '<!doctype html><h1>Rendered mockup</h1>\n')
     insConv.run(ID.spec, '📄 Spec draft', t(80), t(79), projects.id, null, null)
     insMsg.run(uuid(), ID.spec, 'user', 'Draft the spec, and the weekly report.', null, null, null, t(80))
     insMsg.run(uuid(), ID.spec, 'assistant',

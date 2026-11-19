@@ -19,6 +19,9 @@ const IGNORE_CONSOLE = [
   // The backend sets COOP; over plain http between containers Chrome discards
   // it and says so. Behind https it is honoured silently.
   /Cross-Origin-Opener-Policy/,
+  // signIn's init script, which Playwright runs in every frame: a document in
+  // a side tab is framed sandboxed (no scripts), so Chrome refuses it there.
+  /Blocked script execution in '[^']*\/(tabs|docs)\/[^']*\/content/,
 ]
 
 /** A conversation id no fixture uses — a deep link to a deleted chat. */
@@ -75,7 +78,10 @@ export async function signIn(page: Page): Promise<void> {
   const token = process.env.E2E_TOKEN
   if (!token) throw new Error('E2E_TOKEN missing — did globalSetup run?')
   await page.context().addInitScript((t) => {
-    if (!localStorage.getItem('token')) localStorage.setItem('token', t)
+    // Runs in every frame, sandboxed ones included, where storage is refused.
+    try {
+      if (!localStorage.getItem('token')) localStorage.setItem('token', t)
+    } catch { /* a sandboxed frame: nothing to sign in */ }
   }, token)
   await page.goto('./')
   await expect(page.getByText('New chat')).toBeVisible()
