@@ -4,7 +4,7 @@ import { Archive, ArchiveRestore, ChevronRight, Clock, Hash, Link2 } from 'lucid
 import type { Conversation } from '../api'
 import { relative } from '../lib/runs'
 import { CreateRow, SubChatRow } from './SubChatRow'
-import { isActiveThread, routineKindOf } from '../lib/threads'
+import { isActiveThread, routineKindOf, threadTitle } from '../lib/threads'
 import Popover from './Popover'
 
 interface Props {
@@ -47,7 +47,7 @@ export default function ThreadsPill({ threads, activeId, onOpen, onNew, onArchiv
         key={t.id}
         testId='thread-row'
         icon={kind === 'cron' ? <Clock size={12} className='text-text-muted' /> : kind === 'webhook' ? <Link2 size={12} className='text-text-muted' /> : <Hash size={12} className='text-accent' />}
-        title={t.title}
+        title={threadTitle(t.title)}
         fresh={fresh}
         selected={t.id === activeId}
         muted={archivedRow}

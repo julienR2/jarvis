@@ -61,4 +61,30 @@ test.describe('sidebar', () => {
     await expect(page.getByPlaceholder('How can I help you today?')).toBeFocused()
     expect(created).toEqual([])
   })
+
+  test('a chat\'s threads: only the ones with news, or all of them unfolded — marked #, no emoji', async ({ page }) => {
+    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.E2E_TOKEN}` }
+    const make = async (title: string) =>
+      (await (await page.request.post('api/conversations', { headers, data: { title } })).json()) as { id: string }
+    const chat = await make('🧭 Unfold home')
+    const quiet = await make('🧵 Quiet thread')
+    const deep = await make('Deep thread')
+    await page.request.patch(`api/conversations/${quiet.id}`, { headers, data: { parent_id: chat.id } })
+    await page.request.patch(`api/conversations/${deep.id}`, { headers, data: { parent_id: quiet.id } })
+    await page.goto('')
+    const sidebar = page.locator('aside')
+    const row = sidebar.locator('div').filter({ has: page.getByText('🧭 Unfold home', { exact: true }) }).last()
+    await expect(row).toBeVisible()
+    // Nothing new in either: folded, neither is listed.
+    await expect(sidebar.getByText('Quiet thread', { exact: true })).toHaveCount(0)
+    await row.hover()
+    await row.getByRole('button', { name: 'Show its threads' }).click()
+    // Both, one level under the chat — the thread of a thread included — and
+    // the older one without the emoji it was given.
+    await expect(sidebar.getByText('Quiet thread', { exact: true })).toBeVisible()
+    await expect(sidebar.getByText('Deep thread', { exact: true })).toBeVisible()
+    await row.getByRole('button', { name: 'Hide its threads' }).click()
+    await expect(sidebar.getByText('Quiet thread', { exact: true })).toHaveCount(0)
+    for (const c of [deep, quiet, chat]) await page.request.patch(`api/conversations/${c.id}`, { headers, data: { archived: true } })
+  })
 })

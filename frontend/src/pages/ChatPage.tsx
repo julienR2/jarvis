@@ -8,7 +8,6 @@ import Sidebar from '../components/Sidebar'
 import ResizeHandle from '../components/ResizeHandle'
 import { useIsDesktop } from '../hooks/useIsDesktop'
 import ChatView from '../components/ChatView'
-import CodeBrowser from '../components/CodeBrowser'
 import BrowserPage from '../components/BrowserPage'
 import UpdateBanner from '../components/UpdateBanner'
 import SettingsPage from './SettingsPage'
@@ -256,7 +255,6 @@ export default function ChatPage() {
             <Route path='/plugins' element={<Navigate to='/settings' replace />} />
             {/* Full-height tools, reached from the Settings menu. */}
             <Route path='/browser' element={<BrowserPage />} />
-            <Route path='/code/*' element={<CodeBrowser />} />
           </Routes>
         </SidebarToggleProvider>
       </main>

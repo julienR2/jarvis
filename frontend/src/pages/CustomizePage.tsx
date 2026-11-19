@@ -6,7 +6,7 @@ import OnePanel from '../components/OnePanel'
 import { ProviderConnections } from '../components/ConnectionPage'
 
 /**
- * Settings › Customize: what Jarvis thinks with and works with — the model
+ * Settings › Capabilities: what Jarvis thinks with and works with — the model
  * providers, the connectors it holds credentials for, the apps connected
  * through One, the skills it knows.
  * The tab lives in the URL so a link can open the right one.
@@ -28,7 +28,7 @@ export default function CustomizePage() {
     setParams((p) => { if (t === 'models') p.delete('tab'); else p.set('tab', t); return p }, { replace: true })
 
   return (
-    <ContentLayout title='Customize'>
+    <ContentLayout title='Capabilities'>
       <div>
         <div
           className='flex gap-1 border-b border-border mb-5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'

@@ -75,12 +75,12 @@ When the user is happy with the screenshots, tell them:
 - the files you changed under `frontend/src/` — say which are **new**: the
   deploy refuses any file there git does not track, so the user has to review
   and commit those before anything ships;
-- that it is uncommitted in the working tree, ready to review (the Code page
-  shows the diff), commit, and deploy from the host with
+- that it is uncommitted in the working tree, ready to review (`git diff` on
+  the host), commit, and deploy from the host with
   `docker compose run --rm deploy`.
 
 An unfinished change can sit in the working tree for days: it costs prod
-nothing. To drop it, the user discards it from the Code page.
+nothing. To drop it, the user discards it with git on the host.
 
 ## The fixture data you are looking at
 The throwaway stack is seeded, never the user's data: topics "🧪 Fixtures /

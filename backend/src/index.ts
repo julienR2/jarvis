@@ -34,7 +34,6 @@ import { dictationRoutes } from './routes/dictation.js'
 import { pushRoutes } from './routes/push.js'
 import { appRoutes } from './routes/apps.js'
 import { internalRoutes } from './routes/internal.js'
-import { gitRoutes } from './routes/git.js'
 import { connectorRoutes } from './routes/connectors.js'
 import { oneRoutes } from './routes/one.js'
 import { skillRoutes, internalSkillRoutes, commandRoutes } from './routes/skills.js'
@@ -229,7 +228,6 @@ await app.register(pushRoutes, { prefix: '/api/push' })
 await app.register(appRoutes, { prefix: '/api/apps' })
 await app.register(internalRoutes, { prefix: '/internal' })
 await app.register(internalSkillRoutes, { prefix: '/internal/skills' })
-await app.register(gitRoutes, { prefix: '/api/git' })
 await app.register(connectorRoutes, { prefix: '/api/connectors' })
 await app.register(oneRoutes, { prefix: '/api/one' })
 await app.register(skillRoutes, { prefix: '/api/skills' })

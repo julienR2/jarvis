@@ -70,3 +70,14 @@ export function saveThreadTabs(chatId: string, ids: string[]) {
     /* site data blocked — tabs just won't persist */
   }
 }
+
+const LEADING_EMOJI = /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|️|‍)+\s*/u
+
+/**
+ * A thread's title as listed under its chat: without the emoji older threads
+ * were given — the # in front marks it, and an emoji makes a row read as a
+ * chat of its own.
+ */
+export function threadTitle(title: string): string {
+  return title.replace(LEADING_EMOJI, '').trim() || title
+}

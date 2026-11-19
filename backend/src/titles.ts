@@ -35,12 +35,22 @@ function looksLikeTitle(raw: string): boolean {
 // "Salutation sans sujet défini", which is a description, not a title.
 const NO_SUBJECT = /^[-–—]+$/
 
-const INSTRUCTIONS = [
-  'Title the conversation above: one emoji, then 2 to 3 words naming what the user asked about, in the language the user writes in.',
+// A thread is marked # wherever it is listed, so its title goes without the
+// emoji a chat gets: the emoji is what makes a row read as a chat of its own.
+const instructions = (thread: boolean) => [
+  thread
+    ? 'Title the conversation above: 2 to 4 words naming what the user asked about, no emoji, in the language the user writes in.'
+    : 'Title the conversation above: one emoji, then 2 to 3 words naming what the user asked about, in the language the user writes in.',
   'Any question, request or task is a subject — title it, even if the chat opened with a greeting.',
   'Only when there is nothing to name at all (just a greeting or a test, no request yet) reply with a single hyphen.',
   'Reply with the title only — no punctuation, no quotes, no explanation, no tools.',
 ].join(' ')
+
+const isThread = (conversationId: string): boolean =>
+  !!(getDb().prepare('SELECT parent_id FROM conversations WHERE id = ?').get(conversationId) as { parent_id: string | null } | undefined)
+    ?.parent_id
+
+const LEADING_EMOJI = /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|\uFE0F|\u200D)+\s*/u
 
 // The last exchanges, user text and finished answers only, trimmed so the
 // call stays cheap: a title needs the subject, not the whole argument.
@@ -83,7 +93,7 @@ export async function generateTitle(
     const lines = transcript(conversationId)
     if (!lines) return null
     const raw = await invokeAndWait({
-      prompt: `<transcript>\n${lines}\n</transcript>\n\n${INSTRUCTIONS}`,
+      prompt: `<transcript>\n${lines}\n</transcript>\n\n${instructions(isThread(conversationId))}`,
       sessionId: null,
       conversationId: `title-${conversationId}`,
       // The conversation's own model: a chat on the gateway is titled by the
@@ -99,7 +109,9 @@ export async function generateTitle(
 
 /** The model's answer as a title, or null to leave the placeholder and ask again. */
 function acceptTitle(conversationId: string, raw: string): string | null {
-  const cleaned = raw.trim().replace(/^["'«]|["'».,]$/g, '').trim()
+  let cleaned = raw.trim().replace(/^["'«]|["'».,]$/g, '').trim()
+  // Asked for none, a thread may still get one: the model's habit.
+  if (isThread(conversationId)) cleaned = cleaned.replace(LEADING_EMOJI, '').trim()
   if (NO_SUBJECT.test(cleaned)) {
     console.log(`[title] ${conversationId.slice(0, 8)}: no subject yet (${JSON.stringify(raw.trim())}), asking again next turn`)
     return null
@@ -144,7 +156,7 @@ async function localTitle(conversationId: string, model: string | null): Promise
   if (cfg && model) {
     try {
       const raw = await completeOnce(cfg, model, [
-        { role: 'user', content: `<transcript>\nUser: ${subject}\n</transcript>\n\n${INSTRUCTIONS}` },
+        { role: 'user', content: `<transcript>\nUser: ${subject}\n</transcript>\n\n${instructions(isThread(conversationId))}` },
       ], 24)
       const title = acceptTitle(conversationId, raw)
       if (title) return title

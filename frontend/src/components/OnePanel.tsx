@@ -4,7 +4,7 @@ import { api, type OneStatus, type OneConnection, type OnePlatform } from '../ap
 import { Switch } from './RoutineCard'
 
 /**
- * Settings › Customize › One: apps connected through One (withone.ai).
+ * Settings › Capabilities › One: apps connected through One (withone.ai).
  *
  * The counterpart of the Connectors tab for apps whose credentials stay at
  * One: the person signs in on One's site, and Jarvis acts through One's MCP

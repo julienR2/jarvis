@@ -35,9 +35,9 @@ server and a stub engine — and `e2e/shot.sh <route>…` screenshots it into th
 conversation's uploads folder. About ten seconds, no Docker, and prod's data is
 never opened.
 
-**Recovery strategy**: First try discarding uncommitted changes
-(`/api/git/discard`). If the repo is clean but still broken, revert the last
-commit (`/api/git/revert`). Either way the running code only changes after a
+**Recovery strategy**: done with git on the host, in the repo. First discard
+uncommitted changes (`git restore`, or `git clean` for new files). If the repo
+is clean but still broken, revert the last commit (`git revert HEAD`). Either way the running code only changes after a
 deploy — or, if the backend itself is down, after `docker compose up -d` on the
 host.
 

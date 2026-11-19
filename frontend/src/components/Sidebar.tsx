@@ -23,7 +23,7 @@ import {
   SlidersHorizontal,
   Blocks,
   Globe,
-  Code2,
+  Hash,
 } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 import { hasDraft, useDrafts } from '../lib/drafts'
@@ -40,7 +40,7 @@ import type { Conversation, Section } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { api } from '../api'
 import { startOfToday, useRecentRuns } from '../lib/runs'
-import { routineKindOf } from '../lib/threads'
+import { routineKindOf, threadTitle } from '../lib/threads'
 import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
@@ -55,6 +55,13 @@ interface Props {
 
 /** Collapse state is per-device, so localStorage rather than the DB. */
 const COLLAPSE_KEY = 'sidebar-sections-collapsed'
+/** The chats whose threads are all listed, not only the ones with news. Per device too. */
+const THREADS_OPEN_KEY = 'sidebar-threads-open'
+/**
+ * Where a chat's title text starts, past its emoji: a thread's # lines up
+ * there, so it reads as under the chat rather than beside it.
+ */
+const THREAD_PAD = 28 + 21
 /**
  * Touch devices never hover, so a hover-revealed section menu would be
  * unreachable there — show it permanently instead.
@@ -69,9 +76,9 @@ const DEFAULT_ID = '__default__'
  */
 const CHILD_PAD = 'pl-7'
 
-function readCollapsed(): string[] {
+function readCollapsed(key = COLLAPSE_KEY): string[] {
   try {
-    const raw = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]')
+    const raw = JSON.parse(localStorage.getItem(key) || '[]')
     return Array.isArray(raw) ? raw.filter((x) => typeof x === 'string') : []
   } catch {
     return []
@@ -93,10 +100,18 @@ export default function Sidebar({
   const createSection = useChatStore((s) => s.createSection)
   const [collapsed, setCollapsed] = useState<string[]>(readCollapsed)
   const [creatingSection, setCreatingSection] = useState(false)
+  const [threadsOpen, setThreadsOpen] = useState<string[]>(() => readCollapsed(THREADS_OPEN_KEY))
 
   useEffect(() => {
     localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed))
   }, [collapsed])
+  useEffect(() => {
+    localStorage.setItem(THREADS_OPEN_KEY, JSON.stringify(threadsOpen))
+  }, [threadsOpen])
+  const toggleThreads = useCallback(
+    (id: string) => setThreadsOpen((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])),
+    [],
+  )
 
   const toggleCollapsed = useCallback((id: string) => {
     setCollapsed((prev) =>
@@ -114,8 +129,7 @@ export default function Sidebar({
     location.pathname.startsWith('/settings') ||
     location.pathname.startsWith('/routines') ||
     location.pathname === '/archive' ||
-    location.pathname === '/browser' ||
-    location.pathname.startsWith('/code')
+    location.pathname === '/browser'
 
   function handleNav(path: string) {
     // On mobile, fully animate the sidebar closed before navigating, so the
@@ -147,7 +161,7 @@ export default function Sidebar({
       convs: chats.filter((c) => !c.section_id),
     },
   ]
-  const children = useNestedThreads(conversations, byId, isOpen)
+  const children = useNestedThreads(conversations, byId, isOpen, threadsOpen)
 
   return (
     <aside
@@ -223,6 +237,8 @@ export default function Sidebar({
             onRename={onRename}
             onMove={onMove}
             childrenOf={children}
+            threadsOpen={threadsOpen}
+            onToggleThreads={toggleThreads}
           />
         ))}
 
@@ -287,6 +303,8 @@ function SectionGroup({
   onRename,
   onMove,
   childrenOf,
+  threadsOpen,
+  onToggleThreads,
 }: {
   section: Section | null
   convs: Conversation[]
@@ -299,8 +317,10 @@ function SectionGroup({
   onArchive: (id: string) => void
   onRename: (id: string, title: string) => void
   onMove: (id: string, sectionId: string | null) => void
-  /** The threads to show under each conversation (useNestedThreads). */
-  childrenOf: Map<string, Conversation[]>
+  /** The threads to show under each chat (useNestedThreads). */
+  childrenOf: Map<string, ChatThreads>
+  threadsOpen: string[]
+  onToggleThreads: (id: string) => void
 }) {
   const renameSection = useChatStore((s) => s.renameSection)
   const deleteSection = useChatStore((s) => s.deleteSection)
@@ -311,27 +331,25 @@ function SectionGroup({
   const unread = convs.reduce((n, c) => n + (c.unread_count || 0), 0)
   // Collapsed groups still show the open conversation, so navigating into one
   // never makes it disappear.
-  const leadsToOpen = (id: string, seen = new Set<string>()): boolean =>
-    activePath === `/c/${id}` || (!seen.has(id) && !!childrenOf.get(id)?.some((t) => leadsToOpen(t.id, new Set(seen).add(id))))
+  const isActive = (id: string) => activePath === `/c/${id}`
+  const leadsToOpen = (id: string): boolean => isActive(id) || !!childrenOf.get(id)?.shown.some((t) => isActive(t.id))
   const visible = collapsed ? convs.filter((c) => leadsToOpen(c.id)) : convs
-  // Under a conversation, its threads — each with its own, a step further in.
-  // Folded, only the way down to the open one.
-  const threadRows = (parentId: string, depth: number, seen: Set<string>): React.ReactNode =>
-    (childrenOf.get(parentId) ?? [])
-      .filter((t) => !seen.has(t.id) && (!collapsed || leadsToOpen(t.id)))
+  // Under a chat, its threads — one level, however deep they sit (a thread of
+  // a thread is listed with the others). Folded group: only the open one.
+  const threadRows = (chatId: string): React.ReactNode =>
+    (childrenOf.get(chatId)?.shown ?? [])
+      .filter((t) => !collapsed || isActive(t.id))
       .map((t) => (
-        <Fragment key={t.id}>
-          <ConvItem
-            conv={t}
-            depth={depth}
-            active={activePath === `/c/${t.id}`}
-            onNav={() => onNav(`/c/${t.id}`)}
-            onArchive={() => onArchive(t.id)}
-            onRename={(title) => onRename(t.id, title)}
-            onMove={(sectionId) => onMove(t.id, sectionId)}
-          />
-          {threadRows(t.id, depth + 1, new Set(seen).add(t.id))}
-        </Fragment>
+        <ConvItem
+          key={t.id}
+          conv={t}
+          depth={1}
+          active={isActive(t.id)}
+          onNav={() => onNav(`/c/${t.id}`)}
+          onArchive={() => onArchive(t.id)}
+          onRename={(title) => onRename(t.id, title)}
+          onMove={(sectionId) => onMove(t.id, sectionId)}
+        />
       ))
 
   return (
@@ -410,8 +428,13 @@ function SectionGroup({
             onArchive={() => onArchive(conv.id)}
             onRename={(title) => onRename(conv.id, title)}
             onMove={(sectionId) => onMove(conv.id, sectionId)}
+            threads={
+              childrenOf.get(conv.id)?.total
+                ? { open: threadsOpen.includes(conv.id), onToggle: () => onToggleThreads(conv.id) }
+                : undefined
+            }
           />
-          {threadRows(conv.id, 1, new Set([conv.id]))}
+          {threadRows(conv.id)}
         </Fragment>
       ))}
       {!collapsed && convs.length === 0 && (
@@ -543,10 +566,13 @@ function ConvItem({
   onRename,
   onMove,
   depth = 0,
+  threads,
 }: {
   conv: Conversation
-  /** How far under a top-level chat it sits: 0 for the chat itself. */
+  /** 1 for a thread listed under its chat, 0 for the chat itself. */
   depth?: number
+  /** A chat that has threads: whether all of them are listed, and the switch. */
+  threads?: { open: boolean; onToggle: () => void }
   active: boolean
   onNav: () => void
   onArchive: () => void
@@ -590,17 +616,34 @@ function ConvItem({
         ref={containerRef}
         onClick={onNav}
         {...longPress}
-        // Each level a step further in, from where a chat's own title starts.
-        style={nested ? { paddingLeft: 28 + depth * 14 } : undefined}
+        style={nested ? { paddingLeft: THREAD_PAD } : undefined}
         className={`
           relative flex items-center ${nested ? '' : CHILD_PAD} pr-3 ${nested ? 'py-1' : 'py-1.5'} rounded-lg cursor-pointer group select-none transition-colors gap-2
           ${active ? 'bg-selected text-text-primary' : 'text-text-secondary hover:bg-surface2'}
         `}
       >
+        {/* In the gutter left of the title: list all its threads, or only the
+            ones with news. Shown on hover, and always once open. */}
+        {threads && (
+          <button
+            type='button'
+            onClick={(e) => {
+              e.stopPropagation()
+              threads.onToggle()
+            }}
+            title={threads.open ? 'Only the threads with news' : 'All its threads'}
+            aria-label={threads.open ? 'Hide its threads' : 'Show its threads'}
+            aria-expanded={threads.open}
+            className={`absolute left-1.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-text-muted/60 hover:text-text-secondary ${threads.open || !CAN_HOVER ? '' : 'opacity-0 group-hover:opacity-100'}`}
+          >
+            <ChevronRight size={11} className={`transition-transform ${threads.open ? 'rotate-90' : ''}`} />
+          </button>
+        )}
+        {nested && <Hash size={11} className='shrink-0 -mr-1 text-text-muted/70' />}
         <span
-          className={`flex-1 overflow-hidden text-ellipsis whitespace-nowrap ${nested ? 'text-[13px]' : 'text-sm'} min-w-0 ${unread ? 'font-medium text-text-primary' : ''}`}
+          className={`flex-1 overflow-hidden text-ellipsis whitespace-nowrap ${nested ? 'text-[13px]' : 'text-sm'} min-w-0 ${unread ? 'font-medium text-text-primary' : nested && !active ? 'text-text-muted' : ''}`}
         >
-          {conv.title}
+          {nested ? threadTitle(conv.title) : conv.title}
         </span>
         <span className='flex items-center gap-2 shrink-0'>
           {drafted && (
@@ -653,12 +696,11 @@ function ConvItem({
 }
 
 const SETTINGS_ITEMS: { path: string; label: string; hint: string; icon: React.ReactNode }[] = [
-  { path: '/routines', label: 'Routines', hint: 'What Jarvis does on its own', icon: <Clock size={14} /> },
-  { path: '/archive', label: 'Archive', hint: 'Put away, kept a week', icon: <Archive size={14} /> },
   { path: '/settings', label: 'General', hint: 'Appearance, notifications, API keys', icon: <SlidersHorizontal size={14} /> },
-  { path: '/settings/customize', label: 'Customize', hint: 'Models, connectors, skills', icon: <Blocks size={14} /> },
+  { path: '/routines', label: 'Routines', hint: 'What Jarvis does on its own', icon: <Clock size={14} /> },
+  { path: '/settings/customize', label: 'Capabilities', hint: 'Models, connectors, apps, skills', icon: <Blocks size={14} /> },
   { path: '/browser', label: 'Browser', hint: 'The logged-in Chromium', icon: <Globe size={14} /> },
-  { path: '/code', label: 'Code', hint: "Jarvis's source and its changes", icon: <Code2 size={14} /> },
+  { path: '/archive', label: 'Archive', hint: 'Put away, kept a week', icon: <Archive size={14} /> },
 ]
 
 /**
@@ -668,7 +710,7 @@ const SETTINGS_ITEMS: { path: string; label: string; hint: string; icon: React.R
 function SettingsMenu({ active, path, onNav }: { active: boolean; path: string; onNav: (path: string) => void }) {
   const [open, setOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
-  const current = (p: string) => (p === '/code' ? path.startsWith('/code') : path === p)
+  const current = (p: string) => path === p
   return (
     <>
       <button
@@ -723,39 +765,46 @@ function StatusDot() {
   return null
 }
 
+/** A chat's threads in the sidebar: the ones listed, and how many it has. */
+interface ChatThreads {
+  shown: Conversation[]
+  total: number
+}
+
 /**
- * Which threads show under which conversation: one that has something for you
- * (unread, or a question waiting) or is open, and every one above it, so the
- * way down to it is there however deep it sits. Put away (Done), a thread
- * shows only while open. A conversation whose parent is gone sits at the top.
+ * Which threads show under which chat. Every thread is listed under its
+ * top-level chat, one level, however deep it sits. Listed: the open one, and
+ * the ones with something for you (unread, a question waiting) — or all of
+ * them, for a chat whose threads were unfolded. Put away, a thread shows only
+ * while open. A conversation whose parent is gone sits at the top.
  */
 function useNestedThreads(
   conversations: Conversation[],
   byId: Map<string, Conversation>,
   isOpen: (c: Conversation) => boolean,
-): Map<string, Conversation[]> {
-  const kids = new Map<string, Conversation[]>()
+  unfolded: string[],
+): Map<string, ChatThreads> {
+  const rootOf = (c: Conversation): string | null => {
+    const seen = new Set<string>()
+    let cur = c
+    while (cur.parent_id && byId.has(cur.parent_id)) {
+      // A loop in the data lists nothing rather than spinning forever.
+      if (seen.has(cur.id)) return null
+      seen.add(cur.id)
+      cur = byId.get(cur.parent_id)!
+    }
+    return cur.id === c.id ? null : cur.id
+  }
+  const out = new Map<string, ChatThreads>()
   for (const c of conversations) {
-    if (c?.parent_id && byId.has(c.parent_id)) kids.set(c.parent_id, [...(kids.get(c.parent_id) ?? []), c])
+    if (!c?.parent_id) continue
+    const root = rootOf(c)
+    if (!root) continue
+    const entry = out.get(root) ?? { shown: [], total: 0 }
+    if (!c.archived_at) entry.total++
+    const news = !c.archived_at && (c.unread_count > 0 || !!c.pending_question)
+    if (isOpen(c) || news || (!c.archived_at && unfolded.includes(root))) entry.shown.push(c)
+    out.set(root, entry)
   }
-  const shown = new Map<string, boolean>()
-  const visit = (c: Conversation, path: Set<string>): boolean => {
-    const known = shown.get(c.id)
-    if (known !== undefined) return known
-    // A loop in the data shows nothing rather than spinning forever.
-    if (path.has(c.id)) return false
-    path.add(c.id)
-    const own = isOpen(c) || (!c.archived_at && (c.unread_count > 0 || !!c.pending_question))
-    let below = false
-    for (const k of kids.get(c.id) ?? []) below = visit(k, path) || below
-    path.delete(c.id)
-    shown.set(c.id, own || below)
-    return own || below
-  }
-  const children = new Map<string, Conversation[]>()
-  for (const [parent, list] of kids) {
-    const visible = list.filter((k) => visit(k, new Set([parent])))
-    if (visible.length) children.set(parent, visible)
-  }
-  return children
+  return out
 }

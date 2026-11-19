@@ -463,32 +463,6 @@ export const api = {
     request<ApiKey & { key: string }>('POST', '/api-keys', { name }),
   deleteApiKey: (id: string) => request<{ ok: boolean }>('DELETE', `/api-keys/${id}`),
 
-  // Code (repo browser)
-  getAgentTree: () => request<CodeEntry[]>('GET', '/git/agent-tree'),
-  getCodeTree: () => request<CodeEntry[]>('GET', '/git/tree'),
-  /** One folder of the repo, one level deep. */
-  listCode: (path: string) => request<CodeListing>('GET', `/git/ls?path=${encodeURIComponent(path)}`),
-  getCodeChanges: () => request<CodeEntry[]>('GET', '/git/changes'),
-  getCodeFile: (path: string) =>
-    request<CodeFile>('GET', `/git/file?path=${encodeURIComponent(path)}`),
-  getCommits: (limit = 50) =>
-    request<Commit[]>('GET', `/git/log?limit=${limit}`),
-  getCommit: (hash: string) =>
-    request<CommitDetail>('GET', `/git/log/${encodeURIComponent(hash)}`),
-  getCommitFile: (hash: string, path: string) =>
-    request<{ path: string; diff: string }>(
-      'GET',
-      `/git/log/${encodeURIComponent(hash)}/file?path=${encodeURIComponent(path)}`,
-    ),
-  // Recovery. The backend has had these since the beginning; nothing called
-  // them, so the safety net the docs promised wasn't actually reachable.
-  commitChanges: (message: string) =>
-    request<{ ok: boolean }>('POST', '/git/commit', { message }),
-  discardChanges: () =>
-    request<{ ok: boolean; message: string }>('POST', '/git/discard'),
-  revertLastCommit: () =>
-    request<{ ok: boolean; message: string }>('POST', '/git/revert'),
-
   // Push notifications
   getVapidKey: () => request<{ key: string }>('GET', '/push/vapid-key'),
   subscribePush: (subscription: PushSubscriptionJSON) =>

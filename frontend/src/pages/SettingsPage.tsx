@@ -16,7 +16,7 @@ import { useChatStore } from '../stores/chatStore'
  * Settings › General: how the app looks and behaves, API keys, the account.
  *
  * Settings is a menu now (the sidebar's gear), not a page of tabs: General,
- * Customize (models, connectors, skills), Routines, Browser, Code. The old
+ * Routines, Capabilities (models, connectors, skills), Browser, Archive. The old
  * tab addresses still land where their content went.
  */
 const LEGACY_TABS: Record<string, string> = {

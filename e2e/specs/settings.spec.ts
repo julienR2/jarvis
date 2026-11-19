@@ -1,6 +1,4 @@
 import { test, expect, signIn } from '../helpers'
-import { existsSync } from 'fs'
-import { join } from 'path'
 
 test.describe('settings', () => {
   test.beforeEach(async ({ page }) => {
@@ -11,7 +9,7 @@ test.describe('settings', () => {
     const gear = page.getByRole('button', { name: 'Settings', exact: true })
     await gear.click()
     const menu = page.getByRole('menu')
-    for (const item of ['Routines', 'General', 'Customize', 'Browser', 'Code']) {
+    for (const item of ['General', 'Routines', 'Capabilities', 'Browser', 'Archive']) {
       await expect(menu.getByRole('menuitem', { name: new RegExp(`^${item}`) })).toBeVisible()
     }
     // Opened from the bottom edge: it goes up, and every pixel is on screen.
@@ -20,7 +18,7 @@ test.describe('settings', () => {
     expect(m!.y + m!.height).toBeLessThanOrEqual(g!.y)
     expect(m!.y).toBeGreaterThanOrEqual(0)
     expect(m!.x + m!.width).toBeLessThanOrEqual(vp!.width)
-    await menu.getByRole('menuitem', { name: /^Customize/ }).click()
+    await menu.getByRole('menuitem', { name: /^Capabilities/ }).click()
     await expect(page).toHaveURL(/\/settings\/customize$/)
     await expect(page.getByRole('tab', { name: 'Models' })).toHaveAttribute('aria-selected', 'true')
   })
@@ -142,28 +140,5 @@ test.describe('settings', () => {
     await expect(page).toHaveURL(/\/settings$/)
     await page.goto('connection')
     await expect(page).toHaveURL(/\/settings\/customize$/)
-  })
-
-  test('code: one lazy tree — folders open on demand, ignored ones dimmed', async ({ page }) => {
-    // The Code page reads the repo through git. The agent's container has no
-    // repo mounted (only the deploy one does), so there is nothing to show.
-    test.skip(!existsSync(join(process.env.JARVIS_REPO_DIR || '/jarvis', '.git')), 'no git repo in this container')
-    await page.goto('code')
-    const tree = page.getByTestId('code-tree')
-    const frontend = tree.getByRole('button', { name: /^frontend/ })
-    await expect(frontend).toBeVisible()
-    // Not loaded until opened.
-    await expect(tree.getByRole('button', { name: /^package\.json/ })).toHaveCount(0)
-    await frontend.click()
-    await expect(frontend).toHaveAttribute('aria-expanded', 'true')
-    const nodeModules = tree.getByRole('button', { name: /^node_modules/ }).first()
-    await expect(nodeModules).toBeVisible()
-    await expect(nodeModules).toHaveClass(/opacity-45/)
-    // Changes only: the same tree, folds included, minus what did not change —
-    // site/ is never touched by a working tree under test, so it goes.
-    await expect(tree.getByRole('button', { name: /^site/ })).toBeVisible()
-    await page.getByRole('switch', { name: 'Changes only' }).click()
-    await expect(tree.getByRole('button', { name: /^site/ })).toHaveCount(0)
-    await expect(tree.getByRole('button', { name: /^LICENSE/ })).toHaveCount(0)
   })
 })

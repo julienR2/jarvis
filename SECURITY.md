@@ -62,7 +62,7 @@ To let someone see a conversation, share a link — don't create them an account
 - **Files the agent writes are served without following its symlinks.** The
   engine and backend mount the same tree, but only the backend sees
   `agent/data`; a link planted in the workspace would otherwise resolve there.
-  App files, uploads and the Code page resolve links and refuse any that leave
+  App files and uploads resolve links and refuse any that leave
   their folder.
 - **Connector values can be hidden from the agent.** A connector set to *Hide
   secret values from Jarvis* never hands its secrets to the agent: it calls the

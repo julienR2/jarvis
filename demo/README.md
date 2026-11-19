@@ -36,8 +36,7 @@ The demo mounts the repo `:ro`. A demo conversation asking Jarvis to *"change
 your interface"* gets a permission error instead of editing your working tree
 and rebuilding both stacks.
 
-It can still browse the code and read diffs — the Code page works — it just
-cannot write or commit. So self-editing is the one flow you can't screenshot
+It can still read the code and its diffs, it just cannot write or commit. So self-editing is the one flow you can't screenshot
 here; do that on your own instance, where you'd be reviewing the diff anyway.
 
 The three services run `npm ci` here rather than the base `npm install`:
