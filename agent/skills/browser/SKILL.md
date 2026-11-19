@@ -33,6 +33,12 @@ in Settings → Browser, it isn't down: `browser-mcp` lost Chromium's network af
 Chromium restarted. Its watchdog restarts it within about a minute. Then the user
 needs a **new conversation**, because this session's connection to it is gone.
 
+The same symptom — connects, then times out in `initializeServer` — also comes from
+a single unresponsive tab: a hung page or a JS dialog left open blocks every
+connection, because attaching waits on each tab. The watchdog closes a tab that
+stays unresponsive for about two minutes. Tell the user which tab it likely is if
+you can, then a **new conversation** once it's gone.
+
 ## Handing a challenge to the user
 
 1. Say precisely what is on screen and what to click.
