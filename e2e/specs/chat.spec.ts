@@ -276,21 +276,26 @@ test.describe('chat rendering', () => {
     await expect(app).toBeVisible()
     await expect(composer).toBeVisible()
 
-    // Both on by default, the app under its own bar with refresh and open…
+    // Both on by default, the app under its own bar with refresh, open and full width…
     const previewBar = main.getByTitle('Refresh preview', { exact: true })
     await expect(previewBar).toBeVisible()
-    // …switching one off leaves the other alone, and the app alone has only
-    // the title bar, its actions in the ⋯ menu, as on a phone.
-    await main.getByRole('button', { name: 'Chat', exact: true }).click()
+    // …the title bar's panel button hides the panel and brings it back…
+    await main.getByRole('button', { name: 'Hide the panel' }).click()
+    await expect(app).toBeHidden()
+    await expect(composer).toBeVisible()
+    await main.getByRole('button', { name: 'Show the panel' }).click()
+    await expect(app).toBeVisible()
+    // …full width puts the chat away, and the app alone has only the title
+    // bar, its actions in the ⋯ menu, as on a phone.
+    await main.getByRole('button', { name: 'Full width' }).click()
     await expect(composer).toBeHidden()
     await expect(app).toBeVisible()
     await expect(previewBar).toBeHidden()
     await main.locator('[title="Conversation options"]:visible').click()
     await expect(page.getByRole('button', { name: 'Refresh preview' })).toBeVisible()
     await page.keyboard.press('Escape')
-    // …and the last pane standing can't be switched off.
-    await main.getByRole('button', { name: 'App', exact: true }).click()
-    await expect(app).toBeVisible()
+    // …and the app alone can't be hidden: the way out is the chat.
+    await expect(main.getByRole('button', { name: 'Hide the panel' })).toHaveCount(0)
 
     // Another app chat is untouched, and coming back finds the app alone.
     await openConversation(page, 'Second app')
@@ -301,7 +306,7 @@ test.describe('chat rendering', () => {
     await expect(app).toBeVisible()
 
     // Leave the instance as found.
-    await main.getByRole('button', { name: 'Chat', exact: true }).click()
+    await main.getByRole('button', { name: 'Show the chat' }).first().click()
     await expect(composer).toBeVisible()
   })
 

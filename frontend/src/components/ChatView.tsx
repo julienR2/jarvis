@@ -5,7 +5,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { Earth, Loader2, ArrowDown, EyeOff, FileText, Hash, Clock, Link2, Archive } from 'lucide-react'
+import { Earth, Loader2, ArrowDown, EyeOff, FileText, Hash, Clock, Link2, Archive, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import {
   api,
   pendingQuestionOf,
@@ -45,6 +45,7 @@ import { readPaneView, savePaneView, type PaneView } from '../lib/paneView'
 /** Shared so the jump button can find the divider without threading a ref
  *  through the day-grouping list. */
 const UNREAD_ANCHOR_ID = 'unread-anchor'
+const TITLE_ICON = 'p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface2 transition-colors shrink-0'
 
 /** The app pane's share of the split, and what double-click returns to (w-2/5). */
 const APP_DEFAULT_PCT = 40
@@ -422,11 +423,21 @@ export default function ChatView({
   function togglePane(pane: 'chat' | 'app') {
     const shown = pane === 'chat' ? chatShown : appShown
     const other = pane === 'chat' ? appShown : chatShown
-    const next: PaneView = !isDesktop ? pane : !shown ? 'both' : other ? (pane === 'chat' ? 'app' : 'chat') : pane
+    setView(!isDesktop ? pane : !shown ? 'both' : other ? (pane === 'chat' ? 'app' : 'chat') : pane)
+  }
+  function setView(next: PaneView) {
     // Putting the pane away puts its thread away too, or it would hold it open.
     if (threadKey && next === 'chat') openThread(null)
     setPane({ id: conversationId, view: next })
     if (conversationId) savePaneView(conversationId, next)
+  }
+  // Desktop: the chat is the main view and the panel sits beside it. The
+  // title bar shows or hides the panel; the panel's own bar takes the full
+  // width (the chat put away) and gives it back.
+  // At full width the way back is in the title bar, which then sits above it.
+  const panelWidth = !isDesktop || !hasPanel || !chatShown ? undefined : {
+    full: false,
+    onToggle: () => setView('app'),
   }
   // For the app's `jarvis.prefill`, which brings the chat into view.
   const chatShownRef = useRef(chatShown)
@@ -858,6 +869,25 @@ export default function ChatView({
     hideTimerRef.current = setTimeout(() => setShowFloating(false), 1200)
   }
 
+  const panelButton = isDesktop && hasPanel ? (
+    !chatShown ? (
+      <button type='button' onClick={() => setView('both')} title='Show the chat beside it' aria-label='Show the chat' className={TITLE_ICON}>
+        <PanelLeftOpen size={15} />
+      </button>
+    ) : (
+      <button
+        type='button'
+        onClick={() => setView(appShown ? 'chat' : 'both')}
+        title={appShown ? 'Hide the panel' : `Show the panel — ${hasApp ? 'the app' : tabs.length ? 'documents' : 'threads'}`}
+        aria-label={appShown ? 'Hide the panel' : 'Show the panel'}
+        aria-pressed={appShown}
+        className={`${TITLE_ICON} ${appShown ? 'text-text-primary' : ''}`}
+      >
+        {appShown ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+      </button>
+    )
+  ) : null
+
   const paneToggle = (
     <span className='flex gap-0.5 bg-surface2 rounded-lg p-0.5 shrink-0'>
       {(['chat', 'app'] as const).map((pane) => {
@@ -902,10 +932,10 @@ export default function ChatView({
         </span>
       ) : undefined}
     >
-      {sidePane === 'app' ? (
-        <span className='flex items-center gap-3'>
+      {panelButton ? (
+        <span className='flex items-center gap-2'>
           <span className='truncate flex-1'>{title}</span>
-          {paneToggle}
+          {panelButton}
         </span>
       ) : title}
     </ContentTitle>
@@ -1219,6 +1249,7 @@ export default function ChatView({
                 onShareIntentConsumed={onShareIntentConsumed}
                 // Alone, the title bar above it is its bar: refresh and open are in its ··· menu, as on a phone.
                 toolbar={chatShown}
+                panelWidth={panelWidth}
                 conversationId={conversationId}
                 onCall={withTabs ? handleAppCall : undefined}
               />
@@ -1230,6 +1261,7 @@ export default function ChatView({
                 onActivate={activate}
                 topicId={conv?.section_id ?? null}
                 threads={threadBeside ? [] : threadTabs}
+                panelWidth={panelWidth}
                 onCloseThread={closeThreadTab}
                 onThreadDone={(id) => archiveThread(id, true)}
                 // A phone shows the thread instead of the chat, title bar included: the way back is in the strip.

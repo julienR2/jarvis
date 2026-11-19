@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, FileText, FolderInput, FolderMinus, FolderOpen, Globe, Hash, LayoutGrid, Maximize2, Pin, RefreshCw, X, Clock, Link2 } from 'lucide-react'
+import { ArrowLeft, ExternalLink, FileText, FolderInput, FolderMinus, FolderOpen, Globe, Hash, LayoutGrid, Maximize2, PanelLeftClose, PanelLeftOpen, Pin, RefreshCw, X, Clock, Link2 } from 'lucide-react'
 import { api, tabContentUrl, type ChatTab } from '../api'
 import { useChatStore } from '../stores/chatStore'
 import { useTabsStore } from '../stores/tabsStore'
@@ -37,6 +37,8 @@ interface Props {
   onThreadDone?: (id: string) => void
   /** Shown instead of the chat (a phone): the way back to it, first in the strip. */
   onBack?: () => void
+  /** Desktop, beside the chat: take the full width (the chat put away), or give it back. */
+  panelWidth?: { full: boolean; onToggle: () => void }
 }
 
 /**
@@ -47,7 +49,7 @@ interface Props {
  * is in italics, as in an editor's preview tab; double-click or the pin keeps
  * it. A thread's tab is its title: double-click renames it.
  */
-export default function SidePanel({ conversationId, tabs, active, onActivate, app, topicId, threads = [], renderThread, onCloseThread, onThreadDone, onBack }: Props) {
+export default function SidePanel({ conversationId, tabs, active, onActivate, app, topicId, threads = [], renderThread, onCloseThread, onThreadDone, onBack, panelWidth }: Props) {
   const navigate = useNavigate()
   const setTabs = useTabsStore((s) => s.setTabs)
   const bump = useTabsStore((s) => s.bump)
@@ -181,6 +183,17 @@ export default function SidePanel({ conversationId, tabs, active, onActivate, ap
             <a href={openUrl} target='_blank' rel='noopener noreferrer' title='Open in new tab' className={ACTION}>
               <ExternalLink size={14} />
             </a>
+          )}
+          {panelWidth && (
+            <button
+              type='button'
+              onClick={panelWidth.onToggle}
+              title={panelWidth.full ? 'Show the chat beside it' : 'Full width — put the chat away'}
+              aria-label={panelWidth.full ? 'Show the chat' : 'Full width'}
+              className={ACTION}
+            >
+              {panelWidth.full ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+            </button>
           )}
           {threadId && (
             <button type='button' onClick={() => navigate(`/c/${threadId}`)} title='Open as a full chat' aria-label='Open as a full chat' className={ACTION}>
