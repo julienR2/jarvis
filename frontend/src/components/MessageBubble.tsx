@@ -359,6 +359,9 @@ function MessageBubble({ msg, live, modelLabel, onMarkUnread, onThread }: Props)
     [msg.metadata],
   )
   const replyTo = useMemo(() => parseReplyTo(msg.metadata), [msg.metadata])
+  // An answer whose text only made it into `result` (no streamed chunks)
+  // still shows it, rather than an empty bubble with a time under it.
+  const text = !isUser && !msg.content && msg.result ? msg.result : msg.content
 
   // Assistant message with [tool]/[chunk]/[note] lines → activity bubble
   if (!isUser && hasActivityLines(msg.content)) {
@@ -405,7 +408,7 @@ function MessageBubble({ msg, live, modelLabel, onMarkUnread, onThread }: Props)
               rehypePlugins={[rehypeRaw]}
               components={markdownComponents}
             >
-              {msg.content}
+              {text}
             </ReactMarkdown>
           </div>
         )}
@@ -414,9 +417,9 @@ function MessageBubble({ msg, live, modelLabel, onMarkUnread, onThread }: Props)
           <div className={`text-[10px] text-text-muted/50 mt-1 flex items-center gap-1.5 ${isUser ? 'justify-end' : 'justify-start'}`}>
             {formatTime(msg.created_at)}
             {!isUser && modelLabel && <span>· {modelLabel}</span>}
-            <CopyButton getText={() => msg.content} />
+            <CopyButton getText={() => text} />
             {!isUser && onMarkUnread && msg.result != null && <MarkUnreadButton onClick={() => onMarkUnread(msg.id)} />}
-            {onThread && msg.content && <ThreadButton msg={msg} fallback={msg.content} onThread={onThread} />}
+            {onThread && text && <ThreadButton msg={msg} fallback={text} onThread={onThread} />}
           </div>
         )}
       </div>
