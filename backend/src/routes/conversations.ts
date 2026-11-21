@@ -1667,6 +1667,8 @@ export interface AnswerBody {
   message?: string
   /** review_text approved: the text as the person left it, edited or not. */
   text?: string
+  /** review_text, with `behavior: 'allow'`: not to send yet — Jarvis looks it over and shows it again. */
+  polish?: boolean
   /** Files sent with a typed answer, already uploaded — referenced for Claude like a message's. */
   attachments?: Attachment[]
 }
@@ -1725,11 +1727,14 @@ export async function answerQuestion(
     // the model whether it was approved as is or edited (and re-asked).
     const text = typeof body.text === 'string' && body.text.trim() ? body.text : review.text
     const edited = text.trim() !== review.text.trim()
-    answer = { behavior: 'allow', updatedInput: { ...q.input, text } }
-    // The draft stays in the record as approved, the card above it gone.
-    said = `${edited ? 'Edited and approved:' : 'Approved:'}\n\n${quoted(text)}`
+    const polish = body.polish === true
+    answer = { behavior: 'allow', updatedInput: { ...q.input, text, ...(polish ? { polish: true } : {}) } }
+    // The draft stays in the record as approved (or handed back to polish),
+    // the card above it gone.
+    said = `${polish ? 'Sent back to polish:' : edited ? 'Edited and approved:' : 'Approved:'}\n\n${quoted(text)}`
     approved = {
       edited,
+      ...(polish ? { polish: true } : {}),
       ...(review.note ? { note: review.note } : {}),
       ...(review.to ? { to: review.to } : {}),
       ...(review.cc ? { cc: review.cc } : {}),

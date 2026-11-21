@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import { openablePath, usePanelOpener } from '../lib/panelOpener'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { FileText, ChevronRight, Copy, Check, CheckCheck, Mail, Hash } from 'lucide-react'
+import { FileText, ChevronRight, Copy, Check, CheckCheck, Mail, Hash, Sparkles } from 'lucide-react'
 import DraftEnvelope, { type Envelope } from './DraftEnvelope'
 import { withMediaToken } from '../api'
 import type { Message, Attachment, ReplyTo } from '../api'
@@ -451,10 +451,12 @@ function UserMessageContent({ text, metadata }: { text: string; metadata?: strin
 
 // How the backend records a review_text approval (answerQuestion): a heading,
 // then the text as a blockquote.
-const APPROVAL_REGEX = /^(Approved|Edited and approved):\n\n((?:>.*(?:\n|$))+)$/
+const APPROVAL_REGEX = /^(Approved|Edited and approved|Sent back to polish):\n\n((?:>.*(?:\n|$))+)$/
 
 interface Approval extends Envelope {
   edited: boolean
+  /** Not sent: handed back to Jarvis to look over (the Polish button). */
+  polish: boolean
   note?: string
   text: string
 }
@@ -483,7 +485,7 @@ function parseApproval(content: string, metadata?: string | null): Approval | nu
   } catch {
     // An unreadable stamp only loses the envelope.
   }
-  return { ...envelope, edited: m[1] !== 'Approved', text }
+  return { ...envelope, edited: m[1] === 'Edited and approved', polish: m[1] === 'Sent back to polish', text }
 }
 
 /**
@@ -497,8 +499,8 @@ function ApprovedDraft({ approval }: { approval: Approval }) {
   return (
     <div data-testid='approved-draft'>
       <div className='mb-1.5 flex flex-wrap items-center gap-x-1.5 text-[13px] font-medium text-text-primary'>
-        <CheckCheck size={14} className='text-success' />
-        {approval.edited ? 'Edited and approved' : 'Approved'}
+        {approval.polish ? <Sparkles size={14} className='text-warning' /> : <CheckCheck size={14} className='text-success' />}
+        {approval.polish ? 'Sent back to polish' : approval.edited ? 'Edited and approved' : 'Approved'}
         {approval.note && <span className='font-normal text-text-secondary break-words'>· {approval.note}</span>}
       </div>
       <DraftEnvelope envelope={approval} className='mb-2' />

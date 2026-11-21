@@ -1006,15 +1006,28 @@ function reviewOutcome(shown: string, answer: PermissionResult): string {
     return answer.message || 'The user did not approve this text. Do not send it.'
   }
   const final = typeof answer.updatedInput?.text === 'string' ? answer.updatedInput.text : shown
+  if (answer.updatedInput?.polish === true) {
+    return (
+      'The user pressed Polish: they want you to look this version over before anything is sent' +
+      (final.trim() === shown.trim() ? '' : ' (they edited it)') +
+      '. Their version:\n\n' +
+      final +
+      '\n\nThis is not approval to send. Fix errors, tidy the formatting for where it goes, and improve ' +
+      'wording or tone where it helps, keeping their intent and anything they deliberately wrote. Say in a ' +
+      'line or two what you changed, then call review_text again with the result.'
+    )
+  }
   if (final.trim() === shown.trim()) {
     return 'The user approved the text exactly as shown. Send or publish it now, unchanged.'
   }
   return (
-    'The user edited the text. Their version:\n\n' +
+    'The user edited the text and pressed Send. Their version:\n\n' +
     final +
-    '\n\nThis is not yet approval to send. Keep their wording and intent; fix only typos, grammar, ' +
-    'punctuation and formatting for where it goes, and mention briefly anything worth adjusting. Then call ' +
-    'review_text again with the resulting text (unchanged if nothing needed fixing) for their final approval.'
+    '\n\nIf it needs at most small mechanical fixes (typos, spelling, grammar, punctuation, formatting ' +
+    'for where it goes), make them without touching their wording, tone or meaning, send or publish it ' +
+    'right away, and say in one line what you fixed. If it needs more than that (a change of tone or ' +
+    'wording, a factual or content problem, anything they might disagree with), do not send: call ' +
+    'review_text again with your proposed version, saying briefly what you changed and why.'
   )
 }
 

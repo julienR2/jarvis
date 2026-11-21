@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Copy, PenLine, Send, Undo2, X } from 'lucide-react'
+import { Copy, PenLine, Send, Sparkles, Undo2, X } from 'lucide-react'
 import { reviewOf, type PendingQuestion } from '../api'
 import { submitAnswer } from './AnswerCard'
 import DraftEnvelope from './DraftEnvelope'
@@ -11,8 +11,9 @@ const edits = new Map<string, string>()
 /**
  * A text Jarvis is about to send or publish (its review_text tool), at the head
  * of the composer: editable in place, then approved with Send. Approved as is,
- * Jarvis sends it; edited, Jarvis tidies the person's version and asks once
- * more. The composer's own input below is the other answer — what to change,
+ * Jarvis sends it; edited, Jarvis fixes small slips and sends, or — if it would
+ * change more than that — asks once more. Polish hands it back unsent: Jarvis
+ * looks it over and shows it again. The composer's own input below is the other answer — what to change,
  * sent as a reply, as for an approval (see answerFromComposer).
  *
  * Like every answer, nothing is removed here: the backend clears the pending
@@ -55,7 +56,7 @@ export default function ReviewCard({ conversationId, question }: { conversationI
     return () => observer.disconnect()
   }, [fit])
 
-  async function answer(body: { behavior: 'allow'; text: string } | { behavior: 'deny' }) {
+  async function answer(body: { behavior: 'allow'; text: string; polish?: boolean } | { behavior: 'deny' }) {
     if (busy) return
     setBusy(true)
     try {
@@ -132,12 +133,21 @@ export default function ReviewCard({ conversationId, question }: { conversationI
           </button>
         )}
         <span className='ml-auto flex items-center gap-2'>
-          {edited && <span className='hidden text-[11px] text-text-muted sm:inline'>Jarvis checks your edits, then asks once more</span>}
+          {edited && <span className='hidden text-[11px] text-text-muted md:inline'>Small fixes are made and sent; bigger ones come back to you</span>}
+          <button
+            type='button'
+            disabled={busy || !text.trim()}
+            onClick={() => void answer({ behavior: 'allow', text, polish: true })}
+            title='Have Jarvis look it over and show it again — nothing is sent'
+            className='inline-flex items-center gap-1 rounded-lg border border-warning/50 px-2.5 py-1.5 text-[13px] text-warning transition-colors hover:bg-warning/10 disabled:opacity-40'
+          >
+            <Sparkles size={13} /> Polish
+          </button>
           <button
             type='button'
             disabled={busy || !text.trim()}
             onClick={() => void answer({ behavior: 'allow', text })}
-            title={edited ? 'Send your version to Jarvis to check (Ctrl+Enter)' : 'Send it (Ctrl+Enter)'}
+            title={edited ? 'Send your version — Jarvis fixes small slips first, and asks again only for bigger changes (Ctrl+Enter)' : 'Send it (Ctrl+Enter)'}
             className='inline-flex items-center gap-1 rounded-lg bg-warning px-3 py-1.5 text-[13px] font-medium text-white transition-colors hover:opacity-90 disabled:opacity-40'
           >
             <Send size={13} /> Send

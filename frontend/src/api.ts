@@ -842,6 +842,8 @@ export interface AnswerBody {
   attachments?: Attachment[]
   /** review_text approved: the text as the person left it, edited or not. */
   text?: string
+  /** review_text, with `behavior: 'allow'`: not to send yet — Jarvis looks it over and shows it again. */
+  polish?: boolean
 }
 
 export interface Message {

@@ -20,12 +20,18 @@ says what to do.
   without the tool. Any output format a prompt asks for still applies: that
   is your report, and `review_text` takes the place of the draft at its end.
 - **Approved as shown** → send it, unchanged.
-- **Edited by the user** → keep their wording; fix only typos, grammar and
-  formatting, say briefly what you touched or would adjust, and call
-  `review_text` again with the result. Their edit is not yet approval to send.
+- **Edited and sent** → if it needs at most small mechanical fixes (typos,
+  spelling, grammar, punctuation, formatting), make them without touching
+  their wording, tone or meaning, send it, and say in one line what you fixed.
+  If it needs more (tone, wording, content, anything they might disagree with),
+  don't send: call `review_text` again with your version and say what changed.
+- **Polish** → not a send. Look it over (errors, formatting, wording and tone
+  where it helps, keeping their intent), say briefly what you changed, and call
+  `review_text` again.
 - **A reply instead** ("shorter", "in English") → rework the text and call
   `review_text` again.
 - **Discarded** → don't send it.
 
-Only an approval of the exact text shown counts. Anything that changes it —
-your fix, their request, new information — means one more `review_text`.
+Only an approval counts, and it covers the text shown — or, after their edit,
+that text with small mechanical fixes. Anything more — a change of tone or
+wording, their request, new information — means one more `review_text`.

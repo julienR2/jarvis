@@ -74,6 +74,19 @@ test.describe('review before sending', () => {
     expect(sent.body?.message ?? '').toBe('')
   })
 
+  test('Polish hands the text back to look over, not to send', async ({ page }) => {
+    await openConversation(page, 'Running late')
+    const card = page.getByTestId('review-card')
+    await card.getByRole('textbox', { name: 'Text to send' }).fill('hey sam running late order without me')
+    const sent = await captureAnswer(page)
+    await card.getByRole('button', { name: 'Polish' }).click()
+    await expect.poll(() => sent.body).toMatchObject({
+      behavior: 'allow',
+      polish: true,
+      text: 'hey sam running late order without me',
+    })
+  })
+
   test('an approved draft reads as a card in the bubble, with where it went', async ({ page }) => {
     await openConversation(page, 'Running late')
     const approved = page.getByTestId('approved-draft')
