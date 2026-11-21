@@ -23,10 +23,12 @@ test.describe('review before sending', () => {
     await signIn(page)
   })
 
-  test('the draft heads the composer, editable, and Send hands back the edited text', async ({ page }) => {
+  test('the draft sits in the chat, editable, and Send hands back the edited text', async ({ page }) => {
     await openConversation(page, 'Running late')
-    const card = page.getByTestId('review-card')
+    // In the conversation, not on the composer.
+    const card = page.getByTestId('chat-scroll').getByTestId('review-card')
     await expect(card).toBeVisible()
+    await expect(page.getByTestId('review-card')).toHaveCount(1)
     await expect(card.getByText('Running late for lunch')).toBeVisible()
     // Where it goes is shown in full, apart from the text.
     await expect(card.getByTestId('draft-envelope')).toContainText('Sam (WhatsApp)')
@@ -85,6 +87,48 @@ test.describe('review before sending', () => {
       polish: true,
       text: 'hey sam running late order without me',
     })
+  })
+
+  test('a reply typed after editing takes the edit along', async ({ page }) => {
+    await openConversation(page, 'Running late')
+    await page.getByTestId('review-card').getByRole('textbox', { name: 'Text to send' }).fill('Sam, 15 min late!')
+    const sent = await captureAnswer(page)
+    const input = page.getByPlaceholder('Or tell Jarvis what to change…')
+    await input.fill('Add a sorry')
+    await input.press('Enter')
+    await expect.poll(() => sent.body).toMatchObject({ behavior: 'deny', message: 'Add a sorry', text: 'Sam, 15 min late!' })
+  })
+
+  test('a draft closed by a reply stays above it, read only', async ({ page }) => {
+    await openConversation(page, 'Running late')
+    const closed = page.getByTestId('closed-draft')
+    await expect(closed).toContainText('Your edit — not sent')
+    await expect(closed).toContainText('Dear Sam, I am running approximately fifteen minutes late')
+    await expect(closed.getByRole('textbox')).toHaveCount(0)
+    await expect(page.getByText('Less formal, and tell him to order without me')).toBeVisible()
+  })
+
+  test('on a phone, a tap opens the draft full screen to edit and send', async ({ page }) => {
+    await openConversation(page, 'Running late')
+    // Narrowed once open: the phone's sidebar is a drawer.
+    await page.setViewportSize({ width: 390, height: 844 })
+    const card = page.getByTestId('review-card')
+    // Read here, edited full screen: no textbox in place.
+    await expect(card.getByRole('textbox')).toHaveCount(0)
+    await card.getByRole('button', { name: 'Edit the text' }).click()
+    const sheet = page.getByTestId('review-sheet')
+    await expect(sheet).toBeVisible()
+    const text = sheet.getByRole('textbox', { name: 'Text to send' })
+    await expect(text).toHaveValue(DRAFT)
+    await text.fill('Sam, 15 min late, order without me')
+    // Closing keeps the edit.
+    await sheet.getByRole('button', { name: 'Back to the chat' }).click()
+    await expect(sheet).toHaveCount(0)
+    await expect(card).toContainText('Sam, 15 min late, order without me')
+    await card.getByRole('button', { name: 'Edit the text' }).click()
+    const sent = await captureAnswer(page)
+    await page.getByTestId('review-sheet').getByRole('button', { name: 'Send' }).click()
+    await expect.poll(() => sent.body).toMatchObject({ behavior: 'allow', text: 'Sam, 15 min late, order without me' })
   })
 
   test('an approved draft reads as a card in the bubble, with where it went', async ({ page }) => {

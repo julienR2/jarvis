@@ -1665,7 +1665,8 @@ export interface AnswerBody {
   behavior?: 'allow' | 'deny'
   /** Free text — a reason for a denial, or an answer typed instead of picked. */
   message?: string
-  /** review_text approved: the text as the person left it, edited or not. */
+  /** review_text: the text as the person left it — approved, or, with a
+   *  reply, their edit of it that goes along. */
   text?: string
   /** review_text, with `behavior: 'allow'`: not to send yet — Jarvis looks it over and shows it again. */
   polish?: boolean
@@ -1704,6 +1705,24 @@ export async function answerQuestion(
   // An approved draft's envelope, kept with the message so its bubble can say
   // where the text went, not just what it said.
   let approved: { edited: boolean; note?: string; to?: string; cc?: string; subject?: string; attachments?: string[] } | null = null
+  // A draft closed without being approved (a reply, a discard): kept with the
+  // person's message, so the chat still shows what was on the table — read
+  // only, as they left it.
+  const editOf = (r: NonNullable<typeof review>) =>
+    typeof body.text === 'string' && body.text.trim() && body.text.trim() !== r.text.trim() ? body.text : null
+  const closed = (r: NonNullable<typeof review>) => {
+    const edit = editOf(r)
+    return {
+      text: edit ?? r.text,
+      edited: edit !== null,
+      ...(r.note ? { note: r.note } : {}),
+      ...(r.to ? { to: r.to } : {}),
+      ...(r.cc ? { cc: r.cc } : {}),
+      ...(r.subject ? { subject: r.subject } : {}),
+      ...(r.attachments.length ? { attachments: r.attachments } : {}),
+    }
+  }
+  let reviewed: ReturnType<typeof closed> | null = null
   if (questions.length) {
     const answers: Record<string, string> = { ...(body.answers ?? {}) }
     // A typed answer to a single question needs no key from the client.
@@ -1744,6 +1763,7 @@ export async function answerQuestion(
   } else if (review && body.behavior === 'deny' && !body.message?.trim() && !body.attachments?.length) {
     answer = { behavior: 'deny', message: 'The user discarded this draft. Do not send it.' }
     said = 'Discarded.'
+    reviewed = closed(review)
   } else if (body.behavior === 'allow') {
     answer = { behavior: 'allow' }
     said = 'Approved.'
@@ -1754,12 +1774,16 @@ export async function answerQuestion(
     // as the person speaking; the transcript keeps it as they wrote it.
     const reply = body.message?.trim() ?? ''
     const refs = attachmentRefs(body.attachments ?? [])
+    const edit = review ? editOf(review) : null
     answer = {
       behavior: 'deny',
       message: reply || refs
-        ? `${review ? 'The user did not approve this text yet. They replied' : 'The user declined this and replied'}:\n${reply}${refs}`
+        ? review
+          ? `The user did not approve this text yet.${edit ? ` They edited it to:\n\n${edit}\n\nand` : ' They'} replied:\n${reply}${refs}`
+          : `The user declined this and replied:\n${reply}${refs}`
         : undefined,
     }
+    if (review) reviewed = closed(review)
     said = reply || (refs ? '' : 'Denied.')
   } else {
     return { answered: false, error: 'Approve or deny it.' }
@@ -1784,6 +1808,7 @@ export async function answerQuestion(
     ...(q.run_id ? { run_id: q.run_id, isolated: q.session_key !== conversationId } : {}),
     answer_to: q.request_id,
     ...(approved ? { approved } : {}),
+    ...(reviewed ? { reviewed } : {}),
     ...(body.attachments?.length ? { attachments: body.attachments } : {}),
   })
   getDb()

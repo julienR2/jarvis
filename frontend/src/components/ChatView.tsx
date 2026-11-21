@@ -9,6 +9,7 @@ import { Earth, Loader2, ArrowDown, EyeOff, FileText, Hash, Clock, Link2, Archiv
 import {
   api,
   pendingQuestionOf,
+  reviewOf,
   type Message,
   type Attachment,
   type Conversation,
@@ -38,6 +39,7 @@ import { archiveDeadline, isActiveThread, isForeignRun, readThreadTabs, routineK
 import SelectionReply from './SelectionReply'
 import { dropQuietRuns, groupMessagesByDay, isFinishedReply } from '../lib/transcript'
 import { answerFromComposer } from './AnswerCard'
+import ReviewCard from './ReviewCard'
 import { useOutbox, type Outgoing } from '../lib/outbox'
 import { drafts, settleUploads, spoken } from '../lib/drafts'
 import { readPaneView, savePaneView, type PaneView } from '../lib/paneView'
@@ -618,7 +620,9 @@ export default function ChatView({
     const content = contentRef.current
     if (!container || !content) return
     const observer = new ResizeObserver(() => {
-      if (pinnedRef.current) {
+      // Typing in a draft taller than the view grows it line by line; the
+      // caret, not the bottom, is where the person is.
+      if (pinnedRef.current && !document.activeElement?.closest('[data-testid="review-card"]')) {
         container.scrollTop = container.scrollHeight
         return
       }
@@ -1118,6 +1122,11 @@ export default function ChatView({
                     )}
                     {outgoing?.kind === 'message' && <OutgoingBubble outgoing={outgoing} />}
                     <LiveTurn conversationId={conversationId} />
+                    {/* A text Jarvis wants approved before it goes out: in the
+                        conversation, where it was asked, not on the composer. */}
+                    {pending && reviewOf(pending) && conversationId && !shared?.readOnly && (
+                      <ReviewCard key={pending.request_id} conversationId={conversationId} question={pending} variant='chat' />
+                    )}
                     {/* Parked is not thinking: the loader rests while he waits on you.
                         The question itself sits on the composer, below. */}
                     <JarvisIndicator isThinking={isProcessing && !pending} live={isProcessing ? messages[messages.length - 1] : undefined} />
@@ -1174,6 +1183,7 @@ export default function ChatView({
             conversationId={conversationId}
             autoFocus={!showSkeleton && messages.length === 0}
             question={!shared?.readOnly && pending ? pending : undefined}
+            reviewInChat
             placeholder={embedded ? 'Write in the side chat…' : undefined}
             initialText={initialMessage || undefined}
             initialFiles={initialFiles || undefined}

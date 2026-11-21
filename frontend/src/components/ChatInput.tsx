@@ -52,6 +52,9 @@ interface Props {
    * typing as the other.
    */
   question?: PendingQuestion
+  /** A text to review (review_text) is drawn in the conversation, not here: the
+   *  input keeps only its role as the other answer — what to change. */
+  reviewInChat?: boolean
   /** Tighter chrome for embedding — e.g. a Today card. Drops outer padding,
    *  the width cap and the disclaimer line. */
   compact?: boolean
@@ -80,7 +83,7 @@ interface Props {
   routineKind?: 'cron' | 'webhook' | null
 }
 
-export default function ChatInput({ onSend, onSendNow, transcribing: transcribingElsewhere, onSendAudio, onCancel, isProcessing, conversationId, draftKey, autoFocus, focusKey, placeholder, question, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange, localOnly, onCreateRoutine, routineKind }: Props) {
+export default function ChatInput({ onSend, onSendNow, transcribing: transcribingElsewhere, onSendAudio, onCancel, isProcessing, conversationId, draftKey, autoFocus, focusKey, placeholder, question, reviewInChat, compact, initialText, initialFiles, onInitialFilesConsumed, quote, onClearQuote, model, effort = 'default', onModelChange, onEffortChange, localOnly, onCreateRoutine, routineKind }: Props) {
   const [ownKey] = useState(() => `tmp:${Math.random().toString(36).slice(2)}`)
   const key = draftKey ?? conversationId ?? ownKey
   const keyRef = useRef(key)
@@ -413,7 +416,7 @@ export default function ChatInput({ onSend, onSendNow, transcribing: transcribin
               />
             </div>
           )}
-          {reviewing && conversationId && (
+          {reviewing && conversationId && !reviewInChat && (
             <ReviewCard conversationId={conversationId} question={question!} />
           )}
           {approval && conversationId && (

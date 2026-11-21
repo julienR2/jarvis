@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import { openablePath, usePanelOpener } from '../lib/panelOpener'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
-import { FileText, ChevronRight, Copy, Check, CheckCheck, Mail, Hash, Sparkles } from 'lucide-react'
+import { FileText, ChevronRight, Copy, Check, CheckCheck, Mail, Hash, Sparkles, PenLine } from 'lucide-react'
 import DraftEnvelope, { type Envelope } from './DraftEnvelope'
 import { withMediaToken } from '../api'
 import type { Message, Attachment, ReplyTo } from '../api'
@@ -433,7 +433,23 @@ const NOTIFY_ARTICLE_REGEX =
 
 function UserMessageContent({ text, metadata }: { text: string; metadata?: string | null }) {
   const approval = useMemo(() => parseApproval(text, metadata), [text, metadata])
+  const closed = useMemo(() => parseClosedDraft(metadata), [metadata])
   if (approval) return <ApprovedDraft approval={approval} />
+  if (closed) {
+    const discarded = text.trim() === 'Discarded.'
+    return (
+      <>
+        <DraftRecord
+          testId='closed-draft'
+          icon={<PenLine size={14} className='text-text-muted' />}
+          label={discarded ? 'Discarded — not sent' : closed.edited ? 'Your edit — not sent' : 'Draft — not sent'}
+          draft={closed}
+          clamp={3}
+        />
+        {!discarded && text.trim() && <div className='mt-2'><Linkify text={text} /></div>}
+      </>
+    )
+  }
   const match = text.match(NOTIFY_ARTICLE_REGEX)
   if (!match) return <Linkify text={text} />
 
@@ -494,20 +510,62 @@ function parseApproval(content: string, metadata?: string | null): Approval | nu
  * review that asked for it, and an email would otherwise take the whole screen.
  */
 function ApprovedDraft({ approval }: { approval: Approval }) {
-  const [open, setOpen] = useState(false)
-  const long = approval.text.split('\n').length > 6 || approval.text.length > 400
   return (
-    <div data-testid='approved-draft'>
+    <DraftRecord
+      testId='approved-draft'
+      icon={approval.polish ? <Sparkles size={14} className='text-warning' /> : <CheckCheck size={14} className='text-success' />}
+      label={approval.polish ? 'Sent back to polish' : approval.edited ? 'Edited and approved' : 'Approved'}
+      draft={approval}
+      clamp={6}
+    />
+  )
+}
+
+/**
+ * A draft that was under review and was closed without being approved — a
+ * reply asked for changes, or it was discarded — as the person left it.
+ */
+function parseClosedDraft(metadata?: string | null): (Envelope & { text: string; edited: boolean; note?: string }) | null {
+  try {
+    const r = metadata ? JSON.parse(metadata).reviewed : null
+    if (!r || typeof r !== 'object' || typeof r.text !== 'string') return null
+    const str = (v: unknown) => (typeof v === 'string' ? v : undefined)
+    return {
+      text: r.text,
+      edited: r.edited === true,
+      note: str(r.note),
+      to: str(r.to),
+      cc: str(r.cc),
+      subject: str(r.subject),
+      attachments: Array.isArray(r.attachments) ? r.attachments.filter((x: unknown) => typeof x === 'string') : undefined,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** A draft in the record, read only, its text folded to its first lines. */
+function DraftRecord({ testId, icon, label, draft, clamp }: {
+  testId: string
+  icon: React.ReactNode
+  label: string
+  draft: Envelope & { text: string; note?: string }
+  clamp: 3 | 6
+}) {
+  const [open, setOpen] = useState(false)
+  const long = draft.text.split('\n').length > clamp || draft.text.length > clamp * 70
+  return (
+    <div data-testid={testId}>
       <div className='mb-1.5 flex flex-wrap items-center gap-x-1.5 text-[13px] font-medium text-text-primary'>
-        {approval.polish ? <Sparkles size={14} className='text-warning' /> : <CheckCheck size={14} className='text-success' />}
-        {approval.polish ? 'Sent back to polish' : approval.edited ? 'Edited and approved' : 'Approved'}
-        {approval.note && <span className='font-normal text-text-secondary break-words'>· {approval.note}</span>}
+        {icon}
+        {label}
+        {draft.note && <span className='font-normal text-text-secondary break-words'>· {draft.note}</span>}
       </div>
-      <DraftEnvelope envelope={approval} className='mb-2' />
+      <DraftEnvelope envelope={draft} className='mb-2' />
       <div
-        className={`border-l-2 border-text-muted/30 pl-3 text-[14px] leading-relaxed text-text-secondary ${long && !open ? 'line-clamp-6' : ''}`}
+        className={`border-l-2 border-text-muted/30 pl-3 text-[14px] leading-relaxed text-text-secondary ${long && !open ? (clamp === 3 ? 'line-clamp-3' : 'line-clamp-6') : ''}`}
       >
-        <Linkify text={approval.text} />
+        <Linkify text={draft.text} />
       </div>
       {long && (
         <button

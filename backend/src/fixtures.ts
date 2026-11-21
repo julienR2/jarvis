@@ -532,7 +532,7 @@ export function seedFixtures(): void {
     }), chatConv)
 
     // 9b. A text Jarvis wants approved before it goes out (review_text): the
-    // chat's composer shows it editable. No engine behind it either.
+    // chat shows it editable, after its last turn. No engine behind it either.
     insConv.run(ID.review, '💬 Running late', t(9), t(3), projects.id, null, null)
     // An email approved earlier in the same chat: the bubble shows where it went.
     insMsg.run(uuid(), ID.review, 'user', 'Email the landlord the signed lease, and ask when the keys can be picked up.', null, null, null, t(9))
@@ -557,6 +557,17 @@ export function seedFixtures(): void {
     }), null, null, t(7))
     insMsg.run(uuid(), ID.review, 'assistant', '[chunk:1] Sent.', null, null, null, t(6))
     insMsg.run(uuid(), ID.review, 'user', "Tell Sam on WhatsApp I'll be 15 minutes late for lunch.", null, null, null, t(5))
+    // A first draft, closed by a reply that asked for changes: it stays in the
+    // reply's bubble, read only, as the person left it (edited here).
+    insMsg.run(uuid(), ID.review, 'assistant', "[chunk:1] Here's a message for Sam.", null, null, null, t(4.8))
+    insMsg.run(uuid(), ID.review, 'user', 'Less formal, and tell him to order without me', JSON.stringify({
+      reviewed: {
+        text: 'Dear Sam, I am running approximately fifteen minutes late. My apologies.',
+        edited: true,
+        note: 'Running late for lunch',
+        to: 'Sam (WhatsApp)',
+      },
+    }), null, null, t(4.5))
     insMsg.run(uuid(), ID.review, 'assistant', [
       "[chunk:1] Here's a message for Sam — change anything, then send.",
       '[note:2] Waiting for you: Review before sending: Running late for lunch',

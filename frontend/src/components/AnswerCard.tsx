@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Check, MessageCircleQuestion, PencilLine, ShieldCheck, X } from 'lucide-react'
-import { api, describePending, questionsOf, type AskQuestion, type Attachment, type PendingQuestion } from '../api'
+import { api, describePending, questionsOf, reviewOf, type AskQuestion, type Attachment, type PendingQuestion } from '../api'
 import { useChatStore } from '../stores/chatStore'
+import { clearReviewEdit, getReviewEdit } from '../lib/reviewEdits'
 
 /**
  * Jarvis is waiting on you, shown where there is no composer to fold into —
@@ -113,7 +114,14 @@ export async function answerFromComposer(
   const questions = questionsOf(question)
   if (!questions.length) {
     if (!text.trim() && !attachments.length) return
-    return submitAnswer(conversationId, question, { behavior: 'deny', message: text.trim(), attachments })
+    // A reply to a draft under review takes the person's edit of it along:
+    // what they changed is part of what they are saying.
+    const draft = reviewOf(question)
+    const edit = draft ? getReviewEdit(question.request_id) : null
+    const edited = edit !== null && draft !== null && edit.trim() !== draft.text.trim()
+    await submitAnswer(conversationId, question, { behavior: 'deny', message: text.trim(), attachments, ...(edited ? { text: edit } : {}) })
+    if (draft) clearReviewEdit(question.request_id)
+    return
   }
   if (!text.trim()) return
   await submitAnswer(conversationId, question, {
